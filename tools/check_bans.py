@@ -36,6 +36,7 @@ from pathlib import Path
 ALLOW_MARK = "# bans: allow"
 EXEMPT_DIRS = (Path("src") / "pyproteus" / "numerics",)
 NUMPY_MODULES = {"numpy", "cupy"}
+WRAPPER_MODULE = "pyproteus.numerics"  # calls such as nm.sort(...) are the fix, not the bug
 ROUND_FUNCS = {"round", "around", "rint", "round_"}
 SORT_FUNCS = {"sort", "argsort"}
 INTERP_FUNCS = {"interp"}
@@ -83,6 +84,7 @@ class _Visitor(ast.NodeVisitor):
         self.path = path
         self.lines = lines
         self.numpy_aliases: set[str] = set()
+        self.wrapper_aliases: set[str] = set()
         self.violations: list[Violation] = []
         self._calls_seen: set[int] = set()
 
@@ -142,7 +144,9 @@ class _Visitor(ast.NodeVisitor):
                 "`floor(x + 0.5)` is not MATLAB round (wrong for negatives and "
                 "0.49999999999999994); use numerics.matlab_round",
             )
-        elif isinstance(func, ast.Attribute):
+        elif isinstance(func, ast.Attribute) and not (
+            isinstance(func.value, ast.Name) and func.value.id in self.wrapper_aliases
+        ):
             name = func.attr
             if name == "round" or (name in ROUND_FUNCS and self._is_numpy(func.value)):
                 self._flag(node, f"`.{name}(` rounds halves to even; use numerics.matlab_round")
@@ -169,6 +173,12 @@ def check_source(source: str, path: Path) -> list[Violation]:
             for alias in node.names:
                 if alias.name in NUMPY_MODULES:
                     visitor.numpy_aliases.add(alias.asname or alias.name)
+                elif alias.name == WRAPPER_MODULE and alias.asname:
+                    visitor.wrapper_aliases.add(alias.asname)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            for alias in node.names:
+                if f"{node.module}.{alias.name}" == WRAPPER_MODULE:
+                    visitor.wrapper_aliases.add(alias.asname or alias.name)
     visitor.visit(tree)
     return visitor.violations
 

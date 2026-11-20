@@ -12,9 +12,17 @@ keep MATLAB's size (a vector stays 2-D); use :func:`vec` to flatten a vector.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import numpy as np
+from hypothesis import settings
+
+#: Hypothesis settings for oracle tests (each example costs engine calls).
+#: ``PYPROTEUS_ORACLE_EXAMPLES=500 pytest -m oracle`` for a deeper sweep.
+ORACLE_SETTINGS = settings(
+    max_examples=int(os.environ.get("PYPROTEUS_ORACLE_EXAMPLES", "25")), deadline=None
+)
 
 _CONVERTERS = {
     np.dtype(np.float64): "double",
@@ -111,10 +119,13 @@ def to_matlab(a: Any) -> Any:
 def from_matlab(x: Any, dtype: Any = None) -> np.ndarray:
     """Convert a MATLAB value to a NumPy array with MATLAB's size.
 
-    Exception: the engine returns 1×1 MATLAB values as Python scalars, which
-    become 0-d arrays here. ``dtype`` must not drop an imaginary part.
+    The engine returns 1×1 MATLAB values as Python scalars; they become 1×1
+    arrays here, so sizes always match MATLAB. ``dtype`` must not drop an
+    imaginary part.
     """
     out = np.asarray(x)
+    if out.ndim == 0 and isinstance(x, bool | int | float | complex):
+        out = out.reshape(1, 1)
     if dtype is not None:
         if np.iscomplexobj(out) and not np.issubdtype(np.dtype(dtype), np.complexfloating):
             raise TypeError("refusing to drop the imaginary part")
@@ -140,3 +151,56 @@ def get(eng: Any, *names: str) -> np.ndarray | tuple[np.ndarray, ...]:
     """Read variables from the MATLAB base workspace as NumPy arrays."""
     out = tuple(from_matlab(eng.workspace[n]) for n in names)
     return out[0] if len(out) == 1 else out
+
+
+def batch(eng: Any, fn: str, *arglists: list[Any], nargout: int = 1) -> list[list[np.ndarray]]:
+    """Evaluate ``fn`` on many cases in one engine call (``cellfun``, non-uniform output).
+
+    ``fn`` is a MATLAB function handle expression, e.g. ``"@(x) sort(x,'descend')"``.
+    Each ``arglists[j]`` holds the j-th argument of every case (converted with
+    :func:`to_matlab`). Returns ``nargout`` lists with one NumPy array per case.
+    """
+    n = {len(a) for a in arglists}
+    if len(n) != 1:
+        raise ValueError("all argument lists must have the same length")
+    names = []
+    for j, args in enumerate(arglists):
+        name = f"pyp_in{j}__"
+        eng.workspace[name] = [to_matlab(a) for a in args]
+        names.append(name)
+    outs = [f"pyp_out{k}__" for k in range(nargout)]
+    eng.eval(
+        f"[{', '.join(outs)}] = cellfun({fn}, {', '.join(names)}, 'UniformOutput', false);",
+        nargout=0,
+    )
+    result = [[from_matlab(v) for v in eng.workspace[o]] for o in outs]
+    eng.eval(f"clear {' '.join(names + outs)};", nargout=0)
+    return result
+
+
+def assert_same_float(actual: Any, expected: Any, err_msg: str = "") -> None:
+    """Bitwise float equality: same shape, same values, NaN == NaN, same sign of zero."""
+    a = np.asarray(actual)
+    e = np.asarray(expected)
+    assert a.shape == e.shape, f"shape {a.shape} != {e.shape} {err_msg}"
+    np.testing.assert_array_equal(a, e, err_msg=err_msg)
+    if a.dtype.kind == "f":
+        zeros = (a == 0) & (e == 0)
+        assert np.array_equal(np.signbit(a[zeros]), np.signbit(e[zeros])), f"-0 vs +0 {err_msg}"
+
+
+def assert_rel(actual: Any, expected: Any, rel: float = 1e-12, err_msg: str = "") -> None:
+    """|a - e| <= rel * max|e| (ROADMAP §4 class for signals), NaN positions equal."""
+    a = np.asarray(actual)
+    e = np.asarray(expected)
+    assert a.shape == e.shape, f"shape {a.shape} != {e.shape} {err_msg}"
+    nan_a, nan_e = np.isnan(a), np.isnan(e)
+    assert np.array_equal(nan_a, nan_e), f"NaN positions differ {err_msg}"
+    ok = ~nan_e
+    if not ok.any():
+        return
+    scale = np.max(np.abs(e[ok]))
+    err = np.max(np.abs(a[ok] - e[ok]))
+    assert err <= rel * max(scale, np.finfo(float).tiny), (
+        f"max abs error {err:.3g} > {rel:g} * {scale:.3g} {err_msg}"
+    )
