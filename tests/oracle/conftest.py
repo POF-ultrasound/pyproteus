@@ -95,6 +95,26 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(pytest.mark.oracle)
 
 
+class EngineProxy:
+    """Forwards to a MatlabEngine but has a plain repr.
+
+    The engine's ``__getattr__`` turns any attribute into a MATLAB function, so
+    Hypothesis/pytest probing ``_repr_pretty_`` etc. on a failing test crashes
+    the report. Private names are not forwarded.
+    """
+
+    def __init__(self, engine: Any) -> None:
+        self._engine = engine
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._engine, name)
+
+    def __repr__(self) -> str:
+        return "<MATLAB engine>"
+
+
 def _import_engine() -> Any:
     try:
         import matlab.engine
@@ -164,7 +184,7 @@ def matlab_engine(oracle: Oracle, tmp_path_factory: pytest.TempPathFactory) -> A
     version = eng.version(nargout=1)
     oracle.matlab_version = version
 
-    yield eng
+    yield EngineProxy(eng)
 
     if session:
         eng.path(original_path, nargout=0)
