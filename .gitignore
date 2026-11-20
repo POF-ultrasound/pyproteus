@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+.DS_Store
+# simulation outputs and k-Wave scratch files
+*.h5
+*.hdf5
+!tests/data/**/*.h5
+kwave_input*/
+kwave_output*/
+# local reference data cache
+.pooch/

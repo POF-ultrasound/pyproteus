@@ -1,0 +1,21 @@
+name: pyproteus
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12        # MATLAB R2025a engine supports up to 3.12
+  - numpy
+  - scipy
+  - h5py
+  - pydantic
+  - pooch
+  - matplotlib
+  - meshio
+  - threadpoolctl
+  - pytest
+  - pytest-xdist
+  - hypothesis
+  - ruff
+  - ipykernel
+  - pip
+  - pip:
+      - k-wave-python==0.6.2
