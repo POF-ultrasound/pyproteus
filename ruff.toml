@@ -1,0 +1,25 @@
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "tools"]
+
+[lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "NPY",      # numpy-specific
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+]
+ignore = [
+    "E741",     # MATLAB names such as I, l are kept on purpose
+    "RUF001", "RUF002", "RUF003",  # unicode in physics docstrings (µ, ±, ×)
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[format]
+quote-style = "double"

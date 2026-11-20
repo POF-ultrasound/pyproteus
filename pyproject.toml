@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyproteus"
+dynamic = ["version"]
+description = "Python port of PROTEUS, the contrast-enhanced ultrasound simulator"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "PROTEUS developers" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "h5py>=3.9",
+    "pydantic>=2.5",
+    "pooch>=1.8",
+    # Pinned exactly: the k-Wave adapter depends on its row order and source scaling.
+    "k-wave-python==0.6.2",
+]
+
+[project.optional-dependencies]
+cuda = ["cupy-cuda12x>=13"]
+gui = ["nicegui>=2"]
+# MATLAB Engine for R2025a; needs a local MATLAB install and Python <=3.12.
+oracle = ["matlabengine==25.1.*"]
+docs = ["mkdocs-material>=9", "mkdocstrings[python]>=0.25"]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3",
+    "hypothesis>=6.100",
+    "ruff==0.17.6",
+    "pre-commit>=3.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/POF-ultrasound/pyproteus"
+Source = "https://github.com/POF-ultrasound/pyproteus"
+"MATLAB PROTEUS" = "https://github.com/PROTEUS-SIM/PROTEUS"
+
+[tool.hatch.version]
+path = "src/pyproteus/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyproteus"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+    "oracle: compares against MATLAB PROTEUS through the MATLAB Engine (needs MATLAB; skipped otherwise)",
+    "slow: long-running test",
+]
+xfail_strict = true
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
