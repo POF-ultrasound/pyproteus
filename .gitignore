@@ -21,3 +21,6 @@ kwave_input*/
 kwave_output*/
 # local reference data cache
 .pooch/
+# k-Wave tracer bullet: runtime libs prefix and generated data
+tools/tracer_bullet/.kwave-libs/
+tools/tracer_bullet/data/

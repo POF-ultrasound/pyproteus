@@ -1,0 +1,46 @@
+# k-Wave tracer bullet (M0)
+
+Checks that k-wave-python 0.6.2 reproduces MATLAB k-Wave 1.4.1 on tiny
+PROTEUS-style hybrid cases, and pins the row-order and source-scaling mapping
+that the M3 adapter (`pyproteus.backends.kwave`) needs. Findings: BUGS.md
+B-10 to B-13 and `docs/dev/LOG.md` (2026-11-20).
+
+| File | Purpose |
+|---|---|
+| `ordering.py` | MATLAB `find` (column-major) ↔ C-order row permutations |
+| `adapter.py` | per-backend conventions of `kspaceFirstOrder()` (rows, additive source scaling, output shape); to be lifted into M3 |
+| `cases.py` | the two cases: pressure (linear array) and velocity (curved array), 37×29×23, asymmetric masks |
+| `kwave_tracer.py` | runners: MATLAB `kspaceFirstOrder3DC` via the engine, k-wave-python `cpp`/`python`/legacy; HDF5 input diff |
+| `run_kwave_matlab.m` | MATLAB side, options as PROTEUS `run_simulation.m` |
+| `run_tracer.py` | runs everything, writes `data/` (gitignored): k-Wave HDF5 files, `tracer_reference.h5`, `report.md` |
+| `bin/kspaceFirstOrder-OMP` | wrapper so MATLAB and Python run the same binary with its runtime libraries |
+| `setup_libs.sh` | creates `.kwave-libs/` (gitignored conda prefix: fftw, hdf5, libomp, zlib) |
+
+## Setup (macOS arm64)
+
+MATLAB k-Wave 1.4.1 ships no macOS arm64 binary. Both sides use the binary
+k-wave-python downloads (`kspaceFirstOrder-OMP` v1.4.1), which links Homebrew
+paths. Either `brew install fftw hdf5 zlib libomp`, or (no system change):
+
+```bash
+tools/tracer_bullet/setup_libs.sh
+```
+
+Then (MATLAB needs to run outside the Claude Bash sandbox):
+
+```bash
+~/miniconda3/envs/pyproteus/bin/python -m pytest tests/oracle/test_kwave_tracer.py
+```
+
+```bash
+~/miniconda3/envs/pyproteus/bin/python tools/tracer_bullet/run_tracer.py
+```
+
+`KWAVE_MATLAB_PATH` overrides the MATLAB k-Wave folder (default: the
+developer's `PROTEUS-cleaning/PROTEUS/external/k-wave/k-Wave`).
+
+## Licensing
+
+k-Wave MATLAB (LGPL) and k-wave-python (LGPL) are called, never copied or
+translated. The additive source scaling factors come from the k-Wave
+documentation (and match MATLAB's input files bit for bit).
