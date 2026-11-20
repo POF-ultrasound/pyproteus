@@ -25,3 +25,12 @@ Until PROTEUS v1.1.0 is tagged, the oracle is PROTEUS commit `8d37938` (revamp b
 
 ## D-8 — pchip coefficient form is clean-room (2026-11-20)
 Keep the de Boor divided-difference form for the pchip power-form coefficients in `pyproteus.numerics` (`_hermite` in `src/pyproteus/numerics/interpolation.py`, see the "Newton form of the cubic with double nodes" comment). The form is derived from the Newton divided-difference representation of the cubic Hermite interpolant in de Boor, *A Practical Guide to Splines*. Among algebraically equal forms it was chosen by black-box comparison with MATLAB output (`unmkpp(pchip(...))` coefficients and evaluated values), because it is bit-identical to MATLAB where the textbook `(3δ - 2d_k - d_{k+1})/h` form is not. No MathWorks source was read. Raised by the PR #2 reviewer (resemblance to `pwch.m`, from memory, unverified); option (a) chosen by the developer over falling back to the ≤ 1e-12 textbook form. Who: developer, via the main session.
+
+## D-9 — `alpha_mode` in self-sense runs on the k-wave-python `python` backend (2026-11-20)
+Drop `alpha_mode` on every k-wave-python backend, so the `python` backend (M3 self-sense) also runs full power-law absorption with dispersion, exactly like MATLAB `kspaceFirstOrder3DC`/`3DG` (B-14, `docs/QUIRKS.md` Q-1). Faithful port; honour `no_dispersion` on all solvers in 1.x. The M3 adapter replaces the current "refuse on `python`" behaviour of `tools/tracer_bullet/adapter.py::medium_for_kwp`. Who: developer (round 1, via the main session).
+
+## D-10 — Platform and binary for frozen k-Wave references (2026-11-20)
+Generate the frozen k-Wave reference data on the developer's Mac (arm64): MATLAB `kspaceFirstOrder3DC` runs k-wave-python's prebuilt `kspaceFirstOrder-OMP` v1.4.1 through `tools/tracer_bullet/bin/kspaceFirstOrder-OMP`, since MATLAB k-Wave 1.4.1 ships no macOS arm64 binary. Parity therefore checks input preparation (scaling, row order, medium, PML), not the binary itself. Each reference file records the binary path and version. Optional, later: one spot check on Linux with the official k-Wave binary. Who: developer (round 1, via the main session).
+
+## D-11 — Upstream k-wave-python reports (2026-11-20)
+Draft issues for B-10, B-12 and B-13 in `docs/dev/upstream/k-wave-python-issues.md`. Nothing is posted upstream until the developer approves each text. Who: developer (round 1, via the main session).
