@@ -33,7 +33,8 @@ Before posting: re-check each issue against the latest k-wave-python release and
 
 **Summary.** In `kwave/kWaveSimulation_helper/scale_source_terms_func.py`:
 1. **Pressure, heterogeneous `c0`:** `scale_pressure_source_uniform_grid` indexes `c0.ravel(order="F")` with `p_source_pos_index`, which holds MATLAB-style 1-based linear indices. Each source row is therefore scaled with the sound speed of the next voxel along x. Against MATLAB k-Wave the per-row scale ratio is 0.995-1.005, and the sensor data are 3.8e-3 relative off. A homogeneous `c0` hides it.
-2. **Velocity, one signal per voxel:** `range(source_val.size[0])` (lines ~165, 233, 323, 361) raises `TypeError: 'int' object is not subscriptable`, because `ndarray.size` is an int (`.shape[0]` was presumably intended).
+2. **Velocity, one signal per voxel:** `range(source_val.size[0])` raises `TypeError: 'int' object is not subscriptable`, because `ndarray.size` is an int (`.shape[0]` was presumably intended). It is hit by per-voxel velocity signals (line ~323; non-uniform grid ~361). The same `.size[0]` bug sits in the pressure non-uniform-grid path (~165) and the stress path (~233).
+3. **Likely, not verified:** the velocity path (~323) also indexes `c0[u_source_pos_index[...]]` with the 1-based indices, so it probably has the same off-by-one as item 1 once the crash is fixed.
 
 **Expected.** Scale with `c0` at the source voxel (0-based index), and support per-voxel velocity signals, as MATLAB k-Wave does.
 
@@ -43,7 +44,7 @@ Before posting: re-check each issue against the latest k-wave-python release and
 
 **k-wave-python version:** 0.6.2
 
-**Summary.** `_compute_staggered_density` (`kwave/solvers/cpp_simulation.py` ~line 293-304) computes `rho0_sg{x,y,z}` as `0.5 * (rho0 + np.roll(rho0, -1, axis))`. On the last plane along each axis this averages with the **first** plane. MATLAB k-Wave 1.4.1 keeps `rho0` on that plane, so the HDF5 inputs differ there by up to 0.55 % (heterogeneous medium). Everywhere else they agree to ≤ 2 float32 ulp. The source's own TODO comment already mentions this.
+**Summary.** `_compute_staggered_density` (`kwave/solvers/cpp_simulation.py` ~line 293-304) computes `rho0_sg{x,y,z}` as `0.5 * (rho0 + np.roll(rho0, -1, axis))`. On the last plane along each axis this averages with the **first** plane. MATLAB k-Wave 1.4.1 keeps `rho0` on that plane, so the HDF5 inputs differ there by up to 0.55 % (heterogeneous medium). Everywhere else they agree to ≤ 2 float32 ulp. (The TODO next to it notes that `np.roll` averaging is an approximation of spectral interpolation; it does not mention the boundary wrap.)
 
 **Impact.** Small: the plane sits inside the outer PML when `PMLInside=False`. In our tracer case it adds about 5e-7 relative to the sensor data. It can matter with `PMLInside=True` and strong density contrast at the boundary.
 
