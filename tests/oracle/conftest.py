@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import ssl  # noqa: F401  # B-1: must be imported before matlab.engine
 import subprocess
+import xml.parsers.expat  # noqa: F401  # B-11: must be imported before matlab.engine
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any

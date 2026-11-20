@@ -22,11 +22,11 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause (`kwave/solvers/cpp_simulation.py`): the cpp path writes `source.p`/`ux`/`uy` to the HDF5 file unchanged next to an F-order (`find`) index list and does not apply k-Wave's time-varying source scaling; it reads `p` back as `(Nt, n_sensor)`, and its F→C row reordering only runs when `shape[0] == n_sensor`, so it is skipped (and if `Nt == n_sensor` it would permute the time axis). The `python` backend expects C-order source rows, scales internally and returns `(n_sensor, Nt)` in C order.
 - Workaround: `tools/tracer_bullet/adapter.py` (to become `backends/kwave.py`): cpp = find-order rows × `additive_source_scale` (p: `2dt/(3 c0 dx)`, u: `2 c0 dt/dx`, per voxel), output transposed (and, if `Nt == n_sensor`, k-wave-python's spurious time-axis permutation undone); python = C-order rows, output reordered C→F. With it both backends match MATLAB k-Wave to < 7e-7 rel and the cpp source datasets are bit-identical to MATLAB's. Pin k-wave-python exactly. Test: `tests/oracle/test_kwave_tracer.py`.
 
-## B-11 — MATLAB engine breaks `pyexpat` (matplotlib, k-wave-python legacy API) in the same process (workaround)
+## B-11 — MATLAB engine breaks `pyexpat` (matplotlib, k-wave-python legacy API) in the same process (fixed)
 - Where: any process that imports `matlab.engine` before `xml.parsers.expat` (pulled in by matplotlib → plistlib, e.g. `kwave.kspaceFirstOrder3D`).
 - Symptom: `ImportError: ... pyexpat ... Symbol not found: _XML_SetAllocTrackerActivationThreshold ... Expected in /Applications/MATLAB_R2025a.app/bin/maca64/libexpat.1.9.3.dylib`.
 - Cause: same as B-1: the engine loads MATLAB's older libexpat first.
-- Workaround: import `xml.parsers.expat` (and k-wave-python modules) before `matlab.engine`: `tools/tracer_bullet/kwave_tracer.preload_before_engine()`. The shared oracle conftest only imports `ssl`; consider adding `xml.parsers.expat` there.
+- Fix: `tests/oracle/conftest.py` imports `xml.parsers.expat` next to `ssl`, before any `matlab.engine` import. Scripts outside pytest use `tools/tracer_bullet/kwave_tracer.preload_before_engine()`.
 
 ## B-12 — k-wave-python 0.6.2 legacy `kspaceFirstOrder3D`: wrong pressure-source scaling, crash on per-voxel velocity sources (wontfix here, upstream)
 - Where: `kwave/kWaveSimulation_helper/scale_source_terms_func.py` (legacy MATLAB-style API).
@@ -43,5 +43,5 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 ## B-14 — PROTEUS `alpha_mode='no_dispersion'` has no effect on the k-Wave C++ path (quirk, reproduced)
 - Where: oracle `acoustic-module/define_medium.m` sets `medium.alpha_mode = 'no_dispersion'` when `|alpha_power - 1| < 0.1`; `run_simulation.m` then calls `kspaceFirstOrder3DC`/`3DG`.
 - Symptom: MATLAB 3DC output is bit-identical with and without `alpha_mode` (the C++ HDF5 format has no field for it), so PROTEUS runs full power-law absorption + dispersion on the C++/CUDA path; the MATLAB-native `kspaceFirstOrder3D` (PROTEUS' local-movie mode) and k-wave-python's `python` backend honour it (16 % rel difference on the tracer case with y = 1.05). k-wave-python's `cpp` backend raises `ValueError`.
-- Faithful-port handling: the adapter drops `alpha_mode` for `cpp` (matches MATLAB 3DC to 5.9e-7) and refuses it for `python` (`adapter.medium_for_kwp`). Needs a `docs/QUIRKS.md` entry (not done here: outside this task's files) and a decision for the self-sense `python`-backend runs in M3 (open question to the main session).
+- Faithful-port handling: the adapter drops `alpha_mode` for `cpp` (matches MATLAB 3DC to 5.9e-7) and refuses it for `python` (`adapter.medium_for_kwp`). Recorded as `docs/QUIRKS.md` Q-1. Open: decision for the self-sense `python`-backend runs in M3 (open question to the main session).
 - Test: `test_matlab_3dc_ignores_alpha_mode`, case `pressure_nodisp`.
