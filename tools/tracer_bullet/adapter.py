@@ -1,6 +1,6 @@
 """MATLAB k-Wave <-> k-wave-python 0.6.2 ``kspaceFirstOrder()`` conventions.
 
-Measured by the tracer bullet (``tracer-bullet-findings.md``, BUGS.md B-10)
+Measured by the tracer bullet (BUGS.md B-10, docs/dev/LOG.md 2026-11-20)
 against MATLAB k-Wave 1.4.1 ``kspaceFirstOrder3DC`` on the same C++ binary:
 
 =========  ===================  ==========================  ==========================
@@ -29,36 +29,74 @@ try:
 except ImportError:  # pragma: no cover
     import ordering  # type: ignore[no-redef]
 
-__all__ = ["additive_source_scale", "sensor_rows_from_kwp", "source_rows_to_kwp"]
+__all__ = [
+    "additive_source_scale",
+    "medium_for_kwp",
+    "sensor_rows_from_kwp",
+    "source_rows_to_kwp",
+]
 
 BACKENDS = ("cpp", "python")
 
 
 def additive_source_scale(
-    kind: str, mask: np.ndarray, sound_speed, dt: float, dx: float, ndim: int = 3
+    kind: str, mask: np.ndarray, sound_speed, dt: float, spacing
 ) -> np.ndarray:
     """Per-row factor k-Wave applies to a time-varying *additive* source, rows in find order.
 
-    From the k-Wave manual / Treeby et al. (not from k-Wave MATLAB source):
+    Not taken from k-Wave MATLAB source. Sources: the k-Wave User Manual 1.1
+    (Treeby, Jaros, Cox, 2016), chapter on time-varying sources (source terms
+    are mass/momentum injection rates: a pressure source is split over the
+    ``ndim`` density components and converted with ``2*dt/(c0*dx)``), and
+    k-wave-python's documented python-solver scaling (``kspace_solver.py``
+    docstring, citing Cox et al., IEEE IUS 2018):
 
-    * pressure (``kind="p"``):            ``p_in = p * 2*dt / (ndim * c0 * dx)``
-    * velocity (``kind="ux"/"uy"/"uz"``): ``u_in = u * 2*c0*dt / dx``
+    * pressure (``kind="p"``): ``p_in = p * 2*dt / (ndim * c0 * dx)``
+    * velocity (``kind="ux"/"uy"/"uz"``): ``u_in = u * 2*c0*dt / d``, with
+      ``d`` = dx, dy, dz respectively
 
-    ``c0`` is the sound speed at each source voxel and ``dx`` the grid spacing
-    along the relevant axis (PROTEUS grids are isotropic). MATLAB k-Wave applies
+    ``c0`` is the sound speed at each source voxel and ``spacing`` the grid
+    spacing per axis (``(dx, dy, dz)``; ``ndim = len(spacing)``). For the
+    pressure source with an anisotropic grid k-Wave differs per density
+    component, which a single factor cannot express: refused. MATLAB k-Wave applies
     this before writing the C++ input file; k-wave-python 0.6.2's ``cpp``
     backend does not, so the adapter multiplies the signals by this factor.
     Compute in float64 and let k-wave-python cast to float32 (as MATLAB does):
     the tracer bullet found the resulting HDF5 inputs bit-identical.
     """
     mask = np.asarray(mask, dtype=bool)
+    spacing = tuple(float(d) for d in np.atleast_1d(spacing))
+    if len(spacing) != mask.ndim:
+        raise ValueError(f"spacing {spacing} does not match a {mask.ndim}-D mask")
     c = np.broadcast_to(np.asarray(sound_speed, dtype=np.float64), mask.shape)
     c_rows = c.ravel(order="F")[np.flatnonzero(mask.ravel(order="F"))]
     if kind == "p":
-        return 2.0 * dt / (ndim * c_rows * dx)
-    if kind in ("ux", "uy", "uz"):
-        return 2.0 * c_rows * dt / dx
-    raise ValueError(f"unknown source kind {kind!r}")
+        if len(set(spacing)) != 1:
+            raise ValueError("pressure-source scaling on an anisotropic grid is not supported")
+        return 2.0 * dt / (len(spacing) * c_rows * spacing[0])
+    axis = {"ux": 0, "uy": 1, "uz": 2}.get(kind)
+    if axis is None or axis >= len(spacing):
+        raise ValueError(f"unknown source kind {kind!r} for a {len(spacing)}-D grid")
+    return 2.0 * c_rows * dt / spacing[axis]
+
+
+def medium_for_kwp(medium: dict, backend: str) -> dict:
+    """Medium fields for ``kspaceFirstOrder``, mirroring what MATLAB ``kspaceFirstOrder3DC`` does.
+
+    PROTEUS (``define_medium.m``) sets ``alpha_mode='no_dispersion'`` when
+    ``|alpha_power - 1| < 0.1``. The C++ input format has no field for it, so
+    MATLAB's 3DC path silently runs with full absorption + dispersion
+    (BUGS.md B-14). k-wave-python's cpp backend raises instead; the adapter
+    drops ``alpha_mode`` for cpp to reproduce MATLAB. The python backend would
+    honour it and so differ from MATLAB 3DC: refused.
+    """
+    out = dict(medium)
+    mode = out.pop("alpha_mode", None)
+    if mode is not None and backend == "python":
+        raise ValueError(
+            f"alpha_mode={mode!r}: MATLAB 3DC ignores it but the python backend applies it (B-14)"
+        )
+    return out
 
 
 def source_rows_to_kwp(
@@ -69,7 +107,7 @@ def source_rows_to_kwp(
     kind: str,
     sound_speed,
     dt: float,
-    dx: float,
+    spacing,
 ) -> np.ndarray:
     """MATLAB-convention source signals -> what ``kspaceFirstOrder(backend=...)`` expects.
 
@@ -84,7 +122,7 @@ def source_rows_to_kwp(
             f"expected (n_source, M) rows for {n} source voxels, got {rows_find.shape}"
         )
     if backend == "cpp":
-        return rows_find * additive_source_scale(kind, mask, sound_speed, dt, dx)[:, None]
+        return rows_find * additive_source_scale(kind, mask, sound_speed, dt, spacing)[:, None]
     if backend == "python":
         return ordering.rows_f_to_c(rows_find, mask)
     raise ValueError(f"backend must be one of {BACKENDS}, got {backend!r}")
@@ -96,18 +134,20 @@ def sensor_rows_from_kwp(
     """``result["p"]`` of ``kspaceFirstOrder(backend=...)`` -> ``(n_sensor, Nt)``, find order.
 
     For ``cpp``, k-wave-python 0.6.2 returns ``(Nt, n_sensor)`` with columns in
-    F order: its own C-order reordering only fires when ``shape[0] == n_sensor``,
-    which then permutes the *time* axis. ``Nt == n_sensor`` is therefore refused.
+    F order: its own F->C reordering only fires when ``shape[0] == n_sensor``.
+    When ``Nt == n_sensor`` it does fire, permuting the *time* axis with the
+    sensor-mask permutation; that known permutation is undone here.
     """
     p = np.asarray(p)
     n = int(np.count_nonzero(sensor_mask))
     if backend == "cpp":
-        if n == Nt:
-            raise ValueError(
-                "Nt == n_sensor: k-wave-python 0.6.2 cpp output order is ambiguous (B-10)"
-            )
         if p.shape != (Nt, n):
             raise ValueError(f"expected cpp sensor data of shape {(Nt, n)}, got {p.shape}")
+        if n == Nt and n > 1:  # undo k-wave-python's p[perm] on the time axis (B-10)
+            perm = ordering.f_to_c_rows(sensor_mask)
+            q = np.empty_like(p)
+            q[perm] = p
+            p = q
         return p.T
     if backend == "python":
         if p.shape != (n, Nt):

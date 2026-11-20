@@ -20,6 +20,9 @@ medium.density     = c.density;
 medium.BonA        = c.BonA;
 medium.alpha_coeff = c.alpha_coeff;
 medium.alpha_power = c.alpha_power;
+if isfield(c, 'alpha_mode')
+    medium.alpha_mode = c.alpha_mode;  % as define_medium.m for |y - 1| < 0.1
+end
 
 if isfield(c, 'p_mask')
     source.p_mask = logical(c.p_mask);

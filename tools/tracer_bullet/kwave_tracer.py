@@ -21,6 +21,7 @@ diffs the HDF5 input files dataset by dataset to pin down any difference.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -125,6 +126,8 @@ def _to_matlab_struct(case: Case) -> dict:
         "sensor_mask": matlab.logical(case.sensor_mask),
         "alpha_power": float(case.medium["alpha_power"]),
     }
+    if "alpha_mode" in case.medium:
+        s["alpha_mode"] = str(case.medium["alpha_mode"])
     for k in ("sound_speed", "density", "BonA", "alpha_coeff"):
         s[k] = dbl(case.medium[k])
     for k, v in case.source.items():
@@ -168,21 +171,30 @@ def _fresh_dir(path: Path) -> Path:
     return path
 
 
-def _kwp_objects(case: Case):
+@contextlib.contextmanager
+def _binary_environ():
+    """Set the wrapper's variables for the duration of a run, then restore os.environ."""
+    old = {k: os.environ.get(k) for k in binary_env()}
+    os.environ.update(binary_env())
+    try:
+        yield
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def _kwp_objects(case: Case, backend: str = "cpp"):
     from kwave.kgrid import kWaveGrid
     from kwave.kmedium import kWaveMedium
     from kwave.ksensor import kSensor
 
     kgrid = kWaveGrid(list(case.shape), [case.dx] * 3)
     kgrid.setTime(case.Nt, case.dt)
-    m = case.medium
-    medium = kWaveMedium(
-        sound_speed=m["sound_speed"],
-        density=m["density"],
-        BonA=m["BonA"],
-        alpha_coeff=m["alpha_coeff"],
-        alpha_power=m["alpha_power"],
-    )
+    m = adapter.medium_for_kwp(case.medium, backend)
+    medium = kWaveMedium(**m)
     sensor = kSensor(mask=case.sensor_mask.copy())
     return kgrid, medium, sensor
 
@@ -210,14 +222,14 @@ def _kwp_source(case: Case, backend: str, *, raw_rows: str | None = None, unscal
                 kind=k,
                 sound_speed=case.medium["sound_speed"],
                 dt=case.dt,
-                dx=case.dx,
+                spacing=(case.dx,) * 3,
             )
         else:
             v = rows
             if backend == "cpp" and not unscaled:  # the python backend scales internally
                 v = (
                     adapter.additive_source_scale(
-                        k, mask, case.medium["sound_speed"], case.dt, case.dx
+                        k, mask, case.medium["sound_speed"], case.dt, (case.dx,) * 3
                     )[:, None]
                     * v
                 )
@@ -244,11 +256,10 @@ def run_kwp(
     """
     from kwave.kspaceFirstOrder import kspaceFirstOrder
 
-    kgrid, medium, sensor = _kwp_objects(case)
+    kgrid, medium, sensor = _kwp_objects(case, backend)
     src = _kwp_source(case, backend, raw_rows=raw_rows, unscaled=unscaled)
     kw = {}
     if backend == "cpp":
-        os.environ.update(binary_env())
         kw = dict(
             binary_path=str(WRAPPER),
             data_path=str(
@@ -263,20 +274,21 @@ def run_kwp(
         )
     else:
         kw = dict(dtype=np.float32)
-    res = kspaceFirstOrder(
-        kgrid,
-        medium,
-        src,
-        sensor,
-        pml_size=case.pml_size,
-        pml_alpha=case.pml_alpha,
-        pml_inside=False,
-        smooth_p0=False,
-        backend=backend,
-        device="cpu",
-        quiet=True,
-        **kw,
-    )
+    with _binary_environ():
+        res = kspaceFirstOrder(
+            kgrid,
+            medium,
+            src,
+            sensor,
+            pml_size=case.pml_size,
+            pml_alpha=case.pml_alpha,
+            pml_inside=False,
+            smooth_p0=False,
+            backend=backend,
+            device="cpu",
+            quiet=True,
+            **kw,
+        )
     return adapter.sensor_rows_from_kwp(
         np.asarray(res["p"], dtype=np.float64), case.sensor_mask, case.Nt, backend
     )
@@ -300,7 +312,6 @@ def run_kwp_legacy(case: Case, data_dir: Path) -> np.ndarray:
     for k, v in signals.items():
         setattr(src, k, v)
     data_dir = _fresh_dir(Path(data_dir) / f"kwp_legacy_{case.name}")
-    os.environ.update(binary_env())
     sim_opts = SimulationOptions(
         pml_inside=False,
         pml_size=list(case.pml_size),
@@ -320,9 +331,10 @@ def run_kwp_legacy(case: Case, data_dir: Path) -> np.ndarray:
         delete_data=False,
         show_sim_log=False,
     )
-    kspaceFirstOrder3D(
-        kgrid, src, sensor, medium, simulation_options=sim_opts, execution_options=exe_opts
-    )
+    with _binary_environ():
+        kspaceFirstOrder3D(
+            kgrid, src, sensor, medium, simulation_options=sim_opts, execution_options=exe_opts
+        )
     # read the binary's output directly: (1, Nt, n_sensor) in h5py, columns in find order
     with h5py.File(data_dir / "output.h5", "r") as f:
         return np.asarray(f["p"][0], dtype=np.float64).T
@@ -332,8 +344,17 @@ def run_kwp_legacy(case: Case, data_dir: Path) -> np.ndarray:
 
 
 def rel_err(a: np.ndarray, ref: np.ndarray) -> float:
-    """max |a - ref| / max |ref|."""
+    """max |a - ref| / max |ref| over the whole array."""
     return float(np.max(np.abs(a - ref)) / np.max(np.abs(ref)))
+
+
+def rel_err_rows(a: np.ndarray, ref: np.ndarray, floor: float = 1e-3) -> float:
+    """max over rows of ||a_i - ref_i|| / ||ref_i||, for rows whose norm exceeds
+    ``floor`` x the largest row norm (weak sensors are not hidden by strong ones)."""
+    num = np.linalg.norm(a - ref, axis=1)
+    den = np.linalg.norm(ref, axis=1)
+    keep = den > floor * den.max()
+    return float(np.max(num[keep] / den[keep]))
 
 
 def read_h5(path: Path) -> dict[str, np.ndarray]:

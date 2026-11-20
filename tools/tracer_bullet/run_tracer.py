@@ -55,16 +55,21 @@ def main() -> int:
             pm = kt.run_matlab(eng, c, data)
             g = ref.create_group(name)
             for k, v in {**c.medium, **c.source}.items():
-                g.create_dataset(k, data=np.asarray(v))
+                if isinstance(v, str):
+                    g.attrs[k] = v
+                else:
+                    g.create_dataset(k, data=np.asarray(v))
             g.create_dataset("sensor_mask", data=c.sensor_mask)
             g.create_dataset("p_matlab", data=pm.astype(np.float32))
             res = {
                 "kwp cpp (adapter)": kt.rel_err(kt.run_kwp(c, data, "cpp"), pm),
-                "kwp python (adapter)": kt.rel_err(kt.run_kwp(c, None, "python"), pm),
                 "kwp cpp, C-order source rows": kt.rel_err(
                     kt.run_kwp(c, data, "cpp", raw_rows="c"), pm
                 ),
             }
+            res["kwp cpp (adapter), per-row"] = kt.rel_err_rows(kt.run_kwp(c, data, "cpp"), pm)
+            if "alpha_mode" not in c.medium:  # B-14
+                res["kwp python (adapter)"] = kt.rel_err(kt.run_kwp(c, None, "python"), pm)
             try:
                 res["kwp legacy kspaceFirstOrder3D"] = kt.rel_err(kt.run_kwp_legacy(c, data), pm)
             except Exception as e:

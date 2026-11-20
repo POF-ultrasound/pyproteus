@@ -41,7 +41,7 @@ class Case:
     Nt: int
     pml_size: tuple[int, int, int]
     pml_alpha: float
-    medium: dict[str, np.ndarray | float]
+    medium: dict[str, np.ndarray | float | str]
     source: dict[str, np.ndarray | str]  # "p_mask"+"p"  or  "u_mask"+"ux"+"uy"; rows in find order
     sensor_mask: np.ndarray
     info: dict = field(default_factory=dict)
@@ -171,4 +171,16 @@ def velocity_case(seed: int = 2) -> Case:
     )
 
 
-CASES = {"pressure": pressure_case, "velocity": velocity_case}
+def pressure_nodisp_case(seed: int = 1) -> Case:
+    """Pressure case with y = 1.05: define_medium.m then sets alpha_mode='no_dispersion'."""
+    c = pressure_case(seed)
+    c.name = "pressure_nodisp"
+    c.medium = {**c.medium, "alpha_power": 1.05, "alpha_mode": "no_dispersion"}
+    return c
+
+
+CASES = {
+    "pressure": pressure_case,
+    "velocity": velocity_case,
+    "pressure_nodisp": pressure_nodisp_case,
+}
