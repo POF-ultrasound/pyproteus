@@ -2,6 +2,10 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-20 — developer decisions, round 1 (main session)
+- D-8 (pchip clean-room, PR #4), D-9 (drop `alpha_mode` on every k-wave-python backend, B-14/Q-1), D-10 (frozen k-Wave references on the Mac with k-wave-python's v1.4.1 OMP binary), D-11 (upstream k-wave-python issue drafts in `docs/dev/upstream/`, posted only after developer approval).
+- Still open: university cluster GPU compute capability (developer to run `nvidia-smi`).
+
 ## 2026-11-20 — M0 k-Wave tracer bullet (kwave-tracer)
 - Tiny PROTEUS-style hybrid cases (37×29×23, Nt=300, PML 10/12/9 outside, `Smooth=false`, heterogeneous nonlinear absorbing medium with a "vessel", asymmetric masks): pressure (linear array, monopole) and velocity (curved array, `ux`/`uy` along the normal). `tools/tracer_bullet/`, test `tests/oracle/test_kwave_tracer.py` (three cases incl. `no_dispersion`).
 - Binary: MATLAB k-Wave 1.4.1 ships none for macOS arm64; both sides use k-wave-python's `kspaceFirstOrder-OMP` v1.4.1 (C++ build 2.17, "v1.3") through a wrapper (`bin/kspaceFirstOrder-OMP`) that points dyld at an isolated conda prefix with fftw/hdf5/libomp/zlib (`setup_libs.sh`, gitignored `.kwave-libs/`). MATLAB's `kspaceFirstOrder3DC` accepts the binary's HDF5 format unchanged.
