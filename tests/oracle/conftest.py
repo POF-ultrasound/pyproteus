@@ -74,6 +74,17 @@ def oracle_commit(path: Path) -> str:
     return out.stdout.strip()
 
 
+def oracle_status(path: Path) -> str:
+    """``git status --porcelain`` of the oracle (no lock files written)."""
+    out = subprocess.run(
+        ["git", "--no-optional-locks", "-C", str(path), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     here = Path(__file__).resolve().parent
     for item in items:
@@ -84,7 +95,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 def _import_engine() -> Any:
     try:
         import matlab.engine
-    except ImportError as exc:  # matlabengine not installed
+    except (ImportError, OSError) as exc:  # not installed, or MATLAB/Python unsupported
         pytest.skip(f"matlab.engine not importable ({exc}); oracle tests need MATLAB")
     return matlab.engine
 
@@ -96,7 +107,12 @@ def oracle() -> Oracle:
     if not path.is_dir():
         pytest.skip(f"oracle PROTEUS checkout not found at {path} (set PYPROTEUS_ORACLE)")
     commit = oracle_commit(path)
-    expected = os.environ.get("PYPROTEUS_ORACLE_COMMIT", DEFAULT_COMMIT)
+    expected = os.environ.get("PYPROTEUS_ORACLE_COMMIT", DEFAULT_COMMIT).strip()
+    if not expected:
+        pytest.fail("PYPROTEUS_ORACLE_COMMIT is empty; use a commit prefix or 'any'")
+    dirty = oracle_status(path)
+    if dirty and expected != "any":
+        pytest.fail(f"oracle checkout at {path} has local changes:\n{dirty}")
     if expected != "any" and not commit.startswith(expected):
         pytest.fail(
             f"oracle at {path} is at commit {commit[:12]}, expected {expected} (D-7). "
@@ -106,11 +122,16 @@ def oracle() -> Oracle:
 
 
 @pytest.fixture(scope="session")
-def matlab_engine(oracle: Oracle) -> Any:
+def matlab_engine(oracle: Oracle, tmp_path_factory: pytest.TempPathFactory) -> Any:
     """One MATLAB Engine per test session, with the oracle PROTEUS on the path.
+
+    MATLAB's working folder is a fresh temporary directory, so relative writes
+    by PROTEUS functions land there and no stray ``.m`` file shadows PROTEUS.
+    At the end of the session the oracle checkout must be unchanged.
 
     Tests must not leave state behind that other tests depend on: set ``rng``
     explicitly and clear workspace variables they create if it matters.
+    Under pytest-xdist every worker starts its own MATLAB.
     """
     engine_mod = _import_engine()
     session = os.environ.get("PYPROTEUS_MATLAB_SESSION")
@@ -122,12 +143,16 @@ def matlab_engine(oracle: Oracle) -> Any:
     except engine_mod.EngineError as exc:
         pytest.skip(f"could not start MATLAB ({exc})")
 
+    status_before = oracle_status(oracle.path)
     original_path = eng.path(nargout=1)
+    original_cwd = eng.pwd(nargout=1)
+    eng.cd(str(tmp_path_factory.mktemp("matlab_cwd")), nargout=0)
     eng.addpath(str(oracle.path), nargout=0)  # root functions, not recursive
     for module in ORACLE_MODULES:
         folder = oracle.path / module
-        if folder.is_dir():
-            eng.addpath(eng.genpath(str(folder)), nargout=0)
+        if not folder.is_dir():
+            pytest.fail(f"oracle module folder missing: {folder}")
+        eng.addpath(eng.genpath(str(folder)), nargout=0)
     if SHIMS.is_dir():
         eng.addpath(str(SHIMS), nargout=0)  # added last = searched first
     eng.eval("format long g;", nargout=0)
@@ -138,8 +163,13 @@ def matlab_engine(oracle: Oracle) -> Any:
 
     if session:
         eng.path(original_path, nargout=0)
+        eng.cd(original_cwd, nargout=0)
     else:
         eng.quit()
+    status_after = oracle_status(oracle.path)
+    assert status_after == status_before, (
+        f"oracle checkout {oracle.path} was modified during the test session:\n{status_after}"
+    )
 
 
 @pytest.fixture

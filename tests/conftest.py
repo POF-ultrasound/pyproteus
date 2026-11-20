@@ -19,6 +19,8 @@ settings.register_profile(
     suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow],
 )
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
+# Oracle tests choose the "oracle" profile explicitly with @settings(parent=...)
+ORACLE_SETTINGS = settings.get_profile("oracle")
 
 
 def pytest_report_header(config) -> list[str]:

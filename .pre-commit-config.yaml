@@ -19,5 +19,5 @@ repos:
       - id: check-bans
         name: MATLAB-semantics bans (np.round, unstable sort, np.interp)
         entry: python tools/check_bans.py
-        language: system
+        language: python
         types: [python]

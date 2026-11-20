@@ -42,6 +42,13 @@ def lines_flagged(src: str) -> list[int]:
         "from numpy import interp as i",
         "from numpy import argsort",
         "import numpy as np\ny = f(np.round(x) + 1)",
+        "import numpy as np\nr = np.round\nr(x)",
+        "import numpy as np\nf = np.interp",
+        "import numpy as np\nkey = np.argsort",
+        "from numpy import *",
+        "import numpy as np\nnp.floor(x + 0.5)",
+        "math.floor(0.5 + x)",
+        "int(x + 0.5)",
     ],
 )
 def test_flags(src: str) -> None:
@@ -63,6 +70,12 @@ def test_flags(src: str) -> None:
         "import numpy as np\nnp.round(x)  # bans: allow (display only)",
         "import numpy as np\nnp.round(\n    x,\n)  # bans: allow",
         "from numpy import floor",
+        "xs.sort(key=len)",
+        "xs.sort(reverse=True)",
+        "import numpy as np\nnp.sort(x, 0, 'stable')",
+        "x.sort(0, 'stable')",
+        "import numpy as np\nnp.floor(x + 1.5)",
+        "import numpy as np\nnp.floor(x)",
     ],
 )
 def test_allows(src: str) -> None:

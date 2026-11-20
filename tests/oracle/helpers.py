@@ -33,18 +33,38 @@ _CONVERTERS = {
 }
 
 
+def _as_array(a: Any) -> np.ndarray:
+    """np.asarray, but Python ints/lists of ints become double (MATLAB literals are double).
+
+    Integer *NumPy* arrays keep their integer class: that is an explicit choice.
+    """
+    if isinstance(a, np.ndarray | np.generic):
+        return np.asarray(a)
+    arr = np.asarray(a)
+    if arr.dtype.kind in "iu":
+        arr = arr.astype(np.float64)
+    return arr
+
+
+def _vector(a: Any) -> np.ndarray:
+    arr = _as_array(a)
+    if arr.ndim > 1:
+        raise ValueError(f"row()/col() expect a 1-D array or scalar, got shape {arr.shape}")
+    return arr
+
+
 class Row:
     """Marks a 1-D array to be sent as a MATLAB 1×N row vector."""
 
     def __init__(self, a: Any) -> None:
-        self.a = np.asarray(a).reshape(1, -1)
+        self.a = _vector(a).reshape(1, -1)
 
 
 class Col:
     """Marks a 1-D array to be sent as a MATLAB N×1 column vector."""
 
     def __init__(self, a: Any) -> None:
-        self.a = np.asarray(a).reshape(-1, 1)
+        self.a = _vector(a).reshape(-1, 1)
 
 
 def row(a: Any) -> Row:
@@ -58,18 +78,22 @@ def col(a: Any) -> Col:
 def to_matlab(a: Any) -> Any:
     """Convert a NumPy array (≥ 2-D, or wrapped in row/col) to a MATLAB array.
 
-    Python scalars (float, int, bool, str) pass through unchanged: the engine
-    sends float as double, int as int64, bool as logical. NumPy scalars and
-    0-d arrays become 1×1 MATLAB arrays of the same class.
+    Python float, bool and str pass through (double, logical, char). Python
+    ints and lists of ints are sent as **double**, like MATLAB literals (the
+    engine would otherwise send int64, and ``int64(3)/2`` is 2 in MATLAB).
+    NumPy scalars and 0-d arrays become 1×1 MATLAB arrays of the same class;
+    integer NumPy arrays keep their integer class.
     """
     import matlab
 
     if isinstance(a, Row | Col):
         arr = a.a
-    elif isinstance(a, bool | int | float | str):
+    elif isinstance(a, bool | float | str):
         return a
+    elif isinstance(a, int):
+        return float(a)
     else:
-        arr = np.asarray(a)
+        arr = _as_array(a)
         if arr.ndim == 0:
             arr = arr.reshape(1, 1)
         elif arr.ndim == 1:
@@ -87,12 +111,13 @@ def to_matlab(a: Any) -> Any:
 def from_matlab(x: Any, dtype: Any = None) -> np.ndarray:
     """Convert a MATLAB value to a NumPy array with MATLAB's size.
 
-    Scalars come back as 0-d arrays only if they were Python scalars on the
-    MATLAB side (the engine returns 1×1 doubles as float); use ``.item()`` or
-    compare directly.
+    Exception: the engine returns 1×1 MATLAB values as Python scalars, which
+    become 0-d arrays here. ``dtype`` must not drop an imaginary part.
     """
     out = np.asarray(x)
     if dtype is not None:
+        if np.iscomplexobj(out) and not np.issubdtype(np.dtype(dtype), np.complexfloating):
+            raise TypeError("refusing to drop the imaginary part")
         out = out.astype(dtype, copy=False)
     return out
 

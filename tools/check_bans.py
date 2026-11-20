@@ -11,7 +11,12 @@ must use the ``pyproteus.numerics`` wrappers instead. Flagged:
 * ``sort`` / ``argsort`` calls (function or method) without ``kind="stable"``:
   NumPy's default quicksort is not stable (MATLAB ``sort`` is).
 * ``np.interp``: clamps outside the range (MATLAB ``interp1`` returns NaN).
-* ``from numpy import`` of any of the above names.
+* ``from numpy import`` of any of the above names, ``from numpy import *``,
+  and references such as ``r = np.round``.
+* ``floor(x + 0.5)`` / ``int(x + 0.5)``: wrong for negative halves and for
+  0.49999999999999994.
+
+``list.sort(key=...)``/``reverse=`` calls are allowed (Python's sort is stable).
 
 A line can opt out with a trailing ``# bans: allow`` comment and a reason.
 
@@ -49,10 +54,28 @@ class Violation:
 
 
 def _is_stable_kind(call: ast.Call) -> bool:
+    """kind="stable" given as keyword or as any positional string constant."""
     for kw in call.keywords:
         if kw.arg == "kind":
             return isinstance(kw.value, ast.Constant) and kw.value.value == "stable"
-    return False
+    return any(isinstance(a, ast.Constant) and a.value == "stable" for a in call.args)
+
+
+def _is_python_list_sort(call: ast.Call) -> bool:
+    """list.sort / sorted-style calls (key= or reverse=): always stable, reject kind=."""
+    return any(kw.arg in ("key", "reverse") for kw in call.keywords)
+
+
+def _is_half(expr: ast.expr) -> bool:
+    return isinstance(expr, ast.Constant) and expr.value == 0.5
+
+
+def _adds_half(expr: ast.expr) -> bool:
+    return (
+        isinstance(expr, ast.BinOp)
+        and isinstance(expr.op, ast.Add | ast.Sub)
+        and (_is_half(expr.left) or _is_half(expr.right))
+    )
 
 
 class _Visitor(ast.NodeVisitor):
@@ -61,6 +84,7 @@ class _Visitor(ast.NodeVisitor):
         self.lines = lines
         self.numpy_aliases: set[str] = set()
         self.violations: list[Violation] = []
+        self._calls_seen: set[int] = set()
 
     def _flag(self, node: ast.AST, message: str) -> None:
         lineno = getattr(node, "lineno", 1)
@@ -74,7 +98,9 @@ class _Visitor(ast.NodeVisitor):
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if node.module in NUMPY_MODULES:
             for alias in node.names:
-                if alias.name in BANNED_IMPORTS:
+                if alias.name == "*":
+                    self._flag(node, f"`from {node.module} import *` hides banned names")
+                elif alias.name in BANNED_IMPORTS:
                     self._flag(
                         node,
                         f"`from {node.module} import {alias.name}` is banned "
@@ -85,15 +111,44 @@ class _Visitor(ast.NodeVisitor):
     def _is_numpy(self, expr: ast.expr) -> bool:
         return isinstance(expr, ast.Name) and expr.id in self.numpy_aliases
 
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        # np.round / np.interp / np.argsort used as a value (r = np.round; r(x)).
+        if (
+            id(node) not in self._calls_seen
+            and self._is_numpy(node.value)
+            and node.attr in ROUND_FUNCS | INTERP_FUNCS | SORT_FUNCS
+        ):
+            self._flag(
+                node,
+                f"reference to `{node.value.id}.{node.attr}` is banned "
+                "(MATLAB semantics differ); use pyproteus.numerics",
+            )
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
         func = node.func
+        if isinstance(func, ast.Attribute):
+            self._calls_seen.add(id(func))
         if isinstance(func, ast.Name) and func.id == "round":
             self._flag(node, "builtin `round` rounds halves to even; use numerics.matlab_round")
+        elif (
+            isinstance(func, ast.Name | ast.Attribute)
+            and (func.id if isinstance(func, ast.Name) else func.attr) in ("floor", "int", "fix")
+            and node.args
+            and _adds_half(node.args[0])
+        ):
+            self._flag(
+                node,
+                "`floor(x + 0.5)` is not MATLAB round (wrong for negatives and "
+                "0.49999999999999994); use numerics.matlab_round",
+            )
         elif isinstance(func, ast.Attribute):
             name = func.attr
             if name == "round" or (name in ROUND_FUNCS and self._is_numpy(func.value)):
                 self._flag(node, f"`.{name}(` rounds halves to even; use numerics.matlab_round")
-            elif name in SORT_FUNCS and not _is_stable_kind(node):
+            elif (
+                name in SORT_FUNCS and not _is_stable_kind(node) and not _is_python_list_sort(node)
+            ):
                 self._flag(
                     node,
                     f'`.{name}(` without kind="stable"; use numerics.sort/argsort '

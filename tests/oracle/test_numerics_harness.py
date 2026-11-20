@@ -76,3 +76,21 @@ def test_scalars(matlab_engine) -> None:
     assert matlab_engine.eval("class(s)") == "double"
     assert matlab_engine.eval("class(i)") == "int32"
     assert matlab_engine.eval("isequal(size(s),[1 1])")
+
+
+def test_python_ints_become_double(matlab_engine) -> None:
+    put(matlab_engine, n=3, v=row([1, 2, 3]), m=[[1, 2], [3, 4]])
+    assert matlab_engine.eval("class(n)") == "double"
+    assert matlab_engine.eval("class(v)") == "double"
+    assert matlab_engine.eval("class(m)") == "double"
+    assert matlab_engine.eval("n/2") == 1.5
+
+
+def test_row_rejects_matrix() -> None:
+    with pytest.raises(ValueError, match="1-D"):
+        row(np.zeros((2, 2)))
+
+
+def test_matlab_cwd_is_temporary(matlab_engine, oracle) -> None:
+    cwd = matlab_engine.pwd()
+    assert str(oracle.path) not in cwd
