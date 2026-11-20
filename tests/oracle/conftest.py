@@ -75,9 +75,12 @@ def oracle_commit(path: Path) -> str:
 
 
 def oracle_status(path: Path) -> str:
-    """``git status --porcelain`` of the oracle (no lock files written)."""
+    """``git status --porcelain --ignored`` of the oracle (no lock files written).
+
+    ``--ignored`` matters: PROTEUS ignores RESULTS/ etc., which its code creates.
+    """
     out = subprocess.run(
-        ["git", "--no-optional-locks", "-C", str(path), "status", "--porcelain"],
+        ["git", "--no-optional-locks", "-C", str(path), "status", "--porcelain", "--ignored"],
         check=True,
         capture_output=True,
         text=True,
@@ -151,6 +154,8 @@ def matlab_engine(oracle: Oracle, tmp_path_factory: pytest.TempPathFactory) -> A
     for module in ORACLE_MODULES:
         folder = oracle.path / module
         if not folder.is_dir():
+            if not session:
+                eng.quit()
             pytest.fail(f"oracle module folder missing: {folder}")
         eng.addpath(eng.genpath(str(folder)), nargout=0)
     if SHIMS.is_dir():
