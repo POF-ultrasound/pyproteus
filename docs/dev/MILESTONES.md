@@ -24,14 +24,14 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 - [ ] Note findings in PROTEUS-py Project §Notes
 
 ### Repo setup
-- [ ] `pyproject.toml` (uv, requires-python >=3.11, extras `[cuda] [gui] [oracle] [docs] [dev]`)
-- [ ] ruff, pytest, pre-commit; CI on Linux/Windows/macOS arm64, Python 3.11-3.13
-- [ ] CI check banning bare `np.round`, `argsort` without `kind="stable"`, `np.interp`
+- [x] `pyproject.toml` (hatchling, requires-python >=3.11, extras `[cuda] [gui] [oracle] [docs] [dev]`)
+- [x] ruff, pytest, pre-commit; CI on Linux/Windows/macOS arm64, Python 3.11-3.13
+- [x] CI check banning bare `np.round`, `argsort` without `kind="stable"`, `np.interp`
 - [ ] Docs site skeleton; `docs/PARITY.md`, `docs/QUIRKS.md`, MATLAB→Python name table
-- [ ] CONTRIBUTING with the MATLAB-to-NumPy semantics checklist
+- [x] CONTRIBUTING with the MATLAB-to-NumPy semantics checklist
 
 ### Parity harness
-- [ ] `tests/oracle/`: fixture starting the MATLAB Engine with PROTEUS on the path; skipped without MATLAB
+- [x] `tests/oracle/`: fixture starting the MATLAB Engine with PROTEUS on the path; skipped without MATLAB
 - [ ] `tools/` reference export to HDF5 (per module, tiny/small/medium full runs)
 - [ ] pooch registry for reference data; first Zenodo record (draft)
 

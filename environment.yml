@@ -15,6 +15,7 @@ dependencies:
   - pytest-xdist
   - hypothesis
   - ruff
+  - pre-commit
   - ipykernel
   - pip
   - pip:

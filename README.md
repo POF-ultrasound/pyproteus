@@ -15,9 +15,12 @@ Python port of [PROTEUS](https://github.com/PROTEUS-SIM/PROTEUS), the simulator 
 ```bash
 conda env create -f environment.yml
 conda activate pyproteus
+pip install -e ".[dev]"
+pre-commit install
+pytest -m "not oracle"
 ```
 
-The MATLAB oracle tests also need MATLAB R2025a and `pip install "matlabengine==25.1.*"`; they are skipped without MATLAB. Contributors never need MATLAB.
+The MATLAB oracle tests also need MATLAB R2025a and `pip install "matlabengine==25.1.*"`; they are skipped without MATLAB. Contributors never need MATLAB. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
