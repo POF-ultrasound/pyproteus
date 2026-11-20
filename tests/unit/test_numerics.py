@@ -147,9 +147,10 @@ def test_interp1_options() -> None:
 
 def test_interp1_matrix_values_and_shape() -> None:
     v = np.array([[0.0, 1.0], [10.0, 11.0], [20.0, 21.0]])
-    out = nm.interp1([0, 1, 2], v, np.array([[0.5], [1.5]]))
-    assert out.shape == (2, 1, 2)
-    np.testing.assert_array_equal(out[:, 0, :], [[5, 6], [15, 16]])
+    # MATLAB: a column or row xq with matrix v gives numel(xq)×size(v,2)
+    for q in (np.array([[0.5], [1.5]]), np.array([[0.5, 1.5]]), np.array([0.5, 1.5])):
+        np.testing.assert_array_equal(nm.interp1([0, 1, 2], v, q), [[5, 6], [15, 16]])
+    assert nm.interp1([0, 1, 2], v, np.ones((2, 2))).shape == (2, 2, 2)
 
 
 @given(
@@ -286,3 +287,60 @@ def test_randi_and_interleaving() -> None:
     g = nm.rng(42)
     g.randi(10, 1, 2)
     assert g.rand().item() == np.random.RandomState(42).random_sample(3)[2]
+
+
+def test_interp1_flat_and_nonfinite_neighbours() -> None:
+    # MATLAB R2025a: flat segments give v0 exactly; nodes give the node value.
+    x = np.array([5.96, 9.08, 10.08, 10.58, 13.70])
+    v = np.array([1.0, 2.0, 2.0, 3.0, 3.0])
+    q = np.linspace(x[0], x[-1], 997)
+    out = nm.interp1(x, v, q)
+    flat = q >= x[3]
+    assert np.all(out[flat] == 3.0)
+    np.testing.assert_array_equal(
+        nm.interp1([0, 1, 2], [1, np.inf, 3], [0, 0.5, 1, 1.5, 2]), [1, np.inf, np.inf, np.inf, 3]
+    )
+    np.testing.assert_array_equal(
+        nm.interp1([0, 1, 2], [1, np.nan, 3], [0, 0.5, 2]), [1, np.nan, 3]
+    )
+    np.testing.assert_array_equal(
+        nm.interp1([0, 1, 2], [1, np.inf, 3], [-1, 3], extrap="extrap"), [-np.inf, -np.inf]
+    )
+
+
+def test_interp1_pchip_drops_nan_values() -> None:
+    # MATLAB: interp1([0 1 2 3],[1 NaN 3 2],q,'pchip') == pchip([0 2 3],[1 3 2],q)
+    q = np.array([0, 0.5, 1, 1.5, 2])
+    np.testing.assert_array_equal(
+        nm.interp1([0, 1, 2, 3], [1, np.nan, 3, 2], q, "pchip"), nm.pchip([0, 2, 3], [1, 3, 2], q)
+    )
+
+
+def test_sort_trailing_singleton_axis() -> None:
+    a = np.array([[3.0, 1.0], [2.0, 4.0]])
+    s, i = nm.sort(a, axis=2)  # MATLAB sort(A, 3)
+    np.testing.assert_array_equal(s, a)
+    np.testing.assert_array_equal(i, np.zeros((2, 2)))
+    with pytest.raises(ValueError):
+        nm.argsort(a, axis=-3)
+
+
+def test_ifft_symmetric_default_axis() -> None:
+    x = np.random.RandomState(0).standard_normal((6, 2))
+    X = np.fft.fft(x, axis=0)
+    np.testing.assert_allclose(nm.ifft_symmetric(X), x, atol=1e-12)  # MATLAB: along columns
+
+
+def test_random_size_rules() -> None:
+    assert nm.rng(1).rand(-2, 3).shape == (0, 3)
+    assert nm.rng(1).rand(2, 3, 1).shape == (2, 3)
+    assert nm.rng(1).rand(2, 1, 3).shape == (2, 1, 3)
+    with pytest.raises(ValueError):
+        nm.rng(1).randi(3.5, 2, 2)
+    with pytest.raises(ValueError):
+        nm.rng(1).rand(2.5)
+
+
+def test_convn_rejects_empty() -> None:
+    with pytest.raises(ValueError):
+        nm.convn(np.zeros((0, 3)), np.ones((2, 2)))

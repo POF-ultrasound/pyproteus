@@ -12,18 +12,29 @@ from numpy.typing import ArrayLike
 from .sorting import first_nonsingleton_axis
 
 
-def ifft_symmetric(x: ArrayLike, n: int | None = None, axis: int = -1) -> np.ndarray:
+def _axis(a: np.ndarray, axis: int | None) -> int:
+    if axis is None:
+        return first_nonsingleton_axis(a)
+    if not -a.ndim <= axis < a.ndim:
+        raise ValueError(f"axis {axis} out of range for {a.ndim}-D array")
+    return axis % a.ndim
+
+
+def ifft_symmetric(x: ArrayLike, n: int | None = None, axis: int | None = None) -> np.ndarray:
     """MATLAB ``ifft(X, n, dim, 'symmetric')``: real inverse FFT of a conjugate-symmetric X.
 
     Only the first ``n//2 + 1`` bins along ``axis`` are used (the rest are taken
     as the conjugate mirror); the imaginary parts of the DC bin and, for even
     ``n``, of the Nyquist bin are ignored. ``n`` defaults to ``X.shape[axis]``;
     a smaller ``n`` truncates and a larger one zero-pads X before the transform,
-    as MATLAB does. Note the MATLAB call ``ifft(X,[],2,'symmetric')`` is
-    ``ifft_symmetric(X, axis=1)`` here.
+    as MATLAB does. ``axis=None`` is MATLAB's default dimension (first
+    non-singleton axis). The MATLAB call ``ifft(X,[],2,'symmetric')`` is
+    ``ifft_symmetric(X, axis=1)``.
     """
     a = np.asarray(x)
-    ax = axis % a.ndim
+    if a.ndim == 0:
+        a = a.reshape(1)
+    ax = _axis(a, axis)
     m = a.shape[ax]
     if n is None:
         n = m
@@ -55,7 +66,7 @@ def hilbert(x: ArrayLike, axis: int | None = None) -> np.ndarray:
     a = a.astype(np.float64, copy=False)
     if a.ndim == 0:
         a = a.reshape(1)
-    ax = first_nonsingleton_axis(a) if axis is None else axis % a.ndim
+    ax = _axis(a, axis)
     n = a.shape[ax]
     if n == 0:
         return a.astype(np.complex128)

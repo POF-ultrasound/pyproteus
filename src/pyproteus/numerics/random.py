@@ -22,19 +22,33 @@ import numpy as np
 MATLAB_DEFAULT_SEED = 5489
 
 
+def _as_int(d) -> int:
+    if int(d) != d:
+        raise ValueError(f"size arguments must be integers, got {d!r}")
+    return max(int(d), 0)  # MATLAB treats negative sizes as 0
+
+
 def _size(args: tuple) -> tuple[int, ...]:
-    """MATLAB size arguments: rand(n) → n×n, rand(m,n,...), rand([m n ...])."""
+    """MATLAB size arguments: rand(n) → n×n, rand(m,n,...), rand([m n ...]).
+
+    Negative sizes count as 0 and trailing singleton dimensions beyond the
+    second are dropped, as in MATLAB.
+    """
     if len(args) == 0:
-        return (1, 1)
-    if len(args) == 1:
+        dims: tuple[int, ...] = (1, 1)
+    elif len(args) == 1:
         a = args[0]
         if isinstance(a, tuple | list | np.ndarray):
-            dims = tuple(int(d) for d in a)
+            dims = tuple(_as_int(d) for d in a)
             if len(dims) == 1:
-                return (dims[0], dims[0])
-            return dims
-        return (int(a), int(a))
-    return tuple(int(d) for d in args)
+                dims = (dims[0], dims[0])
+        else:
+            dims = (_as_int(a), _as_int(a))
+    else:
+        dims = tuple(_as_int(d) for d in args)
+    while len(dims) > 2 and dims[-1] == 1:
+        dims = dims[:-1]
+    return dims
 
 
 class MatlabRNG:
@@ -52,7 +66,7 @@ class MatlabRNG:
         self._rs = np.random.RandomState(MATLAB_DEFAULT_SEED if seed == 0 else int(seed))
 
     def _uniform(self, size: tuple[int, ...]) -> np.ndarray:
-        n = int(np.prod(size)) if size else 1
+        n = int(np.prod(size))
         return self._rs.random_sample(n).reshape(size, order="F")
 
     def rand(self, *size) -> np.ndarray:
@@ -61,10 +75,10 @@ class MatlabRNG:
 
     def randi(self, imax, *size) -> np.ndarray:
         """MATLAB ``randi(imax, ...)`` or ``randi([lo, hi], ...)``; returns doubles."""
-        if isinstance(imax, tuple | list | np.ndarray):
-            lo, hi = (int(v) for v in imax)
-        else:
-            lo, hi = 1, int(imax)
+        bounds = list(imax) if isinstance(imax, tuple | list | np.ndarray) else [1, imax]
+        if len(bounds) != 2 or any(int(b) != b for b in bounds):
+            raise ValueError("randi: imax must be an integer or [lo, hi] integers")
+        lo, hi = (int(b) for b in bounds)
         if hi < lo:
             raise ValueError("randi: upper bound must be >= lower bound")
         u = self._uniform(_size(size))

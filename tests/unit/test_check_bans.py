@@ -45,6 +45,7 @@ def lines_flagged(src: str) -> list[int]:
         "import numpy as np\nr = np.round\nr(x)",
         "import numpy as np\nf = np.interp",
         "from pyproteus import numerics as nm\nnp_alias = x\nx.sort()",
+        "import numpy as np\ndef f():\n    from pyproteus import numerics as np\nnp.sort(x)",
         "import numpy as np\nkey = np.argsort",
         "from numpy import *",
         "import numpy as np\nnp.floor(x + 0.5)",
@@ -75,6 +76,7 @@ def test_flags(src: str) -> None:
         "from pyproteus import numerics as nm\nnm.sort(x)\nnm.argsort(x)",
         "from pyproteus import numerics\nnumerics.argsort(x, direction='descend')",
         "import pyproteus.numerics as pn\npn.sort(x)",
+        "import pyproteus.numerics\npyproteus.numerics.sort(x)",
         "xs.sort(reverse=True)",
         "import numpy as np\nnp.sort(x, 0, 'stable')",
         "x.sort(0, 'stable')",
@@ -116,3 +118,9 @@ def test_main_exempts_numerics(tmp_path: Path, capsys: pytest.CaptureFixture[str
 
 def test_repository_is_clean() -> None:
     assert check_bans.main(["--root", str(ROOT)]) == 0
+
+
+def test_alias_conflict_reported() -> None:
+    src = "import numpy as np\nfrom pyproteus import numerics as np\nnp.sort(x)\nnp.round(x)\n"
+    flagged = check_bans.check_source(src, Path("x.py"))
+    assert len(flagged) == 3  # two calls + the conflict itself

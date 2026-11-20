@@ -148,3 +148,13 @@ def test_convn_smooth_distribution_pattern(matlab_engine) -> None:
     put(matlab_engine, p=p, ir=ir)
     matlab_engine.eval("pyp_r = convn(p, ir);", nargout=0)
     assert_rel(nm.convn(p, ir), get(matlab_engine, "pyp_r"))
+
+
+def test_ifft_symmetric_default_dim(matlab_engine) -> None:
+    rs = np.random.RandomState(11)
+    for shape in [(6, 2), (1, 7), (7, 1), (1, 4, 3)]:
+        X = rs.standard_normal(shape) + 1j * rs.standard_normal(shape)
+        put(matlab_engine, X=X)
+        matlab_engine.eval("pyp_r = ifft(X, 'symmetric');", nargout=0)
+        ref = np.asarray(get(matlab_engine, "pyp_r")).reshape(shape)
+        assert_rel(nm.ifft_symmetric(X), ref, err_msg=str(shape))

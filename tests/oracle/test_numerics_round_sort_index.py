@@ -103,9 +103,7 @@ def test_sort_random_nd(matlab_engine, arrays, direction, dim) -> None:
     fn = f"@(x) sort(x, '{direction}')" if dim is None else f"@(x) sort(x, {dim}, '{direction}')"
     S, I = batch(matlab_engine, fn, arrays, nargout=2)
     for a, s_m, i_m in zip(arrays, S, I, strict=True):
-        axis = None if dim is None else dim - 1
-        if axis is not None and axis >= a.ndim:
-            continue  # sorting along a trailing singleton dimension: identity
+        axis = None if dim is None else dim - 1  # dim > ndim: trailing singleton
         s, i = nm.sort(a, axis=axis, direction=direction)
         assert_same_float(s, s_m.reshape(s.shape), err_msg=f"{a} {dim}")
         np.testing.assert_array_equal(i + 1, i_m.reshape(i.shape))
@@ -151,3 +149,13 @@ def test_sub2ind_ind2sub(matlab_engine, shape, data) -> None:
     args = ", ".join(f"s{k}" for k in range(len(shape)))
     matlab_engine.eval(f"back = sub2ind(sz, {args});", nargout=0)
     np.testing.assert_array_equal(nm.sub2ind(shape, *subs) + 1, vec(get(matlab_engine, "back")))
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.int64, np.uint8])
+def test_sort_integer_dtypes(matlab_engine, dtype) -> None:
+    a = np.array([[3, 1, 2, 1, 0, 3], [0, 0, 5, 1, 1, 2]], dtype=dtype)
+    S, I = batch(matlab_engine, "@(x) sort(x, 2, 'descend')", [a], nargout=2)
+    s, i = nm.sort(a, axis=1, direction="descend")
+    np.testing.assert_array_equal(s, S[0])
+    assert S[0].dtype == np.dtype(dtype)
+    np.testing.assert_array_equal(i + 1, I[0])

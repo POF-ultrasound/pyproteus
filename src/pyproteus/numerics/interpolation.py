@@ -4,12 +4,15 @@ Clean-room implementations from the MATLAB documentation (behaviour), the
 Fritsch–Carlson (1980) and Fritsch–Butland (1984) papers, and Moler's
 *Numerical Computing with MATLAB* (2004), ch. 3 (shape-preserving end slopes),
 and de Boor, *A Practical Guide to Splines* (Hermite data → piecewise polynomial).
-No MathWorks source was consulted. Bit-level agreement with MATLAB was found by
-black-box comparison (``tests/oracle/test_numerics_interp.py``).
+No MathWorks source was consulted. Where several algebraically equal forms
+exist, the one used here was chosen by black-box comparison with MATLAB outputs
+(``tests/oracle/test_numerics_interp.py``).
 
-Linear interpolation uses ``v0*(1-t) + v1*t`` with ``t = (xq-x0)/(x1-x0)``:
-this matched MATLAB R2025a ``interp1`` and ``griddedInterpolant`` on every
-tested query, and it is exact at the nodes.
+Linear interpolation uses ``v0*(1-t) + v1*t`` with ``t = (xq-x0)/(x1-x0)``,
+with two corrections found by black-box comparison: flat segments
+(``v0 == v1``) return ``v0``, and on a node a NaN caused only by a zero weight
+times Inf/NaN is replaced by the node value. This matched MATLAB R2025a
+``interp1`` and ``griddedInterpolant`` on every tested query.
 """
 
 from __future__ import annotations
@@ -36,9 +39,23 @@ def _linear(x: np.ndarray, v: np.ndarray, xq: np.ndarray) -> np.ndarray:
     x0, x1 = x[k], x[k + 1]
     v0, v1 = v[k], v[k + 1]
     t = (xq - x0) / (x1 - x0)
+    at_left, at_right = xq == x0, xq == x1
     if v.ndim > 1:
-        t = t.reshape(t.shape + (1,) * (v.ndim - 1))
-    return v0 * (1 - t) + v1 * t
+        expand = (1,) * (v.ndim - 1)
+        t = t.reshape(t.shape + expand)
+        at_left = at_left.reshape(at_left.shape + expand)
+        at_right = at_right.reshape(at_right.shape + expand)
+    with np.errstate(invalid="ignore"):
+        out = v0 * (1 - t) + v1 * t
+    # Matched MATLAB by black-box comparison (all {1, ±0, ±Inf, NaN, 2} triples):
+    # - on a node, a NaN produced only by the zero weight (0 * Inf, 0 * NaN) is
+    #   replaced by the node value; otherwise the blend stands (so the sign of a
+    #   zero follows the blend, e.g. v = [1, -0] at the right node gives +0);
+    # - flat segments (v0 == v1) return v0 exactly (the blend can be 1 ulp off).
+    blend_nan = np.isnan(out)
+    out = np.where(blend_nan & at_left, v0, out)
+    out = np.where(blend_nan & at_right, v1, out)
+    return np.where(v0 == v1, v0, out)
 
 
 def _nearest(x: np.ndarray, v: np.ndarray, xq: np.ndarray) -> np.ndarray:
@@ -81,10 +98,17 @@ def pchip_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 
 def _end_slope(h0, h1, del0, del1):
-    d = ((2 * h0 + h1) * del0 - h0 * del1) / (h0 + h1)
-    d = np.where(np.sign(d) != np.sign(del0), 0.0, d)
-    limit = (np.sign(del0) != np.sign(del1)) & (np.abs(d) > np.abs(3 * del0))
-    return np.where(limit, 3 * del0, d)
+    """End derivative from the end interval (h0, del0) and its neighbour (h1, del1).
+
+    Formula (Moler 2004, §3.4, text): the derivative at the end of the quadratic
+    through the first three points, d = ((2 h0 + h1) del0 - h0 del1) / (h0 + h1),
+    set to 0 if its sign differs from del0, and to 3 del0 if the secants change
+    sign and |d| > |3 del0| (keeps the end interval monotone).
+    """
+    quadratic = ((2 * h0 + h1) * del0 - h0 * del1) / (h0 + h1)
+    wrong_sign = np.sign(quadratic) != np.sign(del0)
+    too_steep = (np.sign(del0) != np.sign(del1)) & (np.abs(quadratic) > np.abs(3 * del0))
+    return np.where(wrong_sign, 0.0, np.where(too_steep, 3 * del0, quadratic))
 
 
 def _hermite(x: np.ndarray, y: np.ndarray, d: np.ndarray, xq: np.ndarray) -> np.ndarray:
@@ -94,14 +118,18 @@ def _hermite(x: np.ndarray, y: np.ndarray, d: np.ndarray, xq: np.ndarray) -> np.
     if y.ndim > 1:
         h = h.reshape(h.shape + (1,) * (y.ndim - 1))
     delta = np.diff(y, axis=0) / h
-    # Coefficients of y_k + d_k s + c_k s^2 + b_k s^3, s = xq - x_k, from the
-    # divided differences of the Hermite data (de Boor, A Practical Guide to
-    # Splines, ch. IV). This grouping of operations reproduced MATLAB's pchip
-    # coefficients bit for bit; the algebraically equal (3δ - 2d0 - d1)/h did not.
-    dzzdx = (delta - d[:-1]) / h
-    dzdxdx = (d[1:] - delta) / h
-    c = 2 * dzzdx - dzdxdx
-    b = (dzdxdx - dzzdx) / h
+    # Newton form of the cubic with double nodes x_k, x_k, x_{k+1}, x_{k+1}
+    # (de Boor, A Practical Guide to Splines, ch. I):
+    #   p(s) = y_k + d_k s + [x_k,x_k,x_{k+1}] s^2 + [x_k,x_k,x_{k+1},x_{k+1}] s^2 (s - h)
+    # with second divided differences left = (δ - d_k)/h, right = (d_{k+1} - δ)/h
+    # and third divided difference (right - left)/h. Expanding gives the power-
+    # form coefficients below. Black-box comparison with MATLAB's unmkpp(pchip)
+    # showed this grouping is bit-identical, while the algebraically equal
+    # (3δ - 2d_k - d_{k+1})/h is not (see docs/dev/LOG.md).
+    dd2_left = (delta - d[:-1]) / h
+    dd2_right = (d[1:] - delta) / h
+    c = 2 * dd2_left - dd2_right
+    b = (dd2_right - dd2_left) / h
     s = xq - x[k]
     if y.ndim > 1:
         s = s.reshape(s.shape + (1,) * (y.ndim - 1))
@@ -172,12 +200,24 @@ def interp1(
     - ``x`` need not be sorted (sorted together with ``v``); duplicate points raise.
     - ``v`` may be a vector or have trailing dimensions (interpolated along axis 0).
     - ``'nearest'``: a query exactly halfway takes the upper point.
-    - Output shape: ``xq.shape`` for vector ``v``, else ``xq.shape + v.shape[1:]``.
+    - ``'pchip'`` drops sample points whose value is NaN (MATLAB does, with a
+      warning); ``'linear'``/``'nearest'`` keep them.
+    - Output shape: ``xq.shape`` for vector ``v``, else ``xq.shape + v.shape[1:]``
+      (a row/column ``xq`` counts as a vector, as in MATLAB).
     """
     if extrap is None and method == "pchip":
         extrap = "extrap"
     xa, va = _prepare(x, v, sort=True)
+    if method == "pchip" and va.ndim == 1 and np.isnan(va).any():
+        # MATLAB interp1 drops NaN sample values for 'pchip' (with a warning);
+        # 'linear' and 'nearest' keep them.
+        keep = ~np.isnan(va)
+        if keep.sum() < 2:
+            raise ValueError("fewer than two non-NaN sample values")
+        xa, va = xa[keep], va[keep]
     xq_arr = np.asarray(xq, dtype=np.float64)
+    if va.ndim > 1 and xq_arr.ndim == 2 and 1 in xq_arr.shape:
+        xq_arr = xq_arr.reshape(-1)  # MATLAB: vector xq with matrix v gives numel(xq)×m
     out = _evaluate(xa, va, xq_arr, method, extrap)
     return out.reshape(xq_arr.shape + va.shape[1:])
 

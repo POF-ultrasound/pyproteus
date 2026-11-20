@@ -35,7 +35,9 @@ def convn(
 
     Arrays of different dimensionality are padded with *trailing* singleton
     axes (MATLAB semantics), so a 2-D kernel acts on the first two axes of a
-    3-D array. Inputs are converted to float64 (or complex128).
+    3-D array. **A 1-D NumPy array therefore counts as a MATLAB column**: for
+    MATLAB ``convn(p, IR)`` with a row ``IR`` (``compute_RF``), pass ``IR`` with
+    shape ``(1, n)``. Inputs are converted to float64 (or complex128).
     """
     aa = np.asarray(a)
     bb = np.asarray(b)
@@ -46,10 +48,10 @@ def convn(
     if shape not in ("full", "same", "valid"):
         raise ValueError(f"shape must be 'full', 'same' or 'valid', not {shape!r}")
     if aa.size == 0 or bb.size == 0:
-        full_shape = tuple(max(p + q - 1, 0) for p, q in zip(aa.shape, bb.shape, strict=True))
-        full = np.zeros(full_shape, dtype=dtype)
-    else:
-        full = signal.convolve(aa, bb, mode="full", method=method)
+        # MATLAB's sizes for empty convn inputs are irregular (conv errors);
+        # PROTEUS never convolves empties, so refuse rather than guess.
+        raise ValueError("convn of an empty array is not supported")
+    full = signal.convolve(aa, bb, mode="full", method=method)
     if shape == "full":
         return full
     slices = []

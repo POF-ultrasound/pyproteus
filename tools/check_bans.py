@@ -110,6 +110,12 @@ class _Visitor(ast.NodeVisitor):
                     )
         self.generic_visit(node)
 
+    def _is_wrapper(self, expr: ast.expr) -> bool:
+        """``nm`` (an import alias of pyproteus.numerics) or the dotted path itself."""
+        if isinstance(expr, ast.Name):
+            return expr.id in self.wrapper_aliases
+        return ast.unparse(expr) == WRAPPER_MODULE
+
     def _is_numpy(self, expr: ast.expr) -> bool:
         return isinstance(expr, ast.Name) and expr.id in self.numpy_aliases
 
@@ -144,9 +150,7 @@ class _Visitor(ast.NodeVisitor):
                 "`floor(x + 0.5)` is not MATLAB round (wrong for negatives and "
                 "0.49999999999999994); use numerics.matlab_round",
             )
-        elif isinstance(func, ast.Attribute) and not (
-            isinstance(func.value, ast.Name) and func.value.id in self.wrapper_aliases
-        ):
+        elif isinstance(func, ast.Attribute) and not self._is_wrapper(func.value):
             name = func.attr
             if name == "round" or (name in ROUND_FUNCS and self._is_numpy(func.value)):
                 self._flag(node, f"`.{name}(` rounds halves to even; use numerics.matlab_round")
@@ -179,7 +183,15 @@ def check_source(source: str, path: Path) -> list[Violation]:
             for alias in node.names:
                 if f"{node.module}.{alias.name}" == WRAPPER_MODULE:
                     visitor.wrapper_aliases.add(alias.asname or alias.name)
+    # A name bound to both numpy and pyproteus.numerics is never trusted.
+    conflicts = visitor.numpy_aliases & visitor.wrapper_aliases
+    visitor.wrapper_aliases -= conflicts
     visitor.visit(tree)
+    for name in sorted(conflicts):
+        visitor._flag(
+            tree.body[0] if tree.body else tree,
+            f"`{name}` is bound to both numpy and pyproteus.numerics",
+        )
     return visitor.violations
 
 

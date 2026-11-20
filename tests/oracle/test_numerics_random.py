@@ -85,3 +85,17 @@ def test_random_call_sequences(matlab_engine, seed, calls) -> None:
         assert m.size == ref.size, call
         if m.size:
             assert_same_float(m, ref, err_msg=str(call))
+
+
+def test_size_rules(matlab_engine) -> None:
+    matlab_engine.eval(
+        "rng(3,'twister'); a = size(rand(-2,3)); b = size(rand(2,3,1)); c = rand(2,1,3);"
+        "d = size(rand(0)); e = rand(1,1,1,2);",
+        nargout=0,
+    )
+    g = nm.rng(3)
+    assert tuple(get(matlab_engine, "a").ravel().astype(int)) == g.rand(-2, 3).shape
+    assert tuple(get(matlab_engine, "b").ravel().astype(int)) == g.rand(2, 3, 1).shape
+    assert_same_float(g.rand(2, 1, 3), get(matlab_engine, "c"))
+    assert tuple(get(matlab_engine, "d").ravel().astype(int)) == g.rand(0).shape
+    assert_same_float(g.rand(1, 1, 1, 2), get(matlab_engine, "e"))

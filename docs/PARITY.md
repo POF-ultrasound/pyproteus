@@ -34,7 +34,18 @@ Notes:
 - Every oracle test runs Hypothesis-generated batches as well as fixed tie cases;
   `PYPROTEUS_ORACLE_EXAMPLES=300` was used for the sweep recorded in `docs/dev/LOG.md`.
 - `rng(0,'twister')` is MT19937 seed 5489 (MATLAB's default state), not seed 0.
+- Linear interpolation (interp1, griddedInterpolant) is `v0*(1-t)+v1*t` plus two
+  corrections found by black-box comparison: flat segments return `v0`, and on a
+  node a NaN caused only by a zero weight (0·Inf) is replaced by the node value.
+  Checked exhaustively over all {1, ±0, ±Inf, NaN, 2} value triples.
 - pchip: SciPy's `PchipInterpolator` has the same slopes but different
   coefficient rounding (≈ 89 % of points bit-equal, up to thousands of ulp near
-  zero crossings). `pyproteus.numerics` uses its own clean-room Hermite form,
-  which matches MATLAB bit for bit.
+  zero crossings). `pyproteus.numerics` uses the Newton divided-difference form
+  (de Boor), chosen among algebraically equal forms by comparing with MATLAB's
+  `unmkpp(pchip(...))` coefficients; it matches bit for bit.
+- `interp1(...,'pchip')` drops NaN sample values like MATLAB. Not compared yet:
+  `pchip(x,v,xq)` and `griddedInterpolant(...,'pchip')` with NaN in `v`.
+- `convn`/`conv` with empty inputs raise `ValueError` (MATLAB's sizes are irregular;
+  PROTEUS never does this).
+- Out of scope so far: `fft`/plain `ifft` with MATLAB's default dimension (use
+  `np.fft` with an explicit `axis`), `unique`/`intersect`/`ismember` index order.

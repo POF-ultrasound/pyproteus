@@ -12,7 +12,16 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from pyproteus import numerics as nm
-from tests.oracle.helpers import ORACLE_SETTINGS, assert_same_float, get, put, row, vec
+from tests.oracle.helpers import (
+    ORACLE_SETTINGS,
+    assert_same_float,
+    batch,
+    col,
+    get,
+    put,
+    row,
+    vec,
+)
 
 ORACLE = ORACLE_SETTINGS
 
@@ -28,7 +37,9 @@ def _grid(draw, n, decreasing=False):
 def interp_case(draw):
     n = draw(st.integers(2, 25))
     x = _grid(draw, n)
-    v = np.array(draw(st.lists(st.floats(-1e3, 1e3), min_size=n, max_size=n)))
+    # Small integer values make flat segments (v0 == v1) common.
+    value = st.one_of(st.floats(-1e3, 1e3), st.integers(-2, 2).map(float))
+    v = np.array(draw(st.lists(value, min_size=n, max_size=n)))
     span = x[-1] - x[0]
     q = list(draw(st.lists(st.floats(x[0] - span, x[-1] + span), min_size=1, max_size=60)))
     q += [*x, x[0], x[-1], np.nan, *((x[:-1] + x[1:]) / 2)]  # nodes, midpoints
@@ -138,3 +149,77 @@ def test_errors_like_matlab(matlab_engine, bad) -> None:
         matlab_engine.eval("interp1(x, v, 1.5);", nargout=0)
     with pytest.raises(ValueError):
         nm.interp1(bad, [1.0, 2.0, 3.0], 1.5)
+
+
+FLAT_X = np.array([5.96, 9.08, 10.08, 10.58, 13.70, 14.1, 17.3, 18.0])
+FLAT_V = np.array([1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0])
+NONFINITE = [
+    (np.array([0.0, 1.0, 2.0]), np.array([1.0, np.inf, 3.0])),
+    (np.array([0.0, 1.0, 2.0]), np.array([1.0, np.nan, 3.0])),
+    (np.array([0.0, 1.0, 2.0]), np.array([-np.inf, np.inf, np.inf])),
+    (np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.1, 0.1, -np.inf, 0.1])),
+    (FLAT_X, FLAT_V * 0.1),
+    (np.array([0.0, 1.0]), np.array([0.0, -0.0])),
+    (np.array([0.0, 1.0, 2.0]), np.array([0.0, -0.0, 0.0])),
+    (np.array([0.0, 1.0, 2.0]), np.array([-0.0, 0.0, np.nan])),
+]
+
+
+@pytest.mark.parametrize(("x", "v"), [(FLAT_X, FLAT_V), *NONFINITE])
+def test_linear_fixed_cases(matlab_engine, x, v) -> None:
+    span = x[-1] - x[0]
+    q = np.concatenate([np.linspace(x[0] - span, x[-1] + span, 2001), x])
+    put(matlab_engine, x=row(x), v=row(v), q=row(q))
+    matlab_engine.eval(
+        "pyp_a = interp1(x, v, q); pyp_b = interp1(x, v, q, 'linear', 'extrap');"
+        "pyp_F = griddedInterpolant(x, v); pyp_c = pyp_F(q);",
+        nargout=0,
+    )
+    a, b, c = (vec(get(matlab_engine, n)) for n in ("pyp_a", "pyp_b", "pyp_c"))
+    assert_same_float(nm.interp1(x, v, q), a)
+    assert_same_float(nm.interp1(x, v, q, extrap="extrap"), b)
+    assert_same_float(nm.gridded_interpolant(x, v)(q), c)
+
+
+def test_pchip_nan_values(matlab_engine) -> None:
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.5])
+    v = np.array([1.0, np.nan, 3.0, 2.0, 2.5])
+    q = np.linspace(-1, 5.5, 131)
+    put(matlab_engine, x=row(x), v=row(v), q=row(q))
+    matlab_engine.eval("pyp_a = interp1(x, v, q, 'pchip');", nargout=0)
+    assert_same_float(nm.interp1(x, v, q, "pchip"), vec(get(matlab_engine, "pyp_a")))
+
+
+@pytest.mark.parametrize("q_shape", [(1, 5), (5, 1), (5,)])
+def test_matrix_values_vector_query_shape(matlab_engine, q_shape) -> None:
+    xs = np.array([0.0, 1.0, 2.5, 4.0])
+    vm = np.arange(12.0).reshape(4, 3) ** 2
+    qs = np.array([-1.0, 0.5, 2.5, 3.9, 5.0])
+    q = qs.reshape(q_shape)
+    put(matlab_engine, xs=col(xs), vm=vm, qs=q if q.ndim == 2 else row(q))
+    matlab_engine.eval("pyp_r = interp1(xs, vm, qs);", nargout=0)
+    assert_same_float(nm.interp1(xs, vm, q), get(matlab_engine, "pyp_r"))
+
+
+SPECIAL = [1.0, -0.0, 0.0, np.inf, -np.inf, np.nan, 2.0]
+
+
+@pytest.mark.parametrize("n", [2, 3])
+def test_linear_special_value_combinations(matlab_engine, n) -> None:
+    """Every combination of special values at nodes, midpoints and outside."""
+    import itertools
+
+    x = np.arange(float(n))
+    q = np.array([-1.0, *np.arange(0, n - 0.5, 0.5), n - 1.0, float(n)])
+    cases = [np.array(c) for c in itertools.product(SPECIAL, repeat=n)]
+    put(matlab_engine, x=row(x), q=row(q))
+    rows = [row(c) for c in cases]
+    (A,) = batch(matlab_engine, "@(v) interp1(x, v, q)", rows)
+    (B,) = batch(matlab_engine, "@(v) interp1(x, v, q, 'linear', 'extrap')", rows)
+    (C,) = batch(
+        matlab_engine, "@(v) subsref(griddedInterpolant(x, v), substruct('()', {q}))", rows
+    )
+    for c, a, b, g in zip(cases, A, B, C, strict=True):
+        assert_same_float(nm.interp1(x, c, q), vec(a), err_msg=str(c))
+        assert_same_float(nm.interp1(x, c, q, extrap="extrap"), vec(b), err_msg=str(c))
+        assert_same_float(nm.gridded_interpolant(x, c)(q), vec(g), err_msg=str(c))
