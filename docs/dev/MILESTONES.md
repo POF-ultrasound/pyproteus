@@ -27,7 +27,7 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 - [x] `pyproject.toml` (hatchling, requires-python >=3.11, extras `[cuda] [gui] [oracle] [docs] [dev]`)
 - [x] ruff, pytest, pre-commit; CI on Linux/Windows/macOS arm64, Python 3.11-3.13
 - [x] CI check banning bare `np.round`, `argsort` without `kind="stable"`, `np.interp`
-- [ ] Docs site skeleton; `docs/PARITY.md`, `docs/QUIRKS.md`, MATLAB→Python name table
+- [ ] Docs site skeleton (open); [x] `docs/PARITY.md`, `docs/QUIRKS.md`, MATLAB→Python name table (in CONTRIBUTING.md)
 - [x] CONTRIBUTING with the MATLAB-to-NumPy semantics checklist
 
 ### Parity harness
@@ -36,13 +36,13 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 - [ ] pooch registry for reference data; first Zenodo record (draft)
 
 ### Numerics helpers
-- [ ] MATLAB `round` (halves away from zero)
-- [ ] stable sort / argsort wrappers
-- [ ] Fortran-order index helpers (`find`, `sub2ind`, `ind2sub`)
-- [ ] `interp1` (NaN outside), `griddedInterpolant` (linear extrapolation), `pchip` wrappers
-- [ ] symmetric `ifft` (`irfft`), `hilbert` along axis 0, `convn(...,'same')`
-- [ ] MT19937 `rand`/`randi` matching MATLAB `rng(seed,'twister')`
-- [ ] Oracle tests for every helper, with tie-hitting inputs
+- [x] MATLAB `round` (halves away from zero)
+- [x] stable sort / argsort wrappers
+- [x] Fortran-order index helpers (`find`, `sub2ind`, `ind2sub`)
+- [x] `interp1` (NaN outside), `griddedInterpolant` (linear extrapolation), `pchip` wrappers
+- [x] symmetric `ifft` (`irfft`), `hilbert` along axis 0, `convn(...,'same')`
+- [x] MT19937 `rand`/`randi` matching MATLAB `rng(seed,'twister')`
+- [x] Oracle tests for every helper, with tie-hitting inputs
 
 ### Settings
 - [ ] pydantic models for the 7 settings groups, accepting MATLAB field names
