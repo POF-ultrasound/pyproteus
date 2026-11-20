@@ -37,7 +37,8 @@ Notes:
 - Linear interpolation (interp1, griddedInterpolant) is `v0*(1-t)+v1*t` plus two
   corrections found by black-box comparison: flat segments return `v0`, and on a
   node a NaN caused only by a zero weight (0·Inf) is replaced by the node value.
-  Checked exhaustively over all {1, ±0, ±Inf, NaN, 2} value triples.
+  Checked exhaustively over all {1, ±0, ±Inf, NaN, 2} value triples. Matrix-valued
+  `v` can differ in the sign of zero on ±0 flat segments (B-20; not used by PROTEUS).
 - pchip: SciPy's `PchipInterpolator` has the same slopes but different
   coefficient rounding (≈ 89 % of points bit-equal, up to thousands of ulp near
   zero crossings). `pyproteus.numerics` uses the Newton divided-difference form

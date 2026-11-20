@@ -20,6 +20,10 @@ must use the ``pyproteus.numerics`` wrappers instead. Flagged:
 
 A line can opt out with a trailing ``# bans: allow`` comment and a reason.
 
+Limitation: calls on a ``pyproteus.numerics`` import alias (``nm.sort``) are
+trusted by name, so a local variable or parameter that shadows the alias is
+trusted too. Don't reuse the alias name for anything else.
+
 Usage: ``python tools/check_bans.py [paths...]`` (default: ``src tests tools``).
 Exit status 1 when anything is flagged.
 """
