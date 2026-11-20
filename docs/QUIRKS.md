@@ -15,4 +15,10 @@ Format:
 - Planned fix: what changes after parity, and its expected effect
 ```
 
-_No quirks recorded yet._
+## Q-1 — `alpha_mode='no_dispersion'` is ignored on the k-Wave C++/CUDA path (B-14)
+- MATLAB: `acoustic-module/define_medium.m:80-81` sets `medium.alpha_mode = 'no_dispersion'` when `|alpha_power - 1| < 0.1`; `run_simulation.m` passes the medium to `kspaceFirstOrder3DC`/`3DG` (`sim_setup.m:12,18`).
+- Behaviour: the k-Wave C++ HDF5 input format has no `alpha_mode` field, so MATLAB 3DC/3DG run full power-law absorption **with** dispersion; the output is bit-identical with and without `alpha_mode`. Only PROTEUS' MATLAB-native `kspaceFirstOrder3D` mode (local movie) honours it.
+- Ported in: `tools/tracer_bullet/adapter.py` `medium_for_kwp` (drops `alpha_mode` for the k-wave-python `cpp` backend; refuses it for the `python` backend, which would apply it: 16 % different on the tracer case). Moves to `pyproteus.backends.kwave` in M3.
+- Test: `tests/oracle/test_kwave_tracer.py::test_matlab_3dc_ignores_alpha_mode`, case `pressure_nodisp`.
+- Open: how the M3 self-sense runs on the `python` backend should handle it (with the developer).
+- Planned fix: after parity, honour `no_dispersion` on every backend (or drop the setting from `define_medium`), so all solvers agree; changes absorption-dispersion near y = 1.

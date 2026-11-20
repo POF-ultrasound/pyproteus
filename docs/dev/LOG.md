@@ -2,6 +2,16 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-20 — M0 k-Wave tracer bullet (kwave-tracer)
+- Tiny PROTEUS-style hybrid cases (37×29×23, Nt=300, PML 10/12/9 outside, `Smooth=false`, heterogeneous nonlinear absorbing medium with a "vessel", asymmetric masks): pressure (linear array, monopole) and velocity (curved array, `ux`/`uy` along the normal). `tools/tracer_bullet/`, test `tests/oracle/test_kwave_tracer.py` (three cases incl. `no_dispersion`).
+- Binary: MATLAB k-Wave 1.4.1 ships none for macOS arm64; both sides use k-wave-python's `kspaceFirstOrder-OMP` v1.4.1 (C++ build 2.17, "v1.3") through a wrapper (`bin/kspaceFirstOrder-OMP`) that points dyld at an isolated conda prefix with fftw/hdf5/libomp/zlib (`setup_libs.sh`, gitignored `.kwave-libs/`). MATLAB's `kspaceFirstOrder3DC` accepts the binary's HDF5 format unchanged.
+- Results vs MATLAB `kspaceFirstOrder3DC`: k-wave-python `kspaceFirstOrder(backend="cpp")` 4.4e-7 / 5.6e-7 rel (pressure / velocity), `backend="python"` 6.8e-7 / 5.4e-7. cpp HDF5 inputs identical to MATLAB's except `rho0_sg*` last plane (B-13). Source scaling (additive p and u) reproduced bit-exactly from the documented formulas.
+- Found B-10 (backend conventions: cpp needs find-order rows + external scaling, returns `(Nt, n_sensor)`; python wants C rows), B-11 (engine vs pyexpat), B-12 (legacy API scaling bug + crash), B-13 (staggered density wrap).
+- Reviewer pass: added a `no_dispersion` case (found B-14), per-row error check (≤ 8.9e-6 at rows ≥ 1e-3 of the peak; tolerance 2e-5 per row), undo of k-wave-python's time-axis permutation when `Nt == n_sensor`, per-axis velocity scaling, pinned runtime libs.
+- Scope not covered (later milestones): parity is against `kspaceFirstOrder3DC` on the OMP binary only (references must be generated with 3DC, not MATLAB-native `kspaceFirstOrder3D`/CUDA `3DG`); dipole source with `ux` only; the merged-mask source of `update_source.m`; source signals ≥ Nt.
+- Open: cluster GPU compute capability (needs developer); upstream reports for B-10/B-12/B-13; B-14 decision (QUIRKS entry, python backend for self-sense).
+- Next: M3 lifts `adapter.py`/`ordering.py` into `backends/kwave.py`.
+
 ## 2026-11-20 — M0 numerics helpers (m0-setup)
 - Setup PR merged (POF-ultrasound/pyproteus#1). Numerics on branch `m0/numerics`.
 - `src/pyproteus/numerics/`: `matlab_round`, `sort`/`argsort` (stable both directions, MATLAB NaN placement, default dim), `find`/`sub2ind`/`ind2sub` (0-based, column-major), `interp1` (linear/nearest/pchip, NaN outside, `'extrap'`, fill), `gridded_interpolant` (1-D, extrapolates with its method), `pchip`, `ifft_symmetric`, `hilbert` (MATLAB axis rule), `conv`/`convn` (full/same/valid, trailing-singleton semantics), `rng`/`MatlabRNG` (`rand`, `randi`).

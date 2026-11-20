@@ -15,13 +15,13 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 
 ### k-Wave tracer bullet (do first)
 - [x] conda env `pyproteus`: Python 3.12, `matlabengine` 25.1.2, k-wave-python 0.6.2 (2026-11-20)
-- [ ] Tiny hybrid case run in MATLAB with the real 3DC binary; save source, sensor mask and sensor data
-- [ ] Same case through k-wave-python `cpp` backend
-- [ ] Asymmetric mask test: map source and sensor rows between Fortran (MATLAB) and C order (k-wave-python)
-- [ ] Compare sensor data (target ≤ 1e-5 rel); check additive pressure source scaling
-- [ ] Velocity source (`ux`/`uy`, curved array) case
-- [ ] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older
-- [ ] Note findings in PROTEUS-py Project §Notes
+- [x] Tiny hybrid case run in MATLAB with the real 3DC binary; save source, sensor mask and sensor data (2026-11-20, `tools/tracer_bullet/`)
+- [x] Same case through k-wave-python `cpp` backend (2026-11-20; also `python` backend)
+- [x] Asymmetric mask test: map source and sensor rows between Fortran (MATLAB) and C order (k-wave-python) (2026-11-20, `tools/tracer_bullet/adapter.py`, B-10)
+- [x] Compare sensor data (target ≤ 1e-5 rel); check additive pressure source scaling (2026-11-20: ≤ 7e-7; source inputs bit-identical)
+- [x] Velocity source (`ux`/`uy`, curved array) case (2026-11-20)
+- [ ] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older (open: needs cluster access, see findings note)
+- [x] Note findings in PROTEUS-py Project §Notes (2026-11-20, shared note `tracer-bullet-findings.md`; mirror to Obsidian pending)
 
 ### Repo setup
 - [x] `pyproject.toml` (hatchling, requires-python >=3.11, extras `[cuda] [gui] [oracle] [docs] [dev]`)
