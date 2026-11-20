@@ -125,7 +125,7 @@ def _hermite(x: np.ndarray, y: np.ndarray, d: np.ndarray, xq: np.ndarray) -> np.
     # and third divided difference (right - left)/h. Expanding gives the power-
     # form coefficients below. Black-box comparison with MATLAB's unmkpp(pchip)
     # showed this grouping is bit-identical, while the algebraically equal
-    # (3δ - 2d_k - d_{k+1})/h is not (see docs/dev/LOG.md).
+    # (3δ - 2d_k - d_{k+1})/h is not. Clean-room status: docs/dev/DECISIONS.md D-8.
     dd2_left = (delta - d[:-1]) / h
     dd2_right = (d[1:] - delta) / h
     c = 2 * dd2_left - dd2_right

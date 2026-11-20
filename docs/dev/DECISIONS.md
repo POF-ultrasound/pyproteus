@@ -22,3 +22,6 @@ Milestone sessions merge their own PRs into `main` once CI is green and a review
 
 ## D-7 — Oracle reference (2026-11-20)
 Until PROTEUS v1.1.0 is tagged, the oracle is PROTEUS commit `8d37938` (revamp branch), checked out read-only at `PROTEUS-cleaning/PROTEUS-oracle` (detached git worktree). Every reference file records this commit. Re-pin to the `v1.1.0` tag when it exists.
+
+## D-8 — pchip coefficient form is clean-room (2026-11-20)
+Keep the de Boor divided-difference form for the pchip power-form coefficients in `pyproteus.numerics` (`_hermite` in `src/pyproteus/numerics/interpolation.py`, see the "Newton form of the cubic with double nodes" comment). The form is derived from the Newton divided-difference representation of the cubic Hermite interpolant in de Boor, *A Practical Guide to Splines*. Among algebraically equal forms it was chosen by black-box comparison with MATLAB output (`unmkpp(pchip(...))` coefficients and evaluated values), because it is bit-identical to MATLAB where the textbook `(3δ - 2d_k - d_{k+1})/h` form is not. No MathWorks source was read. Raised by the PR #2 reviewer (resemblance to `pwch.m`, from memory, unverified); option (a) chosen by the developer over falling back to the ≤ 1e-12 textbook form. Who: developer, via the main session.
