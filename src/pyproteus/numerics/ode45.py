@@ -25,16 +25,20 @@ other solver step for step):
 - error measure ``err = max_i |h (f @ E)_i| / max(|y_i|, |ynew_i|, AbsTol_i/RelTol)``
   (scale ``max(|y|, |ynew|)`` as in Hairer et al. eq. (4.10)); the step is
   accepted when ``err <= RelTol``, i.e. the documented test;
-- new step ``h * min(facmax, max(facmin, 0.9 (RelTol/err)^(1/5)))``, Hairer et
-  al. eq. (4.13) with the defaults of their DOPRI5 code (safety 0.9,
-  ``facmin = 0.2``, ``facmax = 10``) and ``facmax = 1`` right after a rejected
-  step (their recommendation); the same rule after repeated rejections;
-- also from their DOPRI5 code: the step is stretched to land on ``tfinal``
-  when ``1.01 h`` would reach it (here only if the remaining distance is
-  within ``MaxStep``, which is never exceeded); integration stops with a
-  warning when ``|h| <= 10 eps |t|`` (own addition: ``|t|`` is floored at
-  ``|tfinal - t0|`` so the test also works near ``t = 0``); ``RelTol`` must
-  exceed ``10 eps``;
+- new step ``h * min(facmax, max(facmin, 0.9 (RelTol/err)^(1/5)))``: Hairer et
+  al. eq. (4.13) with the safety factor and bounds of their DOPRI5 code
+  (0.9, ``facmin = 0.2``, ``facmax = 10``), and ``facmax = 1`` for the step
+  that follows a rejection (their recommendation; the step may still shrink);
+  after a rejection the retry uses ``max(facmin, 0.9 (RelTol/err)^(1/5))``;
+- own choice: no step-size stabilisation (DOPRI5's default ``beta = 0.04``
+  is not used; plain eq. (4.13) is the textbook controller and PROTEUS'
+  bubble problems are non-stiff, where the gain is small);
+- from DOPRI5: every attempt lands on ``tfinal`` when ``1.01 h`` reaches it
+  (here only if the remaining distance is within ``MaxStep``, which is never
+  exceeded); ``RelTol`` must exceed ``10 eps``; integration stops with a
+  warning when the error test fails at ``|h| <= 10 eps |t|`` (own addition:
+  ``|t|`` is floored at ``|tfinal - t0|`` so the test also works near
+  ``t = 0``);
 - starting step from Hairer et al. §II.4 (one extra RHS call), capped by
   ``MaxStep``; ``InitialStep`` overrides it; with a non-finite RHS at ``t0``
   the start is ``MaxStep`` and error control shrinks it;
@@ -87,6 +91,12 @@ _D = np.array(
         69997945 / 29380423,
     ]
 )
+
+#: Step-size controller constants (Hairer, Nørsett & Wanner, DOPRI5 defaults).
+_SAFETY = 0.9
+_FACMIN = 0.2
+_FACMAX = 10.0
+_EPS = float(np.finfo(float).eps)
 
 #: ``odeset`` names understood by :func:`ode45`. ``BDF``/``MaxOrder`` are
 #: ``ode15s`` options; they do not apply to ode45 and are ignored (PROTEUS
@@ -196,129 +206,129 @@ def ode45(
         raise ValueError("tspan must be finite")
     if tspan.size < 2:
         raise ValueError("tspan must have at least 2 elements")
-    t0, tfinal = float(tspan[0]), float(tspan[-1])
-    if t0 == tfinal:
+    t_start, t_end = float(tspan[0]), float(tspan[-1])
+    if t_start == t_end:
         raise ValueError("the last entry of tspan must differ from the first")
-    tdir = 1.0 if tfinal > t0 else -1.0
-    if np.any(tdir * np.diff(tspan) <= 0):
+    sign = 1.0 if t_end > t_start else -1.0
+    if np.any(sign * np.diff(tspan) <= 0):
         raise ValueError("tspan must be strictly increasing or strictly decreasing")
-    y0 = np.asarray(y0, dtype=np.float64).reshape(-1, order="F").copy()
-    neq = y0.size
+    x0 = np.asarray(y0, dtype=np.float64).reshape(-1, order="F").copy()
+    n = x0.size
 
     rtol = float(opts.get("RelTol", 1e-3))
     atol = np.asarray(opts.get("AbsTol", 1e-6), dtype=np.float64).reshape(-1)
-    if atol.size not in (1, neq):
+    if atol.size not in (1, n):
         raise ValueError("AbsTol must be a scalar or have one entry per equation")
     if rtol <= 0 or np.any(atol <= 0):
         raise ValueError("RelTol and AbsTol must be positive")
-    if rtol <= 10 * np.finfo(float).eps:
+    if rtol <= 10 * _EPS:
         raise ValueError("RelTol must exceed 10*eps")
-    atol_vec = np.broadcast_to(atol, (neq,)).copy()
+    atol = np.broadcast_to(atol, (n,)).copy()
     norm_control = str(opts.get("NormControl", "off")).lower() == "on"
-    if norm_control and atol.size != 1:
+    if norm_control and np.any(atol != atol[0]):
         raise ValueError("NormControl 'on' needs a scalar AbsTol")
-    span = abs(tfinal - t0)
-    hmax = float(opts.get("MaxStep", 0.1 * span))
-    if hmax <= 0:
+    span = abs(t_end - t_start)
+    max_step = float(opts.get("MaxStep", 0.1 * span))
+    if max_step <= 0:
         raise ValueError("MaxStep must be positive")
     refine = int(opts.get("Refine", 4))
     if refine < 1:
         raise ValueError("Refine must be a positive integer")
     output_fcn: OutputFcn | None = opts.get("OutputFcn")
-    threshold = atol_vec / rtol
+    floor = (
+        atol / rtol
+    )  # |e_i| <= max(RelTol |y_i|, AbsTol_i)  <=>  |e_i| / max(|y_i|, floor_i) <= RelTol
 
     stats = ODEStats()
 
-    def call(t: float, y: np.ndarray) -> np.ndarray:
+    def rhs(t: float, x: np.ndarray) -> np.ndarray:
         stats.nfevals += 1
-        out = np.asarray(fun(t, y), dtype=np.float64).reshape(-1, order="F")
-        if out.size != neq:
-            raise ValueError(f"odefun returned {out.size} values, expected {neq}")
+        out = np.asarray(fun(t, x), dtype=np.float64).reshape(-1, order="F")
+        if out.size != n:
+            raise ValueError(f"odefun returned {out.size} values, expected {n}")
         return out
 
-    def error(y: np.ndarray, ynew: np.ndarray, est: np.ndarray) -> float:
+    def scaled_error(x: np.ndarray, x_next: np.ndarray, est: np.ndarray) -> float:
         if norm_control:
-            scale = max(np.linalg.norm(y), np.linalg.norm(ynew), float(threshold[0]))
-            return float(np.linalg.norm(est)) / scale
-        scale = np.maximum(np.maximum(np.abs(y), np.abs(ynew)), threshold)
-        return float(np.max(np.abs(est) / scale)) if neq else 0.0
+            denom = max(np.linalg.norm(x), np.linalg.norm(x_next), float(floor[0]))
+            return float(np.linalg.norm(est)) / denom
+        denom = np.maximum(np.maximum(np.abs(x), np.abs(x_next)), floor)
+        return float(np.max(np.abs(est) / denom)) if n else 0.0
 
-    t = t0
-    y = y0
-    f = np.empty((neq, 7))
-    f[:, 0] = call(t, y)
-    eps = np.finfo(float).eps
-    span_floor = abs(tfinal - t0)
-    hmin = 10 * eps * max(abs(t), span_floor)
+    def min_step(t: float) -> float:
+        return 10 * _EPS * max(abs(t), span)
 
-    # Starting step (Hairer, Nørsett & Wanner, §II.4, with the order-4 estimate).
+    t = t_start
+    x = x0
+    k = np.empty((n, 7))
+    k[:, 0] = rhs(t, x)
+
+    # Starting step: Hairer, Nørsett & Wanner, §II.4 (order-4 estimate, exponent 1/5).
     if opts.get("InitialStep") is not None:
-        absh = float(opts["InitialStep"])
-        if absh <= 0:
+        step = float(opts["InitialStep"])
+        if step <= 0:
             raise ValueError("InitialStep must be positive")
-    elif not np.all(np.isfinite(f[:, 0])):
-        absh = hmax  # no meaningful estimate; error control takes over
+    elif not np.all(np.isfinite(k[:, 0])):
+        step = max_step  # no usable estimate; error control shrinks it
     else:
-        sc = atol_vec + np.abs(y) * rtol
-        d0 = _scaled_rms(y, sc)
-        d1 = _scaled_rms(f[:, 0], sc)
+        sc = atol + np.abs(x) * rtol
+        d0 = _scaled_rms(x, sc)
+        d1 = _scaled_rms(k[:, 0], sc)
         h0 = 1e-6 if (d0 < 1e-5 or d1 < 1e-5) else 0.01 * d0 / d1
-        h0 = min(h0, hmax, span)
-        f1 = call(t + tdir * h0, y + tdir * h0 * f[:, 0])
-        d2 = _scaled_rms(f1 - f[:, 0], sc) / h0
-        dm = max(d1, d2)
-        if not np.isfinite(dm):
-            absh = h0
+        h0 = min(h0, max_step, span)
+        k1 = rhs(t + sign * h0, x + sign * h0 * k[:, 0])
+        d2 = _scaled_rms(k1 - k[:, 0], sc) / h0
+        if not (np.isfinite(d1) and np.isfinite(d2)):
+            step = h0
         else:
+            dm = max(d1, d2)
             h1 = max(1e-6, h0 * 1e-3) if dm <= 1e-15 else (0.01 / dm) ** (1 / 5)
-            absh = min(100 * h0, h1)
-    absh = min(max(absh, hmin), hmax, span)
+            step = min(100 * h0, h1)
+    step = min(max(step, min_step(t)), max_step, span)
 
     many = tspan.size > 2
-    tout: list[float] = [t0]
-    yout: list[np.ndarray] = [y0.copy()]
-    t_steps: list[float] = [t0]
-    y_steps: list[np.ndarray] = [y0.copy()]
-    next_idx = 1  # next tspan entry to output (many-point mode)
+    tout: list[float] = [t_start]
+    yout: list[np.ndarray] = [x0.copy()]
+    t_steps: list[float] = [t_start]
+    y_steps: list[np.ndarray] = [x0.copy()]
+    next_out = 1  # next tspan entry to output (many-point mode)
     stopped = False
     message = ""
     if output_fcn is not None:
-        output_fcn(tspan.copy(), y0.copy(), "init")
+        output_fcn(tspan.copy(), x0.copy(), "init")
 
-    done = False
-    while not done:
-        hmin = 10 * eps * max(abs(t), span_floor)
-        absh = min(hmax, max(hmin, absh))
-        remaining = abs(tfinal - t)
-        if 1.01 * absh >= remaining and remaining <= hmax:  # land on tfinal
-            absh = remaining
-            done = True
-
-        nofailed = True
+    finished = False
+    while not finished:
+        hmin = min_step(t)
+        step = min(max_step, max(hmin, step))
+        rejected = False
         while True:
-            h = tdir * absh
+            remaining = abs(t_end - t)
+            # Land on t_end when 1.01*step reaches it (HNW DOPRI5), never beyond MaxStep.
+            last = 1.01 * step >= remaining and remaining <= max_step
+            if last:
+                step = remaining
+            h = sign * step
             for i in range(1, 6):
-                f[:, i] = call(t + _C[i] * h, y + h * (f[:, :i] @ _A[i, :i]))
-            tnew = tfinal if done else t + h
-            h = tnew - t  # the step actually taken
-            ynew = y + h * (f[:, :6] @ _B[:6])
-            f[:, 6] = call(tnew, ynew)
-            err = error(y, ynew, abs(h) * (f @ _E))
+                k[:, i] = rhs(t + _C[i] * h, x + h * (k[:, :i] @ _A[i, :i]))
+            t_next = t_end if last else t + h
+            h = t_next - t  # the step actually taken
+            x_next = x + h * (k[:, :6] @ _B[:6])
+            k[:, 6] = rhs(t_next, x_next)
+            err = scaled_error(x, x_next, abs(h) * (k @ _E))
             if err <= rtol:
                 break
             stats.nfailed += 1
-            if absh <= hmin:
+            if step <= hmin:
                 message = (
-                    f"Failure at t={t:e}: unable to meet integration tolerances "
-                    f"without reducing the step size below the smallest value "
-                    f"allowed ({hmin:e})."
+                    f"ode45 stopped at t = {t:.6e}: the error test fails even at the "
+                    f"smallest allowed step ({hmin:.3e})."
                 )
                 warnings.warn(message, RuntimeWarning, stacklevel=2)
                 break
-            nofailed = False
-            shrink = max(0.2, 0.9 * (rtol / err) ** 0.2) if np.isfinite(err) else 0.2
-            absh = max(hmin, absh * min(1.0, shrink))
-            done = False
+            rejected = True
+            factor = max(_FACMIN, _SAFETY * (rtol / err) ** 0.2) if np.isfinite(err) else _FACMIN
+            step = max(hmin, step * min(1.0, factor))
         if message:
             stopped = True
             break
@@ -327,48 +337,49 @@ def ode45(
         new_t: list[float] = []
         new_y: list[np.ndarray] = []
         if many:
-            while next_idx < tspan.size and tdir * (tnew - tspan[next_idx]) >= 0:
-                tq = float(tspan[next_idx])
+            while next_out < tspan.size and sign * (t_next - tspan[next_out]) >= 0:
+                tq = float(tspan[next_out])
                 new_t.append(tq)
-                if tq == tnew:
-                    new_y.append(ynew.copy())
+                if tq == t_next:
+                    new_y.append(x_next.copy())
                 else:
-                    new_y.append(_dense(y, ynew, f, h, (tq - t) / h))
-                next_idx += 1
+                    new_y.append(_dense(x, x_next, k, h, (tq - t) / h))
+                next_out += 1
         else:
-            for k in range(1, refine):
-                theta = k / refine
+            for j in range(1, refine):
+                theta = j / refine
                 new_t.append(t + h * theta)
-                new_y.append(_dense(y, ynew, f, h, theta))
-            new_t.append(tnew)
-            new_y.append(ynew.copy())
+                new_y.append(_dense(x, x_next, k, h, theta))
+            new_t.append(t_next)
+            new_y.append(x_next.copy())
         tout.extend(new_t)
         yout.extend(new_y)
-        t_steps.append(tnew)
-        y_steps.append(ynew.copy())
+        t_steps.append(t_next)
+        y_steps.append(x_next.copy())
 
+        finished = last
         stop = (
             output_fcn is not None and new_t and output_fcn(np.array(new_t), np.array(new_y).T, "")
         )
         if stop:
-            stopped = not done
-            done = True
-
-        if done:
+            stopped = not last
+            finished = True
+        if finished:
             break
-        if nofailed:
-            absh *= 10.0 if err == 0 else min(10.0, 0.9 * (rtol / err) ** 0.2)
-        t, y = tnew, ynew
-        f[:, 0] = f[:, 6]
+        # Next step, HNW eq. (4.13); facmax = 1 right after a rejection.
+        factor = _FACMAX if err == 0 else _SAFETY * (rtol / err) ** 0.2
+        step *= min(1.0 if rejected else _FACMAX, max(_FACMIN, factor))
+        t, x = t_next, x_next
+        k[:, 0] = k[:, 6]
 
     if output_fcn is not None:
-        output_fcn(np.empty(0), np.empty((neq, 0)), "done")
+        output_fcn(np.empty(0), np.empty((n, 0)), "done")
 
     return ODEResult(
         t=np.array(tout),
-        y=np.array(yout).reshape(len(tout), neq),
+        y=np.array(yout).reshape(len(tout), n),
         t_steps=np.array(t_steps),
-        y_steps=np.array(y_steps).reshape(len(t_steps), neq),
+        y_steps=np.array(y_steps).reshape(len(t_steps), n),
         stats=stats,
         stopped=stopped,
         message=message,

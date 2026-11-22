@@ -87,7 +87,7 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7.
 
 ### Clean-room ode45
-- [x] Implement Dormand-Prince from Shampine & Reichelt 1997 (no MATLAB source): error norm, step-size rule, initial step, `Refine` Hermite output (from the papers; solutions within the provisional tolerance class)
+- [x] Implement Dormand-Prince from Shampine & Reichelt 1997 (no MATLAB source): error norm, step-size rule, initial step, `Refine` Hermite output (from the papers; DOPRI5 dense output for `Refine`; solutions within class D-13)
 - [x] Vectorised over a batch of bubbles (stacked system, as MATLAB does; Q-50)
 - [ ] Oracle tests on simple ODEs and on `simple_RP` (simple ODEs and an RP-like RHS done; `simple_RP` itself waits for its port)
 

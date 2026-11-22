@@ -210,16 +210,16 @@ def test_outputfcn_protocol_and_stop() -> None:
 
 @pytest.mark.parametrize("rtol", [1e-3, 1e-6, 1e-9])
 def test_step_size_failure_warns_and_stops(rtol) -> None:
-    with pytest.warns(RuntimeWarning, match="unable to meet integration tolerances"):
+    with pytest.warns(RuntimeWarning, match="error test fails"):
         r = ode45(lambda t, y: y * y, [0, 2], [1.0], odeset(RelTol=rtol))  # blow-up at t = 1
     assert r.stopped and abs(r.t[-1] - 1.0) < 1e-3
 
 
 def test_nonfinite_rhs() -> None:
-    with pytest.warns(RuntimeWarning, match="unable to meet"):
+    with pytest.warns(RuntimeWarning, match="error test fails"):
         r = ode45(lambda t, y: np.full(1, np.nan), [0, 1], [1.0])
     assert r.stopped and r.t[-1] == 0.0
-    with pytest.warns(RuntimeWarning, match="unable to meet"):
+    with pytest.warns(RuntimeWarning, match="error test fails"):
         r = ode45(lambda t, y: np.array([np.nan if t > 0.5 else -y[0]]), [0, 1], [1.0])
     assert r.stopped and 0.45 < r.t[-1] <= 0.5 + 1e-12
     assert np.all(np.isfinite(r.y))
@@ -278,21 +278,114 @@ def test_refine_points_equally_spaced_within_steps() -> None:
         np.testing.assert_allclose(np.diff(seg), (seg[-1] - seg[0]) / 5, rtol=1e-9)
 
 
+def _steps_with_calls(f, tspan, y0, opts):
+    """Accepted steps and the RHS calls each one took (via OutputFcn, Refine=1)."""
+    calls = [0]
+    marks: list[int] = []
+
+    def counted(t, y):
+        calls[0] += 1
+        return f(t, y)
+
+    def ofcn(t, y, flag):
+        if flag == "":
+            marks.append(calls[0])
+        return False
+
+    r = ode45(counted, tspan, y0, odeset(**opts, Refine=1, OutputFcn=ofcn))
+    per_step = np.diff([marks[0] - 6, *marks]) if marks else np.array([])
+    return r, np.diff(r.t_steps), per_step
+
+
 def test_no_growth_right_after_rejection() -> None:
-    """After a rejected attempt the accepted step is not followed by a larger one."""
+    """The step after a rejected-then-accepted step is never larger (HNW: facmax = 1)."""
     a, c, w = 200.0, 0.5, 0.01
     f = lambda t, y: -a * np.exp(-(((t - c) / w) ** 2)) * y  # noqa: E731
-    r = ode45(f, [0, 1], [1.0], odeset(InitialStep=0.3, MaxStep=1.0, Refine=1, RelTol=1e-6))
-    assert r.stats.nfailed > 0
+    r, h, calls = _steps_with_calls(f, [0, 1], [1.0], {"InitialStep": 0.3, "RelTol": 1e-6})
+    had_reject = np.nonzero(calls[:-1] > 6)[0]
+    assert had_reject.size > 0 and r.stats.nfailed > 0
+    for i in had_reject:
+        assert h[i + 1] <= h[i] * (1 + 1e-12), (i, h[i], h[i + 1])
+
+
+def test_growth_factor_bounded_by_facmax() -> None:
+    """Zero error estimate: steps grow by exactly facmax = 10 until MaxStep."""
+    r = ode45(lambda t, y: 0 * y, [0, 1], [1.0], odeset(InitialStep=1e-6, MaxStep=1.0, Refine=1))
     h = np.diff(r.t_steps)
-    assert h[1] <= h[0] * (1 + 1e-12)  # first step was the rejected-then-accepted one
+    np.testing.assert_allclose(h[1:5] / h[:4], 10.0, rtol=1e-12)
 
 
-def test_y0_shape_and_unpacking() -> None:
-    r = ode45(lambda t, y: -y, [0, 1], np.ones((2, 3)))
-    assert r.y.shape[1] == 6
-    t, y = r
-    assert t is r.t and y is r.y
+def test_error_test_uses_max_norm() -> None:
+    """Componentwise (documented) test: zero padding changes nothing; an RMS norm would."""
+    osc = lambda t, y: np.concatenate([[y[1], -y[0]], np.zeros(y.size - 2)])  # noqa: E731
+    base = ode45(osc, [0, 10], [1.0, 0.0], odeset(RelTol=1e-6, AbsTol=1e-9))
+    padded = ode45(osc, [0, 10], np.r_[1.0, 0.0, np.zeros(8)], odeset(RelTol=1e-6, AbsTol=1e-9))
+    np.testing.assert_array_equal(base.t_steps, padded.t_steps)
+
+
+@pytest.mark.parametrize(("target", "rejects"), [(0.8, False), (1.25, True)])
+def test_accept_threshold_is_reltol(target, rejects) -> None:
+    """A first attempt whose scaled error is 0.8*RelTol is accepted, 1.25*RelTol rejected."""
+    f = lambda t, y: np.array([np.cos(3 * t) * y[0]])  # noqa: E731
+    rtol, atol = 1e-6, 1e-12
+    # scaled error of one step grows like h^5: solve for h giving the target
+    h_ref = 0.1
+    e_ref = _scaled_err_for_test(f, np.array([1.0]), h_ref, rtol, atol)
+    h = h_ref * (target * rtol / e_ref) ** 0.2
+    for _ in range(20):  # refine (h^5 law is only asymptotic)
+        h *= (target * rtol / _scaled_err_for_test(f, np.array([1.0]), h, rtol, atol)) ** 0.2
+    r = ode45(f, [0, 1], [1.0], odeset(InitialStep=h, RelTol=rtol, AbsTol=atol, MaxStep=1.0))
+    first_ok = r.t_steps[1] == pytest.approx(h, rel=1e-12)
+    assert first_ok != rejects
+
+
+def _scaled_err_for_test(f, y, h, rtol, atol):
+    y5, est = _one_step(f, 0.0, y, h)
+    return np.max(np.abs(est) / np.maximum(np.maximum(np.abs(y), np.abs(y5)), atol / rtol))
+
+
+def _first_err(h, rtol=1e-6, atol=1e-12):
+    f = lambda t, y: np.array([np.cos(3 * t) * y[0]])  # noqa: E731
+    return f, _scaled_err_for_test(f, np.array([1.0]), h, rtol, atol) / rtol
+
+
+def test_step_update_uses_safety_09() -> None:
+    """After an accepted first step: h_next = h * 0.9 (RelTol/err)^(1/5) (within facmin..facmax)."""
+    h = 0.05
+    f, e = _first_err(h)
+    r = ode45(
+        f, [0, 1], [1.0], odeset(InitialStep=h, RelTol=1e-6, AbsTol=1e-12, Refine=1, MaxStep=1.0)
+    )
+    assert r.t_steps[1] == pytest.approx(h, rel=1e-14)
+    expected = h * min(10.0, max(0.2, 0.9 * e**-0.2))
+    assert r.t_steps[2] - r.t_steps[1] == pytest.approx(expected, rel=1e-9)
+
+
+def test_rejection_shrink_bounded_by_facmin() -> None:
+    """A first attempt with err ~ 2500*RelTol is retried with exactly 0.2*h."""
+    h = 0.05
+    for _ in range(30):  # scale h so the first attempt's scaled error is ~2500
+        h *= (2500 / _first_err(h)[1]) ** 0.2
+    f, e = _first_err(h)
+    assert 0.9 * e**-0.2 < 0.2 and _first_err(0.2 * h)[1] < 1
+    r = ode45(
+        f, [0, 1], [1.0], odeset(InitialStep=h, RelTol=1e-6, AbsTol=1e-12, Refine=1, MaxStep=1.0)
+    )
+    assert r.stats.nfailed >= 1
+    assert r.t_steps[1] == pytest.approx(0.2 * h, rel=1e-12)
+
+
+def test_landing_rule_is_1_01() -> None:
+    """Remaining distance 1.05*step is not stretched (1.01 rule): two steps, the last 0.05."""
+    r = ode45(lambda t, y: 0 * y, [0, 1.05], [1.0], odeset(InitialStep=1.0, MaxStep=2.0, Refine=1))
+    np.testing.assert_allclose(r.t_steps, [0.0, 1.0, 1.05], rtol=1e-14)
+    r = ode45(lambda t, y: 0 * y, [0, 1.005], [1.0], odeset(InitialStep=1.0, MaxStep=2.0, Refine=1))
+    np.testing.assert_array_equal(r.t_steps, [0.0, 1.005])
+
+
+def test_reltol_just_above_floor_accepted() -> None:
+    r = ode45(lambda t, y: -y, [0, 0.01], [1.0], odeset(RelTol=5e-15, AbsTol=1e-20))
+    assert r.y[-1, 0] == pytest.approx(np.exp(-0.01), rel=1e-12)
 
 
 @pytest.mark.parametrize(

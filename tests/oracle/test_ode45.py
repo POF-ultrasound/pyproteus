@@ -10,8 +10,8 @@ ODEs at about 10·RelTol rel + AbsTol abs of the solver settings): per component
 
 compared at ``tspan`` points (many-point ``tspan``) or at the final time
 (2-point ``tspan``, where the output times are each solver's own steps).
-Each case also checks both solvers against a tight reference solution
-(``RelTol=1e-12``) with the same bound.
+Each case also checks both solvers against an independent reference
+(SciPy ``solve_ivp`` DOP853, ``rtol=1e-13``) with the same bound.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from scipy.integrate import solve_ivp
 
 from pyproteus.numerics import ode45, odeset
 from tests.oracle.helpers import col, from_matlab, row, to_matlab
@@ -201,6 +202,23 @@ CASES = [
 ]
 
 
+def reference(fun, tspan, y0):
+    """Independent high-accuracy solution (SciPy DOP853) at tspan (or at tf for 2 points)."""
+    tspan = np.asarray(tspan, dtype=float)
+    t_eval = tspan if tspan.size > 2 else tspan[-1:]
+    sol = solve_ivp(
+        fun,
+        (tspan[0], tspan[-1]),
+        np.asarray(y0, dtype=float),
+        method="DOP853",
+        t_eval=t_eval,
+        rtol=1e-13,
+        atol=1e-15,
+    )
+    assert sol.success, sol.message
+    return sol.t, sol.y.T
+
+
 def _check(r_t, r_y, tm, ym, tspan, opts, label) -> None:
     rtol = opts.get("RelTol", 1e-3)
     atol = opts.get("AbsTol", 1e-6)
@@ -220,9 +238,13 @@ def test_solution_matches_matlab(matlab_engine, rhs, tspan, y0, opts, p) -> None
     fun = py_rhs(rhs, p)
     r = ode45(fun, tspan, y0, odeset(**opts))
     _check(r.t, r.y, tm, ym, tspan, opts, "pyproteus vs MATLAB")
-    ref = ode45(fun, tspan, y0, odeset(**(opts | {"RelTol": 1e-12, "AbsTol": 1e-14})))
-    _check(r.t, r.y, ref.t, ref.y, tspan, opts, "pyproteus vs reference")
-    _check(tm, ym, ref.t, ref.y, tspan, opts, "MATLAB vs reference")
+    ref_t, ref_y = reference(fun, tspan, y0)
+    if len(tspan) == 2:  # compare the final value only
+        _check(r.t[-1:], r.y[-1:], ref_t, ref_y, tspan, opts, "pyproteus vs reference")
+        _check(tm[-1:], ym[-1:], ref_t, ref_y, tspan, opts, "MATLAB vs reference")
+    else:
+        _check(r.t, r.y, ref_t, ref_y, tspan, opts, "pyproteus vs reference")
+        _check(tm, ym, ref_t, ref_y, tspan, opts, "MATLAB vs reference")
 
 
 @pytest.mark.parametrize("n_bubbles", [1, 4, 16])
@@ -233,6 +255,9 @@ def test_rayleigh_plesset_batch(matlab_engine, n_bubbles) -> None:
     r = ode45(lambda t, y: rp_rhs(t, y, p), tau, y0, odeset(**opts))
     assert r.stats.nsteps > 200, "case too easy"
     _check(r.t, r.y, tm, ym, tau, opts, f"RP batch of {n_bubbles}")
+    ref_t, ref_y = reference(lambda t, y: rp_rhs(t, y, p), tau, y0)
+    _check(r.t, r.y, ref_t, ref_y, tau, opts, "pyproteus vs reference")
+    _check(tm, ym, ref_t, ref_y, tau, opts, "MATLAB vs reference")
 
 
 def test_batch_dependence_similar(matlab_engine) -> None:
