@@ -18,7 +18,9 @@ import numpy as np
 import pytest
 
 from pyproteus import config
-from pyproteus.config import properties as prop
+from pyproteus import medium as pmed
+from pyproteus import microbubble as pmb
+from pyproteus import transducer as ptr
 from pyproteus.config.matfile import StructArray, loadmat
 from pyproteus.config.models import Gas, Geometry, Medium, Transducer, Vessel
 from tests.oracle.conftest import oracle_path
@@ -262,7 +264,7 @@ def test_reset_transmit(meng: Any, ttype: str) -> None:
         " pyp_T__ = estimate_impulse_response(pyp_T__); end",
         nargout=0,
     )
-    T = prop.get_transducer_properties(Transducer(Type=mtype))
+    T = ptr.get_transducer_properties(Transducer(Type=mtype))
     if ttype == "no-configuration":
         meng.eval("pyp_T__ = rmfield(pyp_T__, 'Configuration');", nargout=0)
         T.rmfield("Configuration")
@@ -317,7 +319,7 @@ def test_reset_geometry_keeps_other_fields(meng: Any, oracle: Any) -> None:
 @pytest.mark.parametrize("ttype", [*CATALOGUE, "Unknown type"])
 def test_get_transducer_properties(meng: Any, ttype: str) -> None:
     expected = matlab_flatten(meng, f"get_transducer_properties(struct('Type','{ttype}'))")
-    actual = py_struct(prop.get_transducer_properties(Transducer(Type=ttype)))
+    actual = py_struct(ptr.get_transducer_properties(Transducer(Type=ttype)))
     assert_same_tree(actual, expected)
 
 
@@ -337,7 +339,7 @@ def test_get_transducer_properties_custom_linear(meng: Any, irtype: str | None) 
         fields += f",'ImpulseResponseType','{irtype}'"
         py.ImpulseResponseType = irtype
     expected = matlab_flatten(meng, f"get_transducer_properties(struct({fields}))")
-    assert_same_tree(py_struct(prop.get_transducer_properties(py)), expected)
+    assert_same_tree(py_struct(ptr.get_transducer_properties(py)), expected)
 
 
 # Model files written by MATLAB into a temporary folder: (name, MATLAB code
@@ -399,14 +401,14 @@ def test_load_transducer_model(meng: Any, tmp_path: Path, case: str) -> None:
     meng.eval("pyp_T__ = get_transducer_properties(struct('Type','P4-1'));", nargout=0)
     expected = matlab_flatten(meng, f"load_transducer_model(pyp_T__, '{tmp_path}')")
     meng.eval("clear pyp_T__", nargout=0)
-    T = prop.get_transducer_properties(Transducer(Type="P4-1"))
-    actual = py_struct(prop.load_transducer_model(T, tmp_path))
+    T = ptr.get_transducer_properties(Transducer(Type="P4-1"))
+    actual = py_struct(ptr.load_transducer_model(T, tmp_path))
     assert_same_tree(actual, expected)
 
 
 def test_load_transducer_model_no_file(meng: Any, tmp_path: Path) -> None:
     expected = matlab_flatten(meng, f"load_transducer_model(struct('Type','P4-1'), '{tmp_path}')")
-    actual = py_struct(prop.load_transducer_model(Transducer(Type="P4-1"), tmp_path))
+    actual = py_struct(ptr.load_transducer_model(Transducer(Type="P4-1"), tmp_path))
     assert_same_tree(actual, expected)
 
 
@@ -425,13 +427,13 @@ def test_load_transducer_model_errors(meng: Any, tmp_path: Path, case: str) -> N
     )
     assert meng.workspace["pyp_id__"] == ident
     with pytest.raises(ValueError, match=ident):
-        prop.load_transducer_model(Transducer(Type="P4-1"), tmp_path)
+        ptr.load_transducer_model(Transducer(Type="P4-1"), tmp_path)
 
 
 @pytest.mark.parametrize("gas", ["Sulfur hexafluoride", "Perfluoropropane", "Perfluorobutane"])
 def test_get_gas_properties(meng: Any, gas: str) -> None:
     expected = matlab_flatten(meng, f"get_gas_properties(struct('Type','{gas}'))")
-    assert_same_tree(py_struct(prop.get_gas_properties(Gas(Type=gas))), expected)
+    assert_same_tree(py_struct(pmb.get_gas_properties(Gas(Type=gas))), expected)
 
 
 def test_get_gas_properties_unknown(meng: Any) -> None:
@@ -440,7 +442,7 @@ def test_get_gas_properties_unknown(meng: Any) -> None:
     with pytest.raises(matlab.engine.MatlabExecutionError, match="Gas not found"):
         meng.eval("get_gas_properties(struct('Type','Air'));", nargout=0)
     with pytest.raises(ValueError, match="Gas not found"):
-        prop.get_gas_properties(Gas(Type="Air"))
+        pmb.get_gas_properties(Gas(Type="Air"))
 
 
 def _tissue_names() -> list[str]:
@@ -465,14 +467,14 @@ TISSUES = [
 @pytest.mark.parametrize("tissue", TISSUES)
 def test_assign_medium_properties(meng: Any, tissue: str) -> None:
     expected = matlab_flatten(meng, f"assign_medium_properties(struct('Tissue','{tissue}'))")
-    actual = py_struct(prop.assign_medium_properties(Medium(Tissue=tissue)))
+    actual = py_struct(pmed.assign_medium_properties(Medium(Tissue=tissue)))
     assert_same_tree(actual, expected)
 
 
 def test_assign_medium_properties_custom(meng: Any) -> None:
     expr = "assign_medium_properties(struct('Tissue','Custom','SpeedOfSound',1234,'X',1))"
     expected = matlab_flatten(meng, expr)
-    actual = prop.assign_medium_properties(Medium(Tissue="Custom", SpeedOfSound=1234.0, X=1.0))
+    actual = pmed.assign_medium_properties(Medium(Tissue="Custom", SpeedOfSound=1234.0, X=1.0))
     assert_same_tree(py_struct(actual), expected)
 
 
@@ -484,7 +486,7 @@ def test_assign_medium_properties_not_found(meng: Any, tissue: str) -> None:
     with pytest.raises(matlab.engine.MatlabExecutionError, match="Tissue not found"):
         meng.eval(f"assign_medium_properties(struct('Tissue','{tissue}'));", nargout=0)
     with pytest.raises(ValueError, match="Tissue not found"):
-        prop.assign_medium_properties(Medium(Tissue=tissue))
+        pmed.assign_medium_properties(Medium(Tissue=tissue))
 
 
 @pytest.mark.parametrize("liquid", ["Blood", "Water", "Plasma"])
@@ -492,7 +494,7 @@ def test_assign_liquid_properties(meng: Any, liquid: str) -> None:
     expected = matlab_flatten(
         meng, f"assign_liquid_properties(struct('Tissue','Blood','Density',1), '{liquid}')"
     )
-    actual = prop.assign_liquid_properties(Vessel(Tissue="Blood", Density=1.0), liquid)
+    actual = pmed.assign_liquid_properties(Vessel(Tissue="Blood", Density=1.0), liquid)
     assert_same_tree(py_struct(actual), expected)
 
 
@@ -524,7 +526,7 @@ def test_compute_sound_speed_extrema(
         InhomogeneityCutoff=cutoff,
         Vessel=Vessel(SpeedOfSound=cv),
     )
-    assert_same_tree(py_struct(prop.compute_sound_speed_extrema(medium)), expected)
+    assert_same_tree(py_struct(pmed.compute_sound_speed_extrema(medium)), expected)
 
 
 def test_compute_polydisperse_distribution(meng: Any) -> None:
@@ -532,7 +534,7 @@ def test_compute_polydisperse_distribution(meng: Any) -> None:
     R = np.asarray(meng.workspace["pyp_R__"])
     P = np.asarray(meng.workspace["pyp_P__"])
     meng.eval("clear pyp_R__ pyp_P__", nargout=0)
-    r, p = prop.compute_polydisperse_distribution()
+    r, p = pmb.compute_polydisperse_distribution()
     assert_same_float(r, R)
     assert_rel(p, P, rel=1e-12)  # B-31/B-32: exp and sum differ by ulps
     assert p.shape == P.shape == (1, 1001)
@@ -544,7 +546,7 @@ def test_compute_polydisperse_distribution(meng: Any) -> None:
 )
 def test_linspace(meng: Any, d1: float, d2: float, n: int) -> None:
     expected = np.asarray(meng.eval(f"linspace({d1!r}, {d2!r}, {n})"))
-    assert_same_float(prop.linspace(d1, d2, n), expected.reshape(1, -1))
+    assert_same_float(pmb.linspace(d1, d2, n), expected.reshape(1, -1))
 
 
 # ---------------------------------------------------------------- readers

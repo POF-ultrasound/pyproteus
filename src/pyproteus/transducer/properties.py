@@ -1,17 +1,9 @@
-"""Catalogue and lookup functions from PROTEUS ``GUIfunctions`` used by the defaults.
+"""Transducer catalogue and calibrated model files (ports of PROTEUS ``GUIfunctions``).
 
-Ports (PROTEUS commit 8d37938):
+* ``get_transducer_properties``
+* ``load_transducer_model`` (PROTEUS ``Transducer`` and Verasonics ``Trans`` formats)
 
-* ``get_transducer_properties`` (transducer catalogue)
-* ``load_transducer_model`` (calibrated model files, PROTEUS and Verasonics formats)
-* ``get_gas_properties``
-* ``assign_medium_properties`` (tissue table ``tissue_properties.mat``)
-* ``assign_liquid_properties``
-* ``compute_sound_speed_extrema``
-* ``compute_polydisperse_distribution``
-
-Like the MATLAB originals, each function returns the updated struct; the
-input model is not modified (MATLAB value semantics).
+Functions return the updated struct; the input is not modified (MATLAB value semantics).
 """
 
 from __future__ import annotations
@@ -22,19 +14,10 @@ from typing import Any
 
 import numpy as np
 
-from .matfile import loadmat, whosmat
-from .models import Gas, Medium, Transducer, Vessel
+from pyproteus.config.matfile import loadmat, whosmat
+from pyproteus.config.models import Transducer
 
-__all__ = [
-    "assign_liquid_properties",
-    "assign_medium_properties",
-    "compute_polydisperse_distribution",
-    "compute_sound_speed_extrema",
-    "get_gas_properties",
-    "get_transducer_properties",
-    "linspace",
-    "load_transducer_model",
-]
+__all__ = ["get_transducer_properties", "load_transducer_model"]
 
 # ------------------------------------------------------------------- transducer
 
@@ -240,156 +223,3 @@ def load_transducer_model(
     T.ImpulseResponseType = "Calibrated"
     T.calibrated = 1.0
     return T
-
-
-# ------------------------------------------------------------------------- gas
-
-_GASES: dict[str, dict[str, float]] = {
-    "Sulfur hexafluoride": {
-        "ThermalConductivity": 0.0139,
-        "Density": 5.80,
-        "MolarMass": 0.146,
-        "SpecificHeat": 687.0,
-        "HeatCapacityRatio": 1.09,
-    },
-    "Perfluoropropane": {
-        "ThermalConductivity": 0.0132,
-        "Density": 7.53,
-        "MolarMass": 0.188,
-        "SpecificHeat": 814.0,
-        "HeatCapacityRatio": 1.06,
-    },
-    "Perfluorobutane": {
-        "ThermalConductivity": 0.0136,
-        "Density": 9.64,
-        "MolarMass": 0.238,
-        "SpecificHeat": 883.0,
-        "HeatCapacityRatio": 1.05,
-    },
-}
-
-
-def get_gas_properties(gas: Gas) -> Gas:
-    """Port of ``get_gas_properties.m`` (NIST values at 1 atm, 37 °C)."""
-    if gas.Type not in _GASES:
-        raise ValueError("Gas not found")
-    G = gas.copy_struct()
-    for k, v in _GASES[gas.Type].items():
-        setattr(G, k, v)
-    return G
-
-
-# ---------------------------------------------------------------------- medium
-
-
-def _strfind_nonempty(text: str, pattern: str) -> bool:
-    """MATLAB ``~isempty(strfind(text, pattern))``: an empty pattern never matches."""
-    return len(pattern) > 0 and pattern in text
-
-
-def assign_medium_properties(medium: Medium | Vessel) -> Medium | Vessel:
-    """Port of ``assign_medium_properties.m``.
-
-    ``'General tissue'`` has fixed values; ``'Custom'`` is left unchanged; any
-    other name takes the **first** row of ``tissue_properties.mat`` whose name
-    *contains* ``Tissue`` (MATLAB ``strfind``; quirk Q-30: ``'Muscle'`` selects
-    ``'Muscle (along the fibers)'``). Unknown names raise ``ValueError('Tissue
-    not found')``.
-    """
-    M = medium.copy_struct()
-    if M.Tissue == "General tissue":
-        M.SpeedOfSound = 1540.0
-        M.Density = 1000.0
-        M.BonA = 6.0
-        M.AttenuationA = 0.75
-        M.AttenuationB = 1.5
-    elif M.Tissue != "Custom":
-        from pyproteus import data
-
-        tissues = data.load("tissue_properties.mat")
-        names = tissues["tissue_names"]
-        props = tissues["tissue_properties"]
-        flat = names.reshape(-1, order="F")
-        matches = [k for k, name in enumerate(flat) if _strfind_nonempty(name, M.Tissue)]
-        if not matches:
-            raise ValueError("Tissue not found")
-        i = matches[0]
-        M.Density = props[i, 0] * 1000
-        M.SpeedOfSound = props[i, 1]
-        M.AttenuationA = props[i, 3]
-        M.AttenuationB = props[i, 4]
-        M.BonA = props[i, 5]
-    return M
-
-
-_LIQUIDS: dict[str, dict[str, float]] = {
-    "Blood": {
-        "ThermalConductivity": 0.52,
-        "SpecificHeat": 3770.0,
-        "DynamicViscosity": 4.5e-3,
-        "SurfaceTension": 0.053,
-        "Temperature": 310.0,
-        "Pressure": 1.013e5,
-    },
-    "Water": {
-        "ThermalConductivity": 0.6,
-        "SpecificHeat": 4184.0,
-        "DynamicViscosity": 1e-3,
-        "SurfaceTension": 0.072,
-        "Temperature": 293.0,
-        "Pressure": 1.013e5,
-    },
-}
-
-
-def assign_liquid_properties(liquid: Vessel, liquid_type: str) -> Vessel:
-    """Port of ``assign_liquid_properties.m``; other types leave ``liquid`` unchanged."""
-    L = liquid.copy_struct()
-    for k, v in _LIQUIDS.get(liquid_type, {}).items():
-        setattr(L, k, v)
-    return L
-
-
-def compute_sound_speed_extrema(medium: Medium) -> Medium:
-    """Port of ``compute_sound_speed_extrema.m`` (MATLAB ``min``/``max`` omit NaN)."""
-    M = medium.copy_struct()
-    cutoff = M.InhomogeneityCutoff
-    inhom = M.Inhomogeneity
-    cmin = M.SpeedOfSound * (1 - inhom * cutoff)
-    cmax = M.SpeedOfSound * (1 + inhom * cutoff)
-    M.SpeedOfSoundMinimum = float(np.fmin(cmin, M.Vessel.SpeedOfSound))
-    M.SpeedOfSoundMaximum = float(np.fmax(cmax, M.Vessel.SpeedOfSound))
-    return M
-
-
-# ----------------------------------------------------------------- microbubble
-
-
-def linspace(d1: float, d2: float, n: int) -> np.ndarray:
-    """MATLAB ``linspace(d1, d2, n)`` as a 1×n row (black-box matched, see PARITY.md)."""
-    n = int(np.floor(n))
-    if n < 1:
-        return np.zeros((1, 0))
-    if n == 1:
-        return np.array([[float(d2)]])
-    n1 = n - 1
-    k = np.arange(n, dtype=np.float64)
-    y = d1 + k * (d2 - d1) / n1
-    y[-1] = d2
-    return y.reshape(1, -1)
-
-
-def compute_polydisperse_distribution() -> tuple[np.ndarray, np.ndarray]:
-    """Port of ``compute_polydisperse_distribution.m`` (BR-14 fit, 1001 radii in m).
-
-    Returns ``(R, P)`` as 1×1001 rows.
-    """
-    N = 1e3
-    Rmin = 0.5
-    Rmax = 6
-    R = linspace(Rmin, Rmax, int(N) + 1)
-    a = 2.19
-    P = R**2 * np.exp(-a * R)
-    P = P / np.sum(P)
-    R = R * 1e-6
-    return R, P

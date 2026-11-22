@@ -1,5 +1,8 @@
 """Default settings: ports of the seven ``GUIfunctions/reset_*.m`` (PROTEUS 8d37938).
 
+The lookup leaves they call live in :mod:`pyproteus.transducer`,
+:mod:`pyproteus.medium` and :mod:`pyproteus.microbubble` (ROADMAP §7).
+
 Each function returns the struct MATLAB returns, field for field, with the
 same classes (double vs logical) and sizes.
 
@@ -36,14 +39,6 @@ from .models import (
     Transmit,
     Vessel,
     Visualization,
-)
-from .properties import (
-    assign_liquid_properties,
-    assign_medium_properties,
-    compute_polydisperse_distribution,
-    compute_sound_speed_extrema,
-    get_gas_properties,
-    get_transducer_properties,
 )
 
 __all__ = [
@@ -97,6 +92,8 @@ def reset_simulation_parameters() -> SimulationParameters:
 
 def reset_microbubble() -> Microbubble:
     """Port of ``reset_microbubble.m`` (SonoVue, SF6, Marmottant shell)."""
+    from pyproteus.microbubble import compute_polydisperse_distribution, get_gas_properties
+
     R, P = compute_polydisperse_distribution()
     return Microbubble(
         Type="SonoVue",
@@ -119,6 +116,12 @@ def reset_microbubble() -> Microbubble:
 
 def reset_medium() -> Medium:
     """Port of ``reset_medium.m`` (general tissue, blood vessel)."""
+    from pyproteus.medium import (
+        assign_liquid_properties,
+        assign_medium_properties,
+        compute_sound_speed_extrema,
+    )
+
     medium = Medium(Tissue="General tissue", Inhomogeneity=0.02)
     medium = assign_medium_properties(medium)
     medium.InhomogeneityCutoff = 2.0
@@ -137,6 +140,8 @@ def reset_transducer(models_folder: str | PathLike[str] | None = None) -> Transd
     For an estimated impulse response MATLAB also calls
     ``estimate_impulse_response`` (pending M1, :data:`PENDING_FIELDS`).
     """
+    from pyproteus.transducer import get_transducer_properties
+
     T = get_transducer_properties(Transducer(Type="P4-1"), models_folder)
     if T.ImpulseResponseType == "Estimate":
         T.SamplingRate = 250e6

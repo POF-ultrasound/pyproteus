@@ -11,7 +11,9 @@ import scipy.io as sio
 from pydantic import ValidationError
 
 from pyproteus import config, data
-from pyproteus.config import properties as prop
+from pyproteus import medium as pmed
+from pyproteus import microbubble as pmb
+from pyproteus import transducer as ptr
 from pyproteus.config.json_io import tree_from_jsonable, tree_to_jsonable
 from pyproteus.config.matfile import StructArray
 from pyproteus.config.models import Gas, Medium, Settings, Shell, Transducer, Transmit
@@ -224,22 +226,22 @@ def test_reset_geometry_mouse_brain() -> None:
 
 
 def test_tissue_lookup_quirks() -> None:
-    m = prop.assign_medium_properties(Medium(Tissue="Muscle"))
+    m = pmed.assign_medium_properties(Medium(Tissue="Muscle"))
     tissues = data.load("tissue_properties.mat")
     row = [str(n) for n in tissues["tissue_names"].reshape(-1)].index("Muscle (along the fibers)")
     assert m.SpeedOfSound == tissues["tissue_properties"][row, 1]
     for bad in ("", "muscle", "Nope"):
         with pytest.raises(ValueError, match="Tissue not found"):
-            prop.assign_medium_properties(Medium(Tissue=bad))
-    c = prop.assign_medium_properties(Medium(Tissue="Custom", SpeedOfSound=1.0))
+            pmed.assign_medium_properties(Medium(Tissue=bad))
+    c = pmed.assign_medium_properties(Medium(Tissue="Custom", SpeedOfSound=1.0))
     assert c.SpeedOfSound == 1.0 and c.present_fields() == ["Tissue", "SpeedOfSound"]
 
 
 def test_gas_and_liquid() -> None:
-    assert prop.get_gas_properties(Gas(Type="Perfluorobutane")).Density == 9.64
+    assert pmb.get_gas_properties(Gas(Type="Perfluorobutane")).Density == 9.64
     with pytest.raises(ValueError, match="Gas not found"):
-        prop.get_gas_properties(Gas(Type="Air"))
-    v = prop.assign_liquid_properties(config.models.Vessel(Tissue="Blood"), "Plasma")
+        pmb.get_gas_properties(Gas(Type="Air"))
+    v = pmed.assign_liquid_properties(config.models.Vessel(Tissue="Blood"), "Plasma")
     assert v.present_fields() == ["Tissue"]
 
 
@@ -250,19 +252,19 @@ def test_sound_speed_extrema_nan_is_omitted() -> None:
         InhomogeneityCutoff=1.0,
         Vessel=config.models.Vessel(SpeedOfSound=math.nan),
     )
-    out = prop.compute_sound_speed_extrema(m)
+    out = pmed.compute_sound_speed_extrema(m)
     assert out.SpeedOfSoundMinimum == 1500 * (1 - 0.1) and out.SpeedOfSoundMaximum == 1500 * 1.1
 
 
 def test_catalogue_and_shipped_model() -> None:
-    c = prop.get_transducer_properties(Transducer(Type="C1-6D"))
+    c = ptr.get_transducer_properties(Transducer(Type="C1-6D"))
     model = data.load("C1-6D.mat")["Transducer"]
     assert c.ImpulseResponseType == "Calibrated" and c.calibrated == 1.0
     assert c.Pitch == model["Pitch"][0, 0]
     np.testing.assert_array_equal(c.TransmitImpulseResponse, model["TransmitImpulseResponse"])
-    unknown = prop.get_transducer_properties(Transducer(Type="Mystery"))
+    unknown = ptr.get_transducer_properties(Transducer(Type="Mystery"))
     assert unknown.present_fields() == ["Type"]
-    custom = prop.get_transducer_properties(
+    custom = ptr.get_transducer_properties(
         Transducer(Type="Custom linear", ImpulseResponseType="Calibrated", Configuration="Curved")
     )
     assert custom.ImpulseResponseType == "Load file" and custom.Configuration == "Linear"
@@ -270,7 +272,7 @@ def test_catalogue_and_shipped_model() -> None:
 
 def test_load_transducer_model_formats(tmp_path: Path) -> None:
     sio.savemat(tmp_path / "P4-1.mat", {"Trans": {"IR1wy": np.array([[0.25], [0.5]])}})
-    t = prop.load_transducer_model(Transducer(Type="P4-1"), tmp_path)
+    t = ptr.load_transducer_model(Transducer(Type="P4-1"), tmp_path)
     np.testing.assert_array_equal(t.TransmitImpulseResponse, [[0.25 * 250e6, 0.5 * 250e6]])
     assert t.SamplingRate == 250e6 and t.calibrated == 1.0
     sio.savemat(
@@ -285,16 +287,14 @@ def test_load_transducer_model_formats(tmp_path: Path) -> None:
         },
     )
     with pytest.raises(ValueError, match="samplingRate"):
-        prop.load_transducer_model(Transducer(Type="X"), tmp_path)
-    assert prop.load_transducer_model(Transducer(Type="none"), tmp_path).present_fields() == [
-        "Type"
-    ]
+        ptr.load_transducer_model(Transducer(Type="X"), tmp_path)
+    assert ptr.load_transducer_model(Transducer(Type="none"), tmp_path).present_fields() == ["Type"]
 
 
 def test_linspace_endpoints() -> None:
-    assert prop.linspace(0.5, 6, 1001)[0, -1] == 6.0
-    assert prop.linspace(1, 2, 1).tolist() == [[2.0]]
-    assert prop.linspace(1, 2, 0).shape == (1, 0)
+    assert pmb.linspace(0.5, 6, 1001)[0, -1] == 6.0
+    assert pmb.linspace(1, 2, 1).tolist() == [[2.0]]
+    assert pmb.linspace(1, 2, 0).shape == (1, 0)
 
 
 # --------------------------------------------------------------------- data

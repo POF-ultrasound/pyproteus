@@ -8,7 +8,7 @@
   one ``Frame_<m>.mat`` per frame holding ``Frame.Pulse<n>`` with fields
   ``Points`` (N×3), ``Velocity`` (N×3), ``Radius`` (N×1), ``StreamNumber`` (N×1).
 
-Transducer model files are read by :func:`pyproteus.config.properties.load_transducer_model`.
+Transducer model files are read by :func:`pyproteus.transducer.load_transducer_model`.
 Values come back as MATLAB value trees (see :mod:`pyproteus.config.matfile`).
 """
 
