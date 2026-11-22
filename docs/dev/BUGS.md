@@ -42,7 +42,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-14 — PROTEUS `alpha_mode='no_dispersion'` has no effect on the k-Wave C++ path (quirk, reproduced)
 - Where: oracle `acoustic-module/define_medium.m` sets `medium.alpha_mode = 'no_dispersion'` when `|alpha_power - 1| < 0.1`; `run_simulation.m` then calls `kspaceFirstOrder3DC`/`3DG`.
-- Symptom: MATLAB 3DC output is bit-identical with and without `alpha_mode` (the C++ HDF5 format has no field for it), so PROTEUS runs full power-law absorption + dispersion on the C++/CUDA path; the MATLAB-native `kspaceFirstOrder3D` (PROTEUS' local-movie mode) and k-wave-python's `python` backend honour it (16 % rel difference on the tracer case with y = 1.05). k-wave-python's `cpp` backend raises `ValueError`.
+- Symptom: MATLAB 3DC output is identical with and without `alpha_mode` within the binary's run-to-run noise (~1e-6, B-63) (the C++ HDF5 format has no field for it), so PROTEUS runs full power-law absorption + dispersion on the C++/CUDA path; the MATLAB-native `kspaceFirstOrder3D` (PROTEUS' local-movie mode) and k-wave-python's `python` backend honour it (16 % rel difference on the tracer case with y = 1.05). k-wave-python's `cpp` backend raises `ValueError`.
 - Faithful-port handling (D-9): `pyproteus.backends.kwave.medium_for_kwp` drops `alpha_mode` on every backend, so `cpp` and `python` both match MATLAB 3DC (≤ 1e-5, case `pressure_nodisp` in `tests/oracle/test_kwave_backend.py`). Recorded as `docs/QUIRKS.md` Q-1.
 - Test: `test_matlab_3dc_ignores_alpha_mode`, case `pressure_nodisp`.
 
@@ -61,3 +61,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Where: `kwave/kspaceFirstOrder.py` (cpp branch warns "sensor.record is not yet supported for backend='cpp'") and `CppSimulation._execute` (passes no output flags, so the binary records only `p`).
 - Symptom: `sensor.record = ['p_max', 'p_min']` (PROTEUS `main_pressure_field.m`) returns `p` only on `cpp`; the `python` backend honours it.
 - Workaround: `pyproteus.backends.kwave` writes the input file with `kspaceFirstOrder(save_only=True)` (one function, `_write_cpp_input`), runs the binary with the flags MATLAB `kspaceFirstOrder3DC` passes (captured from MATLAB: `--p_raw`, `--p_max`, `--p_min`, `-t`; `binary_command`) and reads the output file (`read_cpp_output`). Tests: `tests/oracle/test_kwave_backend.py::test_binary_command_matches_matlab`, cases `nt_eq_n_sensor`, `pressure_field`. Upstream draft: issue 4.
+
+## B-63 — k-Wave OpenMP binary is not bit-reproducible run to run (open, within tolerance)
+- Where: `kspaceFirstOrder-OMP` v1.4.1 (k-wave-python's macOS arm64 build), from MATLAB 3DC and from `pyproteus.backends.kwave` alike.
+- Symptom: two runs of the same input file differ by ~1e-6 relative in the sensor data (seen in `tests/unit/test_kwave.py::test_cpp_data_path_unique_folders_and_delete_data`, about 1 run in 6).
+- Cause: likely FFTW planning / OpenMP thread scheduling (summation order); not investigated.
+- Impact: within the 1e-5 k-Wave class. Frozen references (D-10) and run-vs-run tests cannot be compared bit for bit; tests compare at 1e-5.

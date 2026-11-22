@@ -73,7 +73,7 @@ Notes:
   `get_win` is a thin pass-through with an oracle test; port the call site only
   if something reaches it.
 - Not covered: `kspaceFirstOrder3DG` / CUDA (`device="gpu"`, `device_num`), CuPy
-  (`backend="python", device="gpu"`), source signals longer than `Nt`, anisotropic
+  (`backend="python", device="gpu"`), anisotropic
   grids with pressure sources (refused), `record_start_index` (PROTEUS does not set it),
   source signals longer than `Nt` (refused), a `2*pml >= N` grid against MATLAB (B-61;
   only cpp vs python). An empty sensor mask raises; `run_simulation.m` returns

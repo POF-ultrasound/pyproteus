@@ -10,8 +10,9 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - Tracer: `adapter.py`/`ordering.py` removed, `kwave_tracer.py` imports the package; new cases `velocity_ux`, `mixed` (`ux`+`uz` + pressure point sources), `nt_eq_n_sensor`, `pressure_field`; `run_kwave_matlab.m` returns every recorded field and accepts `NumThreads`.
 - Tests: `tests/unit/test_kwave.py` (row order 2-D/3-D, asymmetric, scaling, validation, binary command; binary runs skip without the binary), `tests/oracle/test_kwave_backend.py` (7 cases × both backends vs MATLAB 3DC, input file, command line), `tests/oracle/test_kwave_signal.py`.
 - Reviewer round 1 (CHANGES REQUESTED, nothing blocking) fixed: per-call unique HDF5 folder inside `DataPath`, deleted by default (`delete_data`, MATLAB `DeleteData`), so runs sharing `PATHS.DataPath` cannot collide; `binary` accepts a folder like MATLAB `BinaryPath`; source signals longer than `Nt` refused; B-60 provenance rests on the forward-backward construction only; B-14 text updated; docs notes on the empty-sensor case.
-- Found: the k-Wave OpenMP binary is not bit-reproducible run to run (two identical runs differ by ~1e-6 rel, FFTW/OpenMP threading). Within the 1e-5 class; frozen references (D-10) cannot be compared bit for bit.
-- Not covered: 3DG/CUDA, CuPy, source signals longer than Nt.
+- Found: the k-Wave OpenMP binary is not bit-reproducible run to run (two identical runs differ by ~1e-6 rel, FFTW/OpenMP threading). Within the 1e-5 class; frozen references (D-10) cannot be compared bit for bit (B-63).
+- Reviewer round 2: SIGN-OFF (doc nits fixed: B-14 wording, B-63, PARITY duplicate).
+- Not covered: 3DG/CUDA, CuPy, source signals longer than Nt (refused).
 
 ## 2026-11-20 — developer decisions, round 1 (main session)
 - D-8 (pchip clean-room, PR #4), D-9 (drop `alpha_mode` on every k-wave-python backend, B-14/Q-1), D-10 (frozen k-Wave references on the Mac with k-wave-python's v1.4.1 OMP binary), D-11 (upstream k-wave-python issue drafts in `docs/dev/upstream/`, posted only after developer approval).
