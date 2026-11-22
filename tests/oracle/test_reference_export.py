@@ -23,7 +23,7 @@ from pyproteus.io.reference_format import (
     StructArray,
     read_reference,
 )
-from tests.oracle.helpers import to_matlab
+from tests.oracle.helpers import from_matlab, to_matlab
 
 PROBE = """
 pyp_out.a3 = reshape(1:24, 2, 3, 4);
@@ -38,6 +38,9 @@ pyp_out.logic = logical([1 0 1; 0 0 1]);
 pyp_out.i8 = int8([-128 127]);
 pyp_out.u16 = uint16([0; 65535]);
 pyp_out.i64 = int64(2)^62;
+pyp_out.u8s = uint8(5);
+pyp_out.u64s = intmax('uint64');
+pyp_out.i32s = int32(-7);
 pyp_out.empty03 = zeros(0, 3);
 pyp_out.empty = [];
 pyp_out.sp = sparse([1 2 2], [3 1 3], [1.5 -2 4], 2, 4);
@@ -91,10 +94,15 @@ def test_probe_orientation_and_classes(session, tmp_path):
     )
     assert np.iscomplexobj(o["cplx_real_part_only"])
     np.testing.assert_array_equal(o["logic"], [[True, False, True], [False, False, True]])
+    assert o["logic"].dtype == np.bool_
     assert o["i8"].dtype == np.int8 and o["u16"].shape == (2, 1) and o["u16"][1, 0] == 65535
+    assert o["u16"].dtype == np.uint16
+    assert o["u8s"].dtype == np.uint8 and o["u8s"].shape == (1, 1) and o["u8s"][0, 0] == 5
+    assert o["u64s"].dtype == np.uint64 and o["u64s"][0, 0] == 2**64 - 1
+    assert o["i32s"].dtype == np.int32 and o["i32s"][0, 0] == -7
     assert o["i64"].dtype == np.int64 and o["i64"][0, 0] == 2**62
     assert o["empty03"].shape == (0, 3) and o["empty"].shape == (0, 0)
-    assert sp.issparse(o["sp"]) and o["sp"].shape == (2, 4)
+    assert sp.issparse(o["sp"]) and o["sp"].shape == (2, 4) and o["sp"].dtype == np.float64
     np.testing.assert_array_equal(o["sp"].toarray(), [[0, 0, 1.5, 0], [-2, 0, 4, 0]])
     assert o["splog"].dtype == np.bool_
     assert o["txt"] == "Three-level" and o["emptychar"] == ""
@@ -114,24 +122,87 @@ def test_probe_orientation_and_classes(session, tmp_path):
     assert o["sarow"].shape == (1, 3) and o["sarow"].elements[0, 2]["q"][0, 0] == 30
 
 
-def test_numeric_values_round_trip_to_matlab(session, tmp_path):
-    """Arrays read from the file, sent back, are isequaln to MATLAB's, same class and size."""
+def send(eng, name, value):
+    """Rebuild a value read from a reference file as MATLAB variable ``name``."""
+    if isinstance(value, dict):
+        eng.eval(f"{name} = struct();", nargout=0)
+        for k, v in value.items():
+            send(eng, f"{name}.{k}", v)
+    elif isinstance(value, StructArray):
+        size = ",".join(str(n) for n in value.shape)
+        fields = ",".join(f"'{f}',{{[]}}" for f in value.fields) or ""
+        eng.eval(f"{name} = repmat(struct({fields}), {size});", nargout=0)
+        if not value.fields:
+            eng.eval(f"{name} = repmat(struct(), {size});", nargout=0)
+        for k, el in enumerate(value.elements.ravel(order="F")):
+            for f, v in el.items():
+                send(eng, f"{name}({k + 1}).{f}", v)
+    elif isinstance(value, np.ndarray) and value.dtype == object:
+        size = ",".join(str(n) for n in value.shape)
+        eng.eval(f"{name} = cell({size});", nargout=0)
+        for k, el in enumerate(value.ravel(order="F")):
+            send(eng, f"{name}{{{k + 1}}}", el)
+    elif isinstance(value, FunctionHandle):
+        eng.workspace["pyp_txt__"] = str(value)
+        eng.eval(f"{name} = str2func(pyp_txt__); clear pyp_txt__;", nargout=0)
+    elif isinstance(value, MatlabString):
+        eng.workspace["pyp_txt__"] = str(value)
+        eng.eval(f"{name} = string(pyp_txt__); clear pyp_txt__;", nargout=0)
+    elif isinstance(value, str):
+        eng.workspace["pyp_txt__"] = value
+        eng.eval(f"{name} = char(pyp_txt__); clear pyp_txt__;", nargout=0)
+        if not value:
+            eng.eval(f"{name} = '';", nargout=0)
+    elif sp.issparse(value):
+        eng.workspace["pyp_full__"] = to_matlab(value.toarray())
+        eng.eval(f"{name} = sparse(pyp_full__); clear pyp_full__;", nargout=0)
+    else:
+        eng.workspace["pyp_arr__"] = to_matlab(value)
+        eng.eval(f"{name} = pyp_arr__; clear pyp_arr__;", nargout=0)
+
+
+def test_every_value_round_trips_to_matlab(session, tmp_path):
+    """Everything read from the file, rebuilt in MATLAB, equals MATLAB's original.
+
+    Compared in MATLAB through pyp_flatten records, which hold class, size,
+    sparsity and data of every node (isequaln alone ignores class).
+    """
     path = export_spec(session, probe_spec(), tmp_path)
     o = read_reference(path).outputs
     eng = session.eng
     eng.eval(PROBE.replace("pyp_out", "pyp_ref__"), nargout=0)
     try:
-        for name in ("a3", "a4", "row", "col", "scalar", "negzero", "cplx", "logic", "i8"):
-            eng.workspace["pyp_back__"] = to_matlab(o[name])
+        for name, value in o.items():
+            if name == "fh":  # handle text is compared in Python (str2func re-parses)
+                continue
+            send(eng, "pyp_back__", value)
             same = eng.eval(
-                f"isequaln(pyp_back__, pyp_ref__.{name}) && "
-                f"strcmp(class(pyp_back__), class(pyp_ref__.{name})) && "
-                f"isequal(size(pyp_back__), size(pyp_ref__.{name}))",
-                nargout=1,
+                f"isequaln(pyp_flatten(pyp_back__), pyp_flatten(pyp_ref__.{name}))", nargout=1
             )
             assert same, name
+            eng.eval("clear pyp_back__;", nargout=0)
+        assert o["fh"] == eng.eval("func2str(pyp_ref__.fh)", nargout=1)
     finally:
         eng.eval("clear pyp_back__ pyp_ref__;", nargout=0)
+
+
+def test_reused_engine_state_restored(matlab_engine, oracle, tmp_path):
+    eng = matlab_engine
+    eng.eval("rng(123,'twister'); pyp_rng_before__ = rng; pyp_path_before__ = path;", nargout=0)
+    cwd = eng.pwd(nargout=1)
+    env = {v: eng.getenv(v, nargout=1) for v in ("PROTEUS_LOCAL_PATHS", "KWAVE_LIBS")}
+    cfg = ExportConfig.from_env()
+    cfg.oracle = oracle.path
+    with ExportSession(cfg, engine=matlab_engine) as s:
+        export_spec(s, SPECS["GUIfunctions.reset_acquisition"], tmp_path)
+        assert eng.pwd(nargout=1) != cwd
+    try:
+        assert eng.eval("isequal(rng, pyp_rng_before__)", nargout=1)
+        assert eng.eval("isequal(path, pyp_path_before__)", nargout=1)
+        assert eng.pwd(nargout=1) == cwd
+        assert {v: eng.getenv(v, nargout=1) for v in env} == env
+    finally:
+        eng.eval("clear pyp_rng_before__ pyp_path_before__; rng(0,'twister');", nargout=0)
 
 
 def test_reset_specs_match_direct_calls(session, tmp_path):
@@ -149,11 +220,12 @@ def test_reset_specs_match_direct_calls(session, tmp_path):
         assert list(out) == list(ref), name
         for k, v in ref.items():
             if isinstance(v, str):
-                assert out[k] == v, (name, k)
+                assert type(out[k]) is str and out[k] == v, (name, k)
             else:
-                np.testing.assert_array_equal(
-                    out[k].reshape(-1), np.asarray(v, dtype=out[k].dtype).reshape(-1), err_msg=k
-                )
+                expected = from_matlab(v)
+                assert out[k].shape == expected.shape, (name, k)
+                assert out[k].dtype == expected.dtype, (name, k)
+                np.testing.assert_array_equal(out[k], expected, err_msg=k)
         a = r.attrs
         assert a["oracle_commit"].startswith("8d37938")
         assert a["proteus_version"] == "1.1.0"

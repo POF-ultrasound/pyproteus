@@ -105,6 +105,11 @@ _TEXT_CLASSES = ("char", "string", "function_handle")
 _STR = h5py.string_dtype("utf-8")
 
 
+def utf16_len(text: str) -> int:
+    """Length of a MATLAB char (UTF-16 code units) holding ``text``."""
+    return len(text.encode("utf-16-le")) // 2
+
+
 class ReferenceFormatError(ValueError):
     """A file or value does not follow the reference format."""
 
@@ -201,7 +206,7 @@ def _write_value(parent: h5py.Group, name: str, value: Any) -> None:
         )
         d = parent.create_dataset(name, data=str(value), dtype=_STR)
         d.attrs["matlab_class"] = cls
-        size = ((1, len(value)) if value else (0, 0)) if cls == "char" else (1, 1)
+        size = ((1, utf16_len(value)) if value else (0, 0)) if cls == "char" else (1, 1)
         d.attrs["matlab_size"] = _size_attr(size)
         return
     if _is_sparse(value):
@@ -240,6 +245,10 @@ def _write_array(parent: h5py.Group, name: str, arr: np.ndarray, *, sparse: bool
     if arr.ndim < 2:
         raise ReferenceFormatError(
             f"{name}: arrays must have MATLAB's size (>= 2-D), got shape {arr.shape}"
+        )
+    if arr.ndim > 2 and arr.shape[-1] == 1:
+        raise ReferenceFormatError(
+            f"{name}: shape {arr.shape} has a trailing singleton; MATLAB size never does"
         )
     try:
         cls = _CLASS_OF_DTYPE[arr.dtype]
@@ -369,6 +378,9 @@ def _read_value(node: h5py.Group | h5py.Dataset) -> Any:
         raise ReferenceFormatError(f"{node.name}: group with class {cls!r}")
     if cls in _TEXT_CLASSES:
         s = _text(node[()])
+        want = ((1, utf16_len(s)) if s else (0, 0)) if cls == "char" else (1, 1)
+        if size != want:
+            raise ReferenceFormatError(f"{node.name}: matlab_size {size} != text size {want}")
         return {"char": str, "string": MatlabString, "function_handle": FunctionHandle}[cls](s)
     arr = node[()]
     if arr.shape != size:

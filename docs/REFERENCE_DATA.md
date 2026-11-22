@@ -69,8 +69,9 @@ and `c[np.unravel_index(n, (2, 3), order="F")]` in Python.
 
 The layout is checked from both sides by `tests/oracle/test_reference_export.py`:
 arrays built in MATLAB with a known column-major numbering (`reshape(1:24,2,3,4)`)
-must read back as `1 + i + 2j + 6k`, and values read from the file, sent back
-to MATLAB, must be `isequaln` with the same class and size.
+must read back as `1 + i + 2j + 6k`, and every value read from the file
+(arrays, cells, structs, struct arrays, text, sparse), rebuilt in MATLAB, must
+equal the original node by node in class, size, sparsity and data.
 
 ## Provenance attributes (root)
 
@@ -88,14 +89,20 @@ where not applicable).
 | `kwave_solver` | `kspaceFirstOrder3DC` for full runs |
 | `kwave_binary_path`, `kwave_binary_version`, `kwave_binary_sha256` | the C++ binary actually executed (D-10), its `--version` build line, its hash; required for `full_run` |
 | `seeds` | JSON object: every seed set (`matlab_rng_twister`: `rng(seed,'twister')` before building the inputs; full runs add the ground-truth `RandStream` seed and the `rng` seed before `main_RF`) |
-| `matlab_path_extra` | non-PROTEUS folders on the MATLAB path (pyproteus export helpers; for full runs MATLAB k-Wave and the oracle's own `tests/helpers`) |
+| `matlab_path_extra` | every MATLAB path entry outside `matlabroot` and the oracle's root/module folders, in search order (`<pyproteus>/…`, `<oracle>/…` abbreviated): export helpers, k-Wave, oracle `tests/helpers`, user folders such as `~/Documents/MATLAB`, shims of a reused session |
 | `created_utc` | ISO 8601 UTC timestamp |
 | `exporter_version`, `exporter_commit` | pyproteus version and commit of the exporter (`-dirty` if modified) |
 | `platform` | OS, release, machine of the export |
 
-Optional: `kwave_binary_wrapper` (when `BinaryPath` holds a wrapper script, as
-on macOS arm64), `kwave_python_version`/`kwave_python_binary_release` (binary
-shipped by k-wave-python), `numpy_version`.
+Further attributes written by the exporter: `matlab_parallel_pool_workers`
+(open pool size; PROTEUS uses `parfor` for bubbles when a pool exists),
+`numpy_version`; for k-Wave runs `kwave_matlab_sha256` (hash of all `.m` files
+of the MATLAB k-Wave toolbox), `kwave_runtime` (JSON: `KWAVE_LIBS`,
+`OMP_NUM_THREADS`, library path variables, Homebrew libraries present on macOS,
+which take precedence over `KWAVE_LIBS` in the wrapper), `geometries_path`,
+and, when `BinaryPath` holds a wrapper script (macOS arm64),
+`kwave_binary_wrapper` and `kwave_binary_wrapper_sha256`; with k-wave-python's
+binary `kwave_python_version` and `kwave_python_binary_release`.
 
 ## Full-run cases
 
@@ -108,7 +115,7 @@ before `main_RF` (the medium background is random), solver `3DC`.
 |---|---|---|
 | `tiny` | PROTEUS regression case `rf_hybrid_standard`: `tiny_box`, 8 elements, 4 ppw, 4 bubbles, 2 frames | seconds |
 | `small` | `tiny_box`, 16 elements, 6 ppw, 12 bubbles, 3 frames, pulse inversion | minutes |
-| `medium` | default settings on `renal_tree`, 2 frames | GPU workstation |
+| `medium` | default settings on `renal_tree`, 2 frames | GPU workstation; not exported yet (needs the renal tree STL from Zenodo 10573662) |
 
 The tiny case exported on the developer's Mac matches PROTEUS' own regression
 baseline (`tests/baseline/rf_hybrid_standard.mat`, recorded with the MATLAB

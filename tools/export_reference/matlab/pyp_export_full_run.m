@@ -21,6 +21,14 @@ PATHS = path_setup();
 S = pyp_full_run_settings(caseName, PATHS);
 name = ['pyp_' caseName];
 
+stl = fullfile(PATHS.GeometriesPath, S.Geometry.Folder, S.Geometry.STLfile);
+if S.Geometry.EmbedVessel && ~isfile(stl)
+    error('pyp_export_full_run:missingGeometry', ['%s not found. The flow ' ...
+        'geometry STL files are not shipped with PROTEUS (Zenodo record ' ...
+        '10573662): set PYPROTEUS_GEOMETRIES_PATH to a folder holding ' ...
+        '%s/%s.'], stl, S.Geometry.Folder, S.Geometry.STLfile)
+end
+
 settingsFile = fullfile(PATHS.SettingsPath, [name '.mat']);
 gtFolder     = fullfile(PATHS.GroundTruthPath, name);
 resultDir    = fullfile(PATHS.ResultsPath, name);

@@ -158,9 +158,9 @@ def fetch(name: str, *, registry_path: str | os.PathLike | None = None) -> Path:
     )
     try:
         return Path(fetcher.fetch(fname))
-    except (OSError, ValueError) as exc:  # network errors, hash mismatch of a download
-        if isinstance(exc, ValueError) and "hash" in str(exc).lower():
-            raise ReferenceHashMismatch(str(exc)) from exc
+    except ValueError as exc:  # pooch: downloaded file does not match the registry hash
+        raise ReferenceHashMismatch(f"{fname}: {exc}") from exc
+    except OSError as exc:  # network errors (requests exceptions are OSErrors), HTTP 404...
         raise ReferenceDataUnavailable(f"could not download {fname}: {exc}") from exc
 
 

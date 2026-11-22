@@ -73,6 +73,9 @@ def assert_same(a, b, where="value"):
         np.testing.assert_array_equal(a, b, err_msg=where)
         if a.dtype.kind == "f":
             assert np.array_equal(np.signbit(a), np.signbit(b)), where
+        if a.dtype.kind == "c":
+            assert np.array_equal(np.signbit(a.real), np.signbit(b.real)), where
+            assert np.array_equal(np.signbit(a.imag), np.signbit(b.imag)), where
     else:
         assert a == b, where
 
@@ -97,6 +100,8 @@ def every_kind():
         "single": rng.random((3, 2)).astype(np.float32),
         "complex": (rng.random((2, 3)) + 1j * rng.random((2, 3))),
         "complex_single": (rng.random((2, 2)) + 1j).astype(np.complex64),
+        "complex_neg_zero": np.array([[complex(-0.0, 0.0), complex(0.0, -0.0)]]),
+        "non_bmp": "a\U0001d11e",  # MATLAB: 3 UTF-16 code units
         "logical": rng.random((3, 3)) > 0.5,
         "int8": np.array([[-128, 127]], dtype=np.int8),
         "uint16": np.array([[0], [65535]], dtype=np.uint16),
@@ -193,6 +198,7 @@ def test_cell_and_struct_array_column_major(tmp_path):
         np.empty(3, dtype=object),  # 1-D cell
         {"1bad": np.ones((1, 1))},  # invalid field name
         sp.csc_array(np.ones((2, 2), dtype=np.float32)),  # sparse single
+        np.ones((2, 3, 1)),  # trailing singleton: MATLAB size never ends in 1 after dim 2
     ],
 )
 def test_rejects_ambiguous_values(tmp_path, bad):
@@ -261,6 +267,10 @@ def _tamper(path, fn):
         (lambda f: f["outputs/y"].attrs.__setitem__("matlab_class", "logical"), "class"),
         (lambda f: f["outputs/y"].attrs.__delitem__("matlab_size"), "matlab_size"),
         (lambda f: f["outputs/c"].__delitem__("1"), "cell"),
+        (
+            lambda f: f["outputs/c/0"].attrs.__setitem__("matlab_size", np.array([1, 5])),
+            "text size",
+        ),
     ],
 )
 def test_reader_rejects_tampered(tmp_path, tamper, match):
@@ -278,3 +288,9 @@ def test_overwrite_is_atomic(tmp_path):
         write_reference(p, attrs(), {"x": np.arange(2.0)}, {})
     assert read_reference(p).outputs["y"].shape == (1, 1)
     assert sorted(x.name for x in tmp_path.iterdir()) == ["mod.fn.h5"]
+
+
+def test_char_size_counts_utf16_units(tmp_path):
+    p = write_reference(tmp_path / "mod.fn.h5", attrs(), {}, {"s": "a\U0001d11e"})
+    with h5py.File(p, "r") as f:
+        assert list(f["outputs/s"].attrs["matlab_size"]) == [1, 3]

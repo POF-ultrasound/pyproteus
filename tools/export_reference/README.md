@@ -17,7 +17,7 @@ pooch registry: `src/pyproteus/io/reference.py`.
 
 ## Run
 
-Needs MATLAB R2025a + Engine (`pip install -e ".[dev,oracle]"`), the oracle
+macOS/Linux only (symlinks, shell wrapper). Needs MATLAB R2025a + Engine (`pip install -e ".[dev,oracle]"`), the oracle
 checkout at commit `8d37938`, and for full runs MATLAB k-Wave 1.4.x and a
 k-Wave C++ binary. The MATLAB Engine does not start inside the Claude Bash
 sandbox: run outside it. From the repository root:
@@ -38,6 +38,19 @@ python -m tools.export_reference.export full_run.tiny    # by name; --all = ever
 python -m tools.export_reference.update_registry          # hash data/*.h5 into the registry
 ```
 
+`update_registry` refuses files from a dirty or unpinned oracle or a dirty
+pyproteus checkout (`--allow-unclean` overrides, for local experiments only)
+and keeps entries without a local file unless `--prune` (use it for a full
+re-export for a new Zenodo version).
+
+### Status of the full runs (2026-11-22)
+
+| Case | Status |
+|---|---|
+| `tiny` | exported on the developer's Mac (≈ 5 s); RF matches PROTEUS' `rf_hybrid_standard` baseline to 1.4e-6 rel |
+| `small` | exported on the developer's Mac (≈ 45 s) |
+| `medium` | **TODO**: needs the renal tree STL (Zenodo 10573662, `PYPROTEUS_GEOMETRIES_PATH`) and a GPU workstation; the exporter only records the `3DC` binary, so a `3DG` run needs the solver/binary provenance extended first |
+
 Configuration (environment variables, or the CLI flags shown by `--help`):
 
 | Variable | Default |
@@ -47,6 +60,7 @@ Configuration (environment variables, or the CLI flags shown by `--help`):
 | `PYPROTEUS_KWAVE_BINARY_DIR` | `tools/tracer_bullet/bin` (wrapper running k-wave-python's v1.4.1 OMP binary, D-10); on Linux point it at the official k-Wave `binaries/` folder |
 | `PYPROTEUS_KWAVE_BINARY` | executable behind a wrapper (auto-detected for the tracer wrapper); recorded and hashed |
 | `PYPROTEUS_KWAVE_LIBS` | runtime libraries for the wrapper (default `tools/tracer_bullet/.kwave-libs/lib`, made by `setup_libs.sh`) |
+| `PYPROTEUS_GEOMETRIES_PATH` | oracle `geometry_data/` (no STL files: the `medium` case needs the renal tree STL from Zenodo record 10573662 here) |
 | `PYPROTEUS_EXPORT_WORKDIR` | scratch folder (MATLAB cwd, PROTEUS settings/ground truth/RESULTS); temporary if unset |
 | `PYPROTEUS_MATLAB_SESSION` | connect to a shared MATLAB session |
 

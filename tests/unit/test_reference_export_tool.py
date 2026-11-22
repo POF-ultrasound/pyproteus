@@ -30,6 +30,14 @@ def test_scalars_become_matlab_size():
     assert v.dtype == np.bool_ and v.shape == (1, 1) and v[0, 0]
     v = records_to_value([rec([], "int32", (1, 1), 7)])
     assert v.dtype == np.int32
+    # The engine returns 1x1 unsigned/64-bit integers as Python int.
+    for cls, val in (("uint8", 5), ("uint16", 65535), ("uint32", 7), ("uint64", 2**64 - 1)):
+        v = records_to_value([rec([], cls, (1, 1), val)])
+        assert v.dtype == np.dtype(cls) and v[0, 0] == val
+    with pytest.raises(RecordError, match="range"):
+        records_to_value([rec([], "uint8", (1, 1), 256)])
+    with pytest.raises(RecordError, match="range"):
+        records_to_value([rec([], "uint8", (1, 1), -1)])
     v = records_to_value([rec([], "double", (1, 1), 1 + 2j)])
     assert v.dtype == np.complex128
     v = records_to_value([rec([], "single", (0, 3), np.zeros((0, 3)))])
@@ -85,6 +93,7 @@ def test_struct_cell_and_text():
         [rec([], "char", (1, 1), "a"), rec([], "char", (1, 1), "b")],  # left over
         [rec([], "struct", (1, 1), fields=("a",)), rec(["b"], "double", (1, 1), 1.0)],  # path
         [rec([], "char", (1, 3), "ab")],  # char size mismatch
+        [rec([], "char", (1, 2), "a\U0001d11e")],  # non-BMP: 3 UTF-16 units in MATLAB
         [rec([], "table", (1, 1))],
         [rec([], "double", (1,), 1.0)],  # size must be >= 2 entries
         [
@@ -152,3 +161,7 @@ def test_binary_version_text():
     )
     with pytest.raises(ValueError):
         binary_version_text("garbage")
+
+
+def test_non_bmp_char_record():
+    assert records_to_value([rec([], "char", (1, 3), "a\U0001d11e")]) == "a\U0001d11e"

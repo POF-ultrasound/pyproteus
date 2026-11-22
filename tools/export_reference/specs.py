@@ -119,16 +119,27 @@ _FULL_RUN_CALL = (
 )
 
 
+FULL_RUN_GROUND_TRUTH_SEED = 1  # RandStream('mt19937ar') of write_synthetic_ground_truth
+FULL_RUN_RNG_SEED = 0  # rng(seed,'twister') right before main_RF (random medium background)
+
+
 def _full_run(case: str, description: str, *, slow: bool) -> ExportSpec:
     return ExportSpec(
         name=f"full_run.{case}",
         module="acoustic-module",
         function="main_RF",
         description=description,
-        inputs=lambda: {"case_name": case, "ground_truth_seed": 1.0, "rng_seed": 0.0},
+        inputs=lambda: {
+            "case_name": case,
+            "ground_truth_seed": float(FULL_RUN_GROUND_TRUTH_SEED),
+            "rng_seed": float(FULL_RUN_RNG_SEED),
+        },
         call=_FULL_RUN_CALL,
         kind="full_run",
-        seeds={"matlab_rng_twister_before_main_RF": 0, "ground_truth_mt19937ar": 1},
+        seeds={
+            "matlab_rng_twister_before_main_RF": FULL_RUN_RNG_SEED,
+            "ground_truth_mt19937ar": FULL_RUN_GROUND_TRUTH_SEED,
+        },
         needs_kwave=True,
         slow=slow,
     )

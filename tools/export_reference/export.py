@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pyproteus.io.reference_format import write_reference
 
-from .engine import ExportConfig, ExportSession
+from .engine import KWAVE_SOLVER, ExportConfig, ExportSession
 from .specs import SPECS, ExportSpec, M
 
 DEFAULT_OUT = Path(__file__).resolve().parent / "data"
@@ -48,6 +48,8 @@ def export_spec(session: ExportSession, spec: ExportSpec, out_dir: Path) -> Path
     extra = session.flatten("pyp_extra") if has_extra else None
     if not isinstance(outputs, dict) or not outputs:
         raise RuntimeError(f"{spec.name}: the call assigned no pyp_out fields")
+    if spec.kind == "full_run":
+        _check_full_run(spec, inputs)
     if spec.outputs and list(outputs) != list(spec.outputs):
         raise RuntimeError(f"{spec.name}: outputs {list(outputs)} != {list(spec.outputs)}")
     attrs = {
@@ -62,6 +64,23 @@ def export_spec(session: ExportSession, spec: ExportSpec, out_dir: Path) -> Path
     }
     eng.eval("clear pyp_in pyp_out pyp_extra;", nargout=0)
     return write_reference(out_dir / f"{spec.name}.h5", attrs, inputs, outputs, extra)
+
+
+def _check_full_run(spec: ExportSpec, inputs: dict) -> None:
+    """Provenance must describe what ran: solver from the settings, seeds from the inputs."""
+    solver = inputs["settings"]["SimulationParameters"]["Solver"]
+    if solver != "3DC":
+        raise RuntimeError(
+            f"{spec.name}: settings use solver {solver!r}; only '3DC' (the recorded C++ "
+            f"binary, {KWAVE_SOLVER}) is supported by the exporter"
+        )
+    seeds = spec.all_seeds()
+    for key, inp in (
+        ("matlab_rng_twister_before_main_RF", "rng_seed"),
+        ("ground_truth_mt19937ar", "ground_truth_seed"),
+    ):
+        if float(inputs[inp][0, 0]) != seeds[key]:
+            raise RuntimeError(f"{spec.name}: input {inp} != recorded seed {key}")
 
 
 def select(names: list[str], *, all_: bool) -> list[ExportSpec]:

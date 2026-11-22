@@ -19,6 +19,7 @@ from pyproteus.io.reference_format import (
     FunctionHandle,
     MatlabString,
     StructArray,
+    utf16_len,
 )
 
 
@@ -61,7 +62,16 @@ def _array(rec: Mapping[str, Any], size: tuple[int, ...]) -> np.ndarray:
         else:
             raise RecordError(f"data shape {arr.shape} != MATLAB size {size} at {rec['path']}")
     if arr.dtype != target:
-        if arr.size and not np.can_cast(arr.dtype, target, casting="same_kind"):
+        if arr.size and target.kind in "iu":
+            # The engine returns 1x1 integers of any class as Python int (-> int64):
+            # check the value range, not the dtype kind.
+            if arr.dtype.kind not in "iub":
+                raise RecordError(f"non-integer data for class {cls} at {rec['path']}")
+            info = np.iinfo(target)
+            vals = [int(x) for x in arr.ravel()]
+            if min(vals) < info.min or max(vals) > info.max:
+                raise RecordError(f"value out of range for class {cls} at {rec['path']}")
+        elif arr.size and not np.can_cast(arr.dtype, target, casting="same_kind"):
             raise RecordError(f"data dtype {arr.dtype} cannot hold class {cls} at {rec['path']}")
         cast = arr.astype(target)
         if arr.size and not np.array_equal(cast, arr, equal_nan=arr.dtype.kind in "fc"):
@@ -108,7 +118,7 @@ def _build(it: Iterator[Mapping[str, Any]], path: list[str]) -> Any:
         if not isinstance(data, str) and np.asarray(data).size:
             raise RecordError(f"text node without str data at {path}")
         if cls == "char":
-            if size != ((1, len(text)) if text else size) or (not text and n != 0):
+            if size != ((1, utf16_len(text)) if text else size) or (not text and n != 0):
                 raise RecordError(f"char size {size} does not match {text!r} at {path}")
             return text
         return (MatlabString if cls == "string" else FunctionHandle)(text)

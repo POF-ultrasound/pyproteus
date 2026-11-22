@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import json
 import os
 import platform
 import re
@@ -62,6 +63,9 @@ class ExportConfig:
     kwave_binary: Path | None = None
     #: Runtime library folder for the tracer wrapper (``KWAVE_LIBS``).
     kwave_libs: Path | None = None
+    #: Flow geometries (PROTEUS ``GeometriesPath``) linked into the work folder; the
+    #: oracle ships only GeometryProperties.mat (STL files: Zenodo record 10573662).
+    geometries_path: Path | None = None
     #: Scratch root (MATLAB working folder, PROTEUS data folders). Temporary if None.
     workdir: Path | None = None
     #: Shared MATLAB session name to connect to instead of starting MATLAB.
@@ -80,6 +84,8 @@ class ExportConfig:
             cfg.kwave_binary = Path(e("PYPROTEUS_KWAVE_BINARY"))
         if e("PYPROTEUS_KWAVE_LIBS"):
             cfg.kwave_libs = Path(e("PYPROTEUS_KWAVE_LIBS"))
+        if e("PYPROTEUS_GEOMETRIES_PATH"):
+            cfg.geometries_path = Path(e("PYPROTEUS_GEOMETRIES_PATH"))
         if e("PYPROTEUS_EXPORT_WORKDIR"):
             cfg.workdir = Path(e("PYPROTEUS_EXPORT_WORKDIR"))
         cfg.matlab_session = e("PYPROTEUS_MATLAB_SESSION") or None
@@ -116,6 +122,15 @@ def binary_version_text(stdout: str) -> str:
     if not fields:
         raise ValueError(f"cannot parse the k-Wave binary version from:\n{stdout}")
     return "; ".join(fields)
+
+
+def tree_sha256(folder: Path) -> str:
+    """SHA-256 over the relative paths and contents of all ``*.m`` files in a folder tree."""
+    h = hashlib.sha256()
+    for f in sorted(Path(folder).rglob("*.m")):
+        h.update(f.relative_to(folder).as_posix().encode() + b"\0")
+        h.update(bytes.fromhex(sha256_file(f)))
+    return h.hexdigest()
 
 
 def sha256_file(path: Path) -> str:
@@ -190,9 +205,9 @@ class ExportSession:
             self.workdir = Path(self._tmp.name)
         else:
             self.workdir = Path(cfg.workdir).resolve()
+            if self.workdir.is_relative_to(cfg.oracle.resolve()):
+                raise ValueError("the export work folder must be outside the oracle checkout")
             self.workdir.mkdir(parents=True, exist_ok=True)
-        if self.workdir.resolve().is_relative_to(cfg.oracle.resolve()):
-            raise ValueError("the export work folder must be outside the oracle checkout")
 
         _preload()
         import matlab.engine
@@ -204,23 +219,45 @@ class ExportSession:
         else:
             self.eng = matlab.engine.start_matlab("-nodesktop -nosplash")
         if self._given is not None or cfg.matlab_session:
-            self._restore = (
-                self.eng.path(nargout=1),
-                self.eng.pwd(nargout=1),
-                self.eng.getenv("PROTEUS_LOCAL_PATHS", nargout=1),
-            )
-        self._setup_path()
+            self._save_state()
+        try:
+            self._setup_path()
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
         return self
+
+    _ENV_VARS = ("PROTEUS_LOCAL_PATHS", "KWAVE_BINARY", "KWAVE_LIBS")
+
+    def _save_state(self) -> None:
+        """Remember what the export changes in a MATLAB it does not own."""
+        eng = self.eng
+        self._saved = f"pyp_saved_{os.getpid()}_{id(self):x}__"
+        eng.eval(f"{self._saved}.rng = rng; {self._saved}.format = format;", nargout=0)
+        self._restore = (
+            eng.path(nargout=1),
+            eng.pwd(nargout=1),
+            {v: eng.getenv(v, nargout=1) for v in self._ENV_VARS},
+        )
+
+    def _restore_state(self) -> None:
+        eng = self.eng
+        path, cwd, env = self._restore
+        eng.cd(cwd, nargout=0)
+        eng.path(path, nargout=0)
+        for k, v in env.items():
+            eng.setenv(k, v, nargout=0)
+        v = self._saved
+        eng.eval(
+            f"rng({v}.rng); format({v}.format); clear {v} pyp_in pyp_out pyp_extra;",
+            nargout=0,
+        )
 
     def __exit__(self, *exc: object) -> None:
         try:
             if self.eng is not None:
                 if self._restore is not None:
-                    self.eng.eval("clear pyp_*;", nargout=0)
-                    path, cwd, local_paths = self._restore
-                    self.eng.cd(cwd, nargout=0)
-                    self.eng.path(path, nargout=0)
-                    self.eng.setenv("PROTEUS_LOCAL_PATHS", local_paths, nargout=0)
+                    self._restore_state()
                 else:
                     self.eng.quit()
         finally:
@@ -246,6 +283,11 @@ class ExportSession:
 
             binary = Path(kwave.BINARY_PATH) / KWAVE_BINARY_NAME
         binary = Path(binary) if binary is not None else wrapper
+        if binary == wrapper and wrapper.read_bytes()[:2] == b"#!":
+            raise RuntimeError(
+                f"{wrapper} is a script: set PYPROTEUS_KWAVE_BINARY to the executable it runs "
+                "(recorded and hashed)"
+            )
         env = self._binary_env(binary, wrapper)
         out = subprocess.run(
             [str(wrapper), "--version"],
@@ -267,7 +309,11 @@ class ExportSession:
             "kwave_binary_wrapper": str(wrapper) if binary != wrapper else "",
             "kwave_binary_version": binary_version_text(out.stdout),
             "kwave_binary_sha256": sha256_file(binary),
+            "kwave_matlab_sha256": tree_sha256(cfg.kwave_matlab_path),
+            "kwave_runtime": json.dumps(self._runtime_info(binary, wrapper, env), sort_keys=True),
         }
+        if binary != wrapper:
+            info["kwave_binary_wrapper_sha256"] = sha256_file(wrapper)
         try:  # D-10: binary shipped by k-wave-python; record which release
             import kwave
 
@@ -276,6 +322,22 @@ class ExportSession:
                 info["kwave_python_binary_release"] = str(kwave.BINARY_VERSION)
         except ImportError:  # pragma: no cover
             pass
+        return info
+
+    @staticmethod
+    def _runtime_info(binary: Path, wrapper: Path, env: dict[str, str]) -> dict[str, Any]:
+        """Environment that can change the binary's results (libraries, threads)."""
+        full = {**os.environ, **env}
+        info: dict[str, Any] = {
+            k: full.get(k, "")
+            for k in ("KWAVE_LIBS", "OMP_NUM_THREADS", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH")
+        }
+        if platform.system() == "Darwin":
+            # The tracer wrapper uses DYLD_FALLBACK_LIBRARY_PATH: Homebrew libraries win.
+            info["homebrew_libs"] = {
+                lib: os.path.isdir(f"/opt/homebrew/opt/{lib}/lib")
+                for lib in ("fftw", "hdf5", "libomp", "zlib")
+            }
         return info
 
     def _binary_env(self, binary: Path, wrapper: Path) -> dict[str, str]:
@@ -299,10 +361,36 @@ class ExportSession:
                 raise FileNotFoundError(f"oracle module folder missing: {folder}")
             eng.addpath(eng.genpath(str(folder)), nargout=0)
         eng.addpath(str(MATLAB_DIR), nargout=0)
-        self.paths_extra = [str(MATLAB_DIR.relative_to(REPO))]
         eng.eval("format long g;", nargout=0)
         if self.kwave:
             self._setup_kwave()
+        self.paths_extra = self._foreign_path_entries()
+
+    def _foreign_path_entries(self) -> list[str]:
+        """MATLAB path entries outside matlabroot and the oracle's module folders.
+
+        Lists everything that could shadow or add functions (export helpers,
+        k-Wave, oracle test helpers, and whatever a reused session already had,
+        e.g. ``tests/oracle/shims``), in search order.
+        """
+        eng, cfg = self.eng, self.cfg
+        root = str(eng.matlabroot(nargout=1))
+        sep = str(eng.pathsep(nargout=1))
+        oracle = str(cfg.oracle.resolve())
+        allowed = {oracle} | {str((cfg.oracle / m).resolve()) for m in ORACLE_MODULES}
+        out = []
+        for entry in str(eng.path(nargout=1)).split(sep):
+            if not entry or entry.startswith(root):
+                continue
+            e = str(Path(entry).resolve())
+            if e in allowed or any(e.startswith(a + os.sep) for a in allowed if a != oracle):
+                continue
+            for prefix, tag in ((str(REPO), "<pyproteus>"), (oracle, "<oracle>")):
+                if e == prefix or e.startswith(prefix + os.sep):
+                    e = tag + e[len(prefix) :]
+                    break
+            out.append(e)
+        return out
 
     def _setup_kwave(self) -> None:
         """k-Wave + oracle test helpers on the path, PROTEUS data folders in the work folder."""
@@ -316,7 +404,6 @@ class ExportSession:
         # PROTEUS' own headless helpers (make_tiny_settings, write_settings, ...).
         # Only tests/helpers: tests/shims would replace the C++ solver by MATLAB's.
         eng.addpath(str(cfg.oracle / "tests" / "helpers"), nargout=0)
-        self.paths_extra += ["<kwave_matlab_path>", "<oracle>/tests/helpers"]
         folders = {
             "GeometriesPath": "geometry_data",
             "GroundTruthPath": "ground_truth_frames",
@@ -335,7 +422,8 @@ class ExportSession:
         paths_file.write_text("\n".join(lines) + "\n")
         eng.setenv("PROTEUS_LOCAL_PATHS", str(paths_file), nargout=0)
         # Shipped flow geometries are tiny folders: link them next to the synthetic ones.
-        for g in (cfg.oracle / "geometry_data").iterdir():
+        geometries = cfg.geometries_path or (cfg.oracle / "geometry_data")
+        for g in Path(geometries).iterdir():
             dest = self.workdir / "geometry_data" / g.name
             if g.is_dir() and not dest.exists():
                 dest.symlink_to(g, target_is_directory=True)
@@ -373,7 +461,25 @@ class ExportSession:
             info.pop("kwave_binary_wrapper", None)
         from pyproteus import __version__
 
+        eng.eval(
+            "pyp_pool__ = 0; try, pyp_p__ = gcp('nocreate'); "
+            "if ~isempty(pyp_p__), pyp_pool__ = pyp_p__.NumWorkers; end, catch, end; "
+            "clear pyp_p__;",
+            nargout=0,
+        )
+        pool = int(eng.workspace["pyp_pool__"])
+        eng.eval("clear pyp_pool__;", nargout=0)
         return {
+            "matlab_parallel_pool_workers": pool,
+            **(
+                {
+                    "geometries_path": str(
+                        self.cfg.geometries_path or self.cfg.oracle / "geometry_data"
+                    )
+                }
+                if self.kwave
+                else {}
+            ),
             "matlab_version": str(eng.version(nargout=1)),
             "proteus_version": str(eng.proteus_version(nargout=1)),
             "oracle_commit": self.oracle_commit,

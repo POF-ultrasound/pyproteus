@@ -176,3 +176,35 @@ def test_update_registry_rejects_misnamed(tmp_path):
     reg = write_registry(tmp_path / "r.txt", {})
     with pytest.raises(SystemExit, match="does not match"):
         update_registry.main(["--data", str(data), "--registry", str(reg)])
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"oracle_dirty": True},
+        {"oracle_commit": "0123456789abcdef"},
+        {"exporter_commit": "abc-dirty"},
+    ],
+)
+def test_update_registry_refuses_unclean(tmp_path, over):
+    data = tmp_path / "data"
+    write_reference(data / "a.one.h5", attrs(name="a.one", **over), {}, {})
+    reg = write_registry(tmp_path / "r.txt", {})
+    argv = ["--data", str(data), "--registry", str(reg)]
+    with pytest.raises(SystemExit, match="allow-unclean"):
+        update_registry.main(argv)
+    assert update_registry.main([*argv, "--allow-unclean"]) == 0
+    assert "a.one.h5" in ref.registry(reg)
+
+
+def test_update_registry_prune(tmp_path):
+    data = tmp_path / "data"
+    p = make_file(data, "a.one")
+    reg = write_registry(tmp_path / "r.txt", {"old.gone.h5": H})
+    argv = ["--data", str(data), "--registry", str(reg)]
+    assert update_registry.main(argv) == 0
+    assert set(ref.registry(reg)) == {"a.one.h5", "old.gone.h5"}
+    assert update_registry.main([*argv, "--check", "--prune"]) == 1
+    assert update_registry.main([*argv, "--prune"]) == 0
+    assert ref.registry(reg) == {"a.one.h5": ref.sha256(p)}
+    assert not list(tmp_path.glob("*.partial"))
