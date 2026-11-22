@@ -69,4 +69,5 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 ## B-34 — empty char arrays lose their size in the value tree (wontfix)
 - Where: `pyproteus.config.matfile`, models, JSON.
 - Behaviour: `''` (0×0), `zeros(1,0)` char and `char(zeros(0,3))` all become `""`. MATLAB code tests them with `isempty`/`strcmp`, which treat them alike; PROTEUS never relies on the size of an empty char.
+- Also: an empty (0-element) struct array without fields saved in v5/v6 loads as an empty cell (SciPy cannot tell them apart); v7.3 gives an empty `StructArray`. PROTEUS never writes such values.
 
