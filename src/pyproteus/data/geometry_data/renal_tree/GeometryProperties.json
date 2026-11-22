@@ -1,0 +1,28 @@
+{
+  "BoundingBox": {
+    "Xmax": 0.014765681640625,
+    "Xmin": 0.0014120257568359376,
+    "Ymax": 0.0117026630859375,
+    "Ymin": 0.0021987216796875,
+    "Zmax": 0.0203054609375,
+    "Zmin": 0.0018913896484375
+  },
+  "EmbedVessel": true,
+  "Rotation": [[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+  "STLfile": "maa.stl",
+  "STLunit": 1e-06,
+  "Visualization": {
+    "Image": "renal_tree.png",
+    "Fraction": 0.06
+  },
+  "vtuProperties": {
+    "lengthUnit": 1e-06,
+    "velocityUnit": 1.0,
+    "inletDiameter": 0.0006,
+    "inletNormal": [[0.0, 0.0, 1.0]],
+    "velocityField": "velocity_phy"
+  },
+  "options": {
+    "MaxStep": 0.0007639080062721489
+  }
+}

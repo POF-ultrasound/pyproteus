@@ -67,3 +67,29 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Symptom: two runs of the same input file differ by ~1e-6 relative in the sensor data (seen in `tests/unit/test_kwave.py::test_cpp_data_path_unique_folders_and_delete_data`, about 1 run in 6).
 - Cause: likely FFTW planning / OpenMP thread scheduling (summation order); not investigated.
 - Impact: within the 1e-5 k-Wave class. Frozen references (D-10) and run-vs-run tests cannot be compared bit for bit; tests compare at 1e-5.
+
+## B-30 — `scipy.io.loadmat(mat_dtype=True)` drops the imaginary part of complex arrays (workaround)
+- Where: SciPy 1.15 `loadmat(..., mat_dtype=True)`, e.g. `microbubble-simulator/functions/*TransferFunctionFit.mat` (complex 1×50000).
+- Symptom: real-valued result plus a `ComplexWarning`. Without `mat_dtype`, integer-valued doubles come back in their storage class (`10` → `uint8`).
+- Workaround: `pyproteus.config.matfile` reads twice (typed + raw) and takes complex arrays from the raw read. Test: `tests/unit/test_config_matfile.py::test_v5_classes_and_shapes`, `tests/oracle/test_data.py`.
+
+## B-31 — MATLAB `exp` (R2025a maca64) is not correctly rounded: 1-ulp differences (observation, within class)
+- Where: any port that evaluates transcendental functions; first seen in `compute_polydisperse_distribution` (`reset_microbubble` default `Distribution.Probabilities`).
+- Symptom: on 41k random inputs MATLAB `exp` equals the correctly rounded result 90.2 % of the time, NumPy/Apple libm 99.8 %; 87 of 1001 values differ by 1 ulp in the default distribution. `Probabilities` agree to 7e-16 rel.
+- Cause: MATLAB ships its own libm. Not reproducible without reverse-engineering it.
+- Handling: observation only (developer policy 2026-11-22: no replication of MATLAB's libm). Such fields are compared at the ROADMAP §4 signal class (≤ 1e-12 rel). Test: `tests/oracle/test_config.py::test_compute_polydisperse_distribution`, `test_reset_microbubble`.
+
+## B-32 — MATLAB `sum` of a vector differs from NumPy's pairwise sum in the last bits (observation, within class)
+- Where: `P/sum(P)` in `compute_polydisperse_distribution` and wherever PROTEUS sums vectors.
+- Symptom: `sum` of the 1001-element distribution differs from `np.sum` by 1.4e-14 abs (1e-16 rel).
+- Handling: observation only (developer policy 2026-11-22: no replication of MATLAB's summation order, no `numerics.sum`). Within the 1e-12 class.
+
+## B-33 — SciPy reads MATLAB's 0-byte `[]` matrix element as 1×0; MATLAB loads 0×0 (workaround)
+- Where: `GUIfunctions/tissue_properties.mat` (`properties_name{2,5}`), written by MATLAB on Windows in 2022; older MATLAB versions write `[]` inside cells/struct fields as a miMATRIX element of 0 bytes. R2025a writes a full header instead.
+- Workaround: `matfile._zero_byte_elements` walks the v5 element tree, finds 0-byte elements and sets them to 0×0 double. Tests: `tests/unit/test_config_matfile.py::test_zero_byte_empty_element`, `tests/oracle/test_config.py::test_loadmat_shipped_files`.
+
+## B-34 — empty char arrays lose their size in the value tree (wontfix)
+- Where: `pyproteus.config.matfile`, models, JSON.
+- Behaviour: `''` (0×0), `zeros(1,0)` char and `char(zeros(0,3))` all become `""`. MATLAB code tests them with `isempty`/`strcmp`, which treat them alike; PROTEUS never relies on the size of an empty char.
+- Also: an empty (0-element) struct array without fields saved in v5/v6 loads as an empty cell (SciPy cannot tell them apart); v7.3 gives an empty `StructArray`. PROTEUS never writes such values.
+
