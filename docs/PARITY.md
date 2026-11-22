@@ -83,12 +83,12 @@ Notes:
 
 ## ODE solvers (`pyproteus.numerics`)
 
-Class (provisional, being agreed): per component `max|y_py - y_matlab| ≤ 10·RelTol·max|y_matlab| + AbsTol`, at `tspan` points (or the final value for a 2-point `tspan`). Step sequences are not compared.
+Class D-13 (PR #10; replaces the old 1e-8 bubble class): per component `max|y_py - y_matlab| ≤ 10·RelTol·max|y_matlab| + AbsTol`, at `tspan` points (or the final value for a 2-point `tspan`). Step sequences are not compared.
 
 | MATLAB | Python | Class | Oracle test | Status |
 |---|---|---|---|---|
-| `[t,y] = ode45(f, tspan, y0, opts)` on smooth problems | `ode45` | tolerance class above (worst 17 % of bound) | `test_ode45.py::test_solution_matches_matlab` | ✅ |
-| Stacked Rayleigh–Plesset-like batch, PROTEUS options | `ode45` | tolerance class (≤ 5e-7 rel at RelTol 1e-6) | `test_ode45.py::test_rayleigh_plesset_batch` | 🟡 above ROADMAP's 1e-8 bubble class, class under discussion |
+| `[t,y] = ode45(f, tspan, y0, opts)` on smooth problems | `ode45` | D-13 (worst 17 % of bound) | `test_ode45.py::test_solution_matches_matlab` | ✅ |
+| Stacked Rayleigh–Plesset-like batch, PROTEUS options | `ode45` | D-13 (≤ 5e-7 rel at RelTol 1e-6) | `test_ode45.py::test_rayleigh_plesset_batch` | ✅ |
 | `ode23` + events | — | — | — | ⬜ (M4) |
 
 Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxStep`, `InitialStep`, `Refine`, `OutputFcn`; `BDF`/`MaxOrder`/`Stats` accepted and ignored; other options raise. Forward and backward; 2-point and many-point `tspan`.

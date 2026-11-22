@@ -11,7 +11,7 @@ from pyproteus.numerics.ode45 import _A, _B, _C, _D, _E
 
 
 def bound(y_exact, rtol, atol):
-    """Accuracy class used throughout: 10*RelTol*max|y| + AbsTol per component."""
+    """Accuracy class used throughout (D-13): 10*RelTol*max|y| + AbsTol per component."""
     return 10 * rtol * np.max(np.abs(y_exact), axis=0) + atol
 
 

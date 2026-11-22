@@ -3,8 +3,8 @@
 Parity policy: pyproteus reproduces PROTEUS' results within a tolerance; it
 does not reproduce MATLAB's internal step sequence. Both solvers are
 Dormand–Prince 5(4) with error control at the same ``RelTol``/``AbsTol``, so
-their solutions agree to roughly the tolerance. Provisional class (being
-agreed with the developer): per component,
+their solutions agree to roughly the tolerance. Class D-13 (PR #10, bubble
+ODEs at about 10·RelTol rel + AbsTol abs of the solver settings): per component,
 
     max_t |y_py - y_matlab| <= 10 * RelTol * max_t |y_matlab| + AbsTol
 
