@@ -247,7 +247,7 @@ def test_batch_dependence_similar(matlab_engine) -> None:
     def rel(a, b):
         return np.max(np.abs(a[:, 0] - b[:, 0])) / np.max(np.abs(b[:, 0]))
 
-    assert rel(m_single, m_stacked) > 0
-    assert rel(py_single, py_stacked) > 0
+    assert rel(m_single, m_stacked) > 1e-12  # well above round-off: steps really shared
+    assert rel(py_single, py_stacked) > 1e-12
     assert rel(py_single, py_stacked) < 10 * opts["RelTol"]
     assert rel(m_single, m_stacked) < 10 * opts["RelTol"]

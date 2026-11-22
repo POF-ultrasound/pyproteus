@@ -72,8 +72,8 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Also: an empty (0-element) struct array without fields saved in v5/v6 loads as an empty cell (SciPy cannot tell them apart); v7.3 gives an empty `StructArray`. PROTEUS never writes such values.
 
 
-## B-52 — MATLAB elementary functions round differently from NumPy (observation only)
-- Where: `cos`, `sin`, `exp`, `log`, `power` in MATLAB R2025a vs NumPy/libm on macOS arm64.
-- Observation: during the first ode45 attempt (withdrawn, PR #9), MATLAB's results for these functions differed from NumPy's in the last bit on 5–10 % of inputs.
-- Impact: ported formulas cannot be bit-identical to MATLAB; differences are ~1 ulp per operation, far inside the tolerance classes (D-12/D-13/D-14).
-- Action: none. No code acts on this (no fdlibm or other MATLAB-matching math helpers).
+## B-52 — MATLAB and NumPy elementary functions need not round identically (observation only)
+- Where: transcendental functions (`cos`, `sin`, `exp`, `log`, `power`) in MATLAB vs NumPy.
+- Observation: their last bit can differ between the two environments, so ported formulas are not expected to be bit-identical to MATLAB.
+- Impact: ~1 ulp per operation, far inside the tolerance classes (D-12/D-13/D-14).
+- Action: none; no code acts on this.

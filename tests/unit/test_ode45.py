@@ -23,6 +23,43 @@ def test_tableau_consistency() -> None:
     # 5th-order conditions (a few): sum b c^k = 1/(k+1)
     for k in range(5):
         assert _B @ _C**k == pytest.approx(1 / (k + 1), abs=1e-14)
+    # embedded 4th-order weights b4 = b5 - E (Dormand & Prince 1980)
+    b4 = _B - _E
+    published = [5179 / 57600, 0, 7571 / 16695, 393 / 640, -92097 / 339200, 187 / 2100, 1 / 40]
+    np.testing.assert_allclose(b4, published, rtol=0, atol=1e-16)
+    for k in range(4):
+        assert b4 @ _C**k == pytest.approx(1 / (k + 1), abs=1e-14)
+    assert b4 @ _C**4 != pytest.approx(1 / 5, abs=1e-6)  # really only 4th order
+
+
+def _one_step(f, t, y, h):
+    k = np.zeros((y.size, 7))
+    k[:, 0] = f(t, y)
+    for i in range(1, 7):
+        k[:, i] = f(t + _C[i] * h, y + h * (k[:, :i] @ _A[i, :i]))
+    return y + h * (k @ _B), h * (k @ _E)
+
+
+@pytest.mark.parametrize("h", [0.4, 0.2, 0.1])
+def test_error_estimate_tracks_true_local_error(h) -> None:
+    """|h f@E| = |y5 - y4| matches the true local error of the 4th-order solution."""
+    f = lambda t, y: np.array([np.cos(t) * y[0], -2.0 * y[1]])  # noqa: E731
+    exact = np.array([np.exp(np.sin(h)), np.exp(-2.0 * h)])
+    y5, est = _one_step(f, 0.0, np.array([1.0, 1.0]), h)
+    true4 = np.abs((y5 - est) - exact)
+    ratio = np.abs(est) / true4
+    assert np.all((ratio > 0.5) & (ratio < 2.0)), ratio
+
+
+def test_steps_scale_with_tolerance() -> None:
+    """Error control of a 5(4) pair: nsteps grows like RelTol^(-1/5)."""
+
+    def n(rtol):
+        osc = lambda t, y: np.array([y[1], -y[0]])  # noqa: E731
+        return ode45(osc, [0, 20], [1.0, 0.0], odeset(RelTol=rtol, AbsTol=1e-14)).stats.nsteps
+
+    ratio = n(1e-10) / n(1e-5)
+    assert 7 < ratio < 15, ratio  # 10 expected
 
 
 @pytest.mark.parametrize("rtol", [1e-3, 1e-6, 1e-9])
@@ -122,7 +159,10 @@ def test_max_step_and_default() -> None:
     r = ode45(lambda t, y: -0.01 * y, [0, 100], [1.0], odeset(Refine=1))
     assert np.max(np.diff(r.t_steps)) <= 10.0 * (1 + 1e-12)  # default |tf - t0|/10
     r = ode45(lambda t, y: -y, [0, 1], [1.0], odeset(MaxStep=0.03))
-    assert np.max(np.diff(r.t_steps)) <= 0.03 * 1.1
+    assert np.max(np.diff(r.t_steps)) <= 0.03 * (1 + 1e-12)
+    # span just over MaxStep: never one stretched step longer than MaxStep
+    r = ode45(lambda t, y: 0 * y, [0, 1.05], [1.0], odeset(MaxStep=1.0, Refine=1))
+    assert np.max(np.diff(r.t_steps)) <= 1.0 and r.t_steps[-1] == 1.05
 
 
 def test_initial_step_option() -> None:
@@ -157,10 +197,26 @@ def test_outputfcn_protocol_and_stop() -> None:
     assert len(steps) == 3 and all(e[2][0] == 2 for e in steps)
 
 
-def test_step_size_failure_warns_and_stops() -> None:
+@pytest.mark.parametrize("rtol", [1e-3, 1e-6, 1e-9])
+def test_step_size_failure_warns_and_stops(rtol) -> None:
     with pytest.warns(RuntimeWarning, match="unable to meet integration tolerances"):
-        r = ode45(lambda t, y: y * y, [0, 2], [1.0])  # blows up at t = 1
-    assert r.stopped and 0.99 < r.t[-1] < 1.0
+        r = ode45(lambda t, y: y * y, [0, 2], [1.0], odeset(RelTol=rtol))  # blow-up at t = 1
+    assert r.stopped and abs(r.t[-1] - 1.0) < 1e-3
+
+
+def test_nonfinite_rhs() -> None:
+    with pytest.warns(RuntimeWarning, match="unable to meet"):
+        r = ode45(lambda t, y: np.full(1, np.nan), [0, 1], [1.0])
+    assert r.stopped and r.t[-1] == 0.0
+    with pytest.warns(RuntimeWarning, match="unable to meet"):
+        r = ode45(lambda t, y: np.array([np.nan if t > 0.5 else -y[0]]), [0, 1], [1.0])
+    assert r.stopped and 0.45 < r.t[-1] <= 0.5 + 1e-12
+    assert np.all(np.isfinite(r.y))
+
+
+def test_reltol_floor_warns() -> None:
+    with pytest.warns(RuntimeWarning, match="RelTol raised"):
+        ode45(lambda t, y: -y, [0, 1], [1.0], odeset(RelTol=1e-20))
 
 
 def test_y0_shape_and_unpacking() -> None:
