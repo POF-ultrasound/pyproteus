@@ -22,3 +22,17 @@ Format:
 - Test: `tests/oracle/test_kwave_tracer.py::test_matlab_3dc_ignores_alpha_mode`, case `pressure_nodisp`.
 - Decided (D-9): drop `alpha_mode` on the `python` backend too (M3 self-sense), so every backend matches MATLAB 3DC.
 - Planned fix: after parity, honour `no_dispersion` on every backend (or drop the setting from `define_medium`), so all solvers agree; changes absorption-dispersion near y = 1.
+
+## Q-30 — tissue names are matched by substring, first match wins
+- MATLAB: `GUIfunctions/assign_medium_properties.m:25-31` (`~isempty(strfind(tissue_names{i}, Medium.Tissue))`).
+- Behaviour: `'Muscle'` selects `'Muscle (along the fibers)'`, `'Eye'` the lens, `'ate'` selects `'Water'`; matching is case-sensitive and an empty name matches nothing (`strfind(x,'')` is empty), raising `'Tissue not found'`.
+- Ported in: `pyproteus.config.properties.assign_medium_properties`.
+- Test: `tests/oracle/test_config.py::test_assign_medium_properties` (substring cases), `test_assign_medium_properties_not_found`.
+- Planned fix: exact name match (or a dropdown-only API) after parity.
+
+## Q-31 — unknown catalogue keys are handled inconsistently
+- MATLAB: `get_transducer_properties.m` (no `otherwise`: unknown `Type` returns the struct unchanged), `assign_liquid_properties.m` (unknown liquid: unchanged), `get_gas_properties.m` and `assign_medium_properties.m` (unknown name: error).
+- Ported in: `pyproteus.config.properties` (same behaviour; errors are `ValueError`).
+- Test: `tests/oracle/test_config.py::test_get_transducer_properties[Unknown type]`, `test_assign_liquid_properties[Plasma]`, `test_get_gas_properties_unknown`.
+- Planned fix: raise on every unknown key after parity.
+

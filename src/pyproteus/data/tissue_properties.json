@@ -1,0 +1,13 @@
+{
+  "properties_name": {
+    "__matlab__": "cell",
+    "size": [2, 5],
+    "data": ["density", "kg/l", "speed of sound", "m/s", "acoustic impedance", "MRay", "attenuation", "dB/cm/MHz", "B_over_A", []]
+  },
+  "tissue_names": {
+    "__matlab__": "cell",
+    "size": [16, 1],
+    "data": ["Water", "Blood", "Fat", "Liver", "Kidney", "Brain", "Heart", "Muscle (along the fibers)", "Muscle (across the fibers)", "Skin", "Eye (lens)", "Eye (vitreous humor)", "Bone axial (longitudinal waves)", "Bone axial (shear waves)", "Teeth (dentine)", "Teeth (enamel)"]
+  },
+  "tissue_properties": [[1.0, 1480.0, 1.48, 0.002, 2.0, 5.2], [1.055, 1575.0, 1.66, 0.15, 1.21, 6.0], [0.95, 1450.0, 1.38, 0.6, 1.0, 10.0], [1.06, 1590.0, 1.69, 0.9, 1.1, 6.8], [1.05, 1570.0, 1.65, 1.0, 1.0, 7.4], [1.03, 1550.0, 1.6, 0.8, 1.35, 6.9], [1.045, 1570.0, 1.64, 0.0, 0.0, 6.8], [1.065, 1575.0, 1.68, 0.0, 0.0, 7.4], [1.065, 1590.0, 1.69, 0.0, 0.0, 7.4], [1.15, 1730.0, 1.99, 0.0, 0.0, 0.0], [1.04, 1650.0, 1.72, 0.0, 0.0, 0.0], [1.01, 1525.0, 1.54, 0.0, 0.0, 0.0], [1.9, 4080.0, 7.75, 0.0, 0.0, 0.0], [1.9, 2800.0, 5.32, 0.0, 0.0, 0.0], [2.2, 3600.0, 7.92, 0.0, 0.0, 0.0], [2.9, 5500.0, 15.95, 0.0, 0.0, 0.0]]
+}
