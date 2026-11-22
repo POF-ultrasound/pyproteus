@@ -71,17 +71,25 @@ def test_exponential_decay(rtol) -> None:
     assert np.all(np.max(np.abs(r.y - exact), axis=0) <= bound(exact, rtol, atol))
 
 
-def test_harmonic_oscillator_long_run() -> None:
+def test_harmonic_oscillator() -> None:
+    """Within the class over ~5 periods; global error then grows ~linearly in time."""
     w, rtol, atol = 7.0, 1e-8, 1e-10
-    tspan = np.linspace(0, 20, 2001)
-    r = ode45(
-        lambda t, y: np.array([y[1], -w * w * y[0]]),
-        tspan,
-        [1.0, 0.0],
-        odeset(RelTol=rtol, AbsTol=atol),
-    )
-    exact = np.stack([np.cos(w * tspan), -w * np.sin(w * tspan)], axis=1)
-    assert np.all(np.max(np.abs(r.y - exact), axis=0) <= bound(exact, rtol, atol))
+
+    def run(T):
+        tspan = np.linspace(0, T, 1001)
+        r = ode45(
+            lambda t, y: np.array([y[1], -w * w * y[0]]),
+            tspan,
+            [1.0, 0.0],
+            odeset(RelTol=rtol, AbsTol=atol),
+        )
+        exact = np.stack([np.cos(w * tspan), -w * np.sin(w * tspan)], axis=1)
+        return np.max(np.abs(r.y - exact), axis=0), exact
+
+    err5, exact = run(5.0)
+    assert np.all(err5 <= bound(exact, rtol, atol))
+    err20, _ = run(20.0)
+    assert np.all(err20 <= 6 * err5)  # 4x longer: linear growth, not exponential
 
 
 def test_linear_system_widely_different_scales() -> None:
@@ -161,8 +169,11 @@ def test_max_step_and_default() -> None:
     r = ode45(lambda t, y: -y, [0, 1], [1.0], odeset(MaxStep=0.03))
     assert np.max(np.diff(r.t_steps)) <= 0.03 * (1 + 1e-12)
     # span just over MaxStep: never one stretched step longer than MaxStep
-    r = ode45(lambda t, y: 0 * y, [0, 1.05], [1.0], odeset(MaxStep=1.0, Refine=1))
-    assert np.max(np.diff(r.t_steps)) <= 1.0 and r.t_steps[-1] == 1.05
+    r = ode45(lambda t, y: 0 * y, [0, 1.005], [1.0], odeset(MaxStep=1.0, InitialStep=1.0, Refine=1))
+    np.testing.assert_allclose(np.diff(r.t_steps), [1.0, 0.005], rtol=1e-12)
+    # within MaxStep the last step is stretched (no 1e-3-long sliver)
+    r = ode45(lambda t, y: 0 * y, [0, 1.005], [1.0], odeset(MaxStep=2.0, InitialStep=1.0, Refine=1))
+    np.testing.assert_array_equal(r.t_steps, [0.0, 1.005])
 
 
 def test_initial_step_option() -> None:
@@ -214,9 +225,67 @@ def test_nonfinite_rhs() -> None:
     assert np.all(np.isfinite(r.y))
 
 
-def test_reltol_floor_warns() -> None:
-    with pytest.warns(RuntimeWarning, match="RelTol raised"):
-        ode45(lambda t, y: -y, [0, 1], [1.0], odeset(RelTol=1e-20))
+def test_normcontrol_changes_control() -> None:
+    """NormControl 'on': error relative to ||y||, so a tiny component stops driving steps."""
+    f = lambda t, y: np.array([-y[0], -50.0 * y[1]])  # noqa: E731
+    y0, rtol, atol = [1.0, 1e-6], 1e-6, 1e-14
+    tspan = np.linspace(0, 1, 11)
+    off = ode45(f, tspan, y0, odeset(RelTol=rtol, AbsTol=atol))
+    on = ode45(f, tspan, y0, odeset(RelTol=rtol, AbsTol=atol, NormControl="on"))
+    assert on.stats.nsteps < 0.6 * off.stats.nsteps
+    exact = np.stack([np.exp(-tspan), 1e-6 * np.exp(-50 * tspan)], axis=1)
+    err = np.linalg.norm(on.y - exact, axis=1)
+    assert np.all(err <= 10 * rtol * np.linalg.norm(exact, axis=1) + atol)
+
+
+def test_abstol_per_component() -> None:
+    """A tight AbsTol on a small fast component makes it drive the steps; a loose one does not."""
+    f = lambda t, y: np.array([-y[0], -20.0 * y[1]])  # noqa: E731
+    y0, rtol = [1.0, 1e-8], 1e-6
+    tspan = np.linspace(0, 1, 11)
+    tight = ode45(f, tspan, y0, odeset(RelTol=rtol, AbsTol=[1e-10, 1e-18]))
+    loose = ode45(f, tspan, y0, odeset(RelTol=rtol, AbsTol=[1e-10, 1e-3]))
+    assert tight.stats.nsteps > 1.5 * loose.stats.nsteps
+    exact2 = 1e-8 * np.exp(-20 * tspan)
+    assert np.max(np.abs(tight.y[:, 1] - exact2)) <= 10 * rtol * 1e-8 + 1e-18
+
+
+def test_rejected_landing_step_is_retried() -> None:
+    """A stretched last step that fails is retried with a smaller step, not forced onto tfinal."""
+    from scipy.special import erf
+
+    a, c, w = 200.0, 0.98, 0.005
+    f = lambda t, y: -a * np.exp(-(((t - c) / w) ** 2)) * y  # noqa: E731
+    rtol, atol = 1e-8, 1e-12
+    r = ode45(f, [0, 1], [1.0], odeset(InitialStep=1.0, MaxStep=1.0, RelTol=rtol, AbsTol=atol))
+    assert r.stats.nfailed > 0 and not r.stopped and r.t[-1] == 1.0
+    integral = a * w * np.sqrt(np.pi) / 2 * (erf((1 - c) / w) - erf(-c / w))
+    assert abs(r.y[-1, 0] - np.exp(-integral)) <= 10 * rtol + atol
+
+
+def test_outputfcn_stop_on_last_step_is_not_early() -> None:
+    def ofcn(t, y, flag):
+        return flag == "" and t.size and t[-1] == 1.0
+
+    r = ode45(lambda t, y: -y, [0, 1], [1.0], odeset(OutputFcn=ofcn))
+    assert not r.stopped and r.t[-1] == 1.0
+
+
+def test_refine_points_equally_spaced_within_steps() -> None:
+    r = ode45(lambda t, y: np.array([y[1], -y[0]]), [0, 10], [0.0, 1.0], odeset(Refine=5))
+    for k in range(r.stats.nsteps):
+        seg = r.t[5 * k : 5 * k + 6]
+        np.testing.assert_allclose(np.diff(seg), (seg[-1] - seg[0]) / 5, rtol=1e-9)
+
+
+def test_no_growth_right_after_rejection() -> None:
+    """After a rejected attempt the accepted step is not followed by a larger one."""
+    a, c, w = 200.0, 0.5, 0.01
+    f = lambda t, y: -a * np.exp(-(((t - c) / w) ** 2)) * y  # noqa: E731
+    r = ode45(f, [0, 1], [1.0], odeset(InitialStep=0.3, MaxStep=1.0, Refine=1, RelTol=1e-6))
+    assert r.stats.nfailed > 0
+    h = np.diff(r.t_steps)
+    assert h[1] <= h[0] * (1 + 1e-12)  # first step was the rejected-then-accepted one
 
 
 def test_y0_shape_and_unpacking() -> None:
@@ -237,6 +306,9 @@ def test_y0_shape_and_unpacking() -> None:
         (dict(options={"MaxStep": 0}), "MaxStep"),
         (dict(options={"InitialStep": -1}), "InitialStep"),
         (dict(options={"Refine": 0}), "Refine"),
+        (dict(options={"RelTol": 1e-17}), "10\\*eps"),
+        (dict(tspan=[0, np.nan, 1]), "finite"),
+        (dict(tspan=[0, np.inf]), "finite"),
         (dict(options={"NormControl": "on", "AbsTol": [1e-6, 1e-7]}), "NormControl"),
         (dict(options={"Events": None}), "unsupported"),
     ],

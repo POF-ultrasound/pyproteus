@@ -25,21 +25,23 @@ other solver step for step):
 - error measure ``err = max_i |h (f @ E)_i| / max(|y_i|, |ynew_i|, AbsTol_i/RelTol)``
   (scale ``max(|y|, |ynew|)`` as in Hairer et al. eq. (4.10)); the step is
   accepted when ``err <= RelTol``, i.e. the documented test;
-- new step ``h * min(facmax, max(facmin, 0.8 (RelTol/err)^(1/5)))``, Hairer et
-  al. eq. (4.13) with safety factor 0.8, ``facmin = 0.2`` (their DOPRI5
-  default) and ``facmax = 5``, and ``facmax = 1`` right after a rejected step
-  (their recommendation); the same rule after repeated rejections;
-- own choices, with rationale: smallest step ``16 eps(t)`` (so that ``t + h``
-  stays distinguishable from ``t``; the solver stops with a warning below it);
-  the step is stretched to land on ``tfinal`` when ``1.1 h`` would reach it and
-  the remaining distance is within ``MaxStep`` (avoids a tiny last step;
-  ``MaxStep`` is never exceeded); ``RelTol`` below ``100 eps`` is raised to it
-  with a warning;
+- new step ``h * min(facmax, max(facmin, 0.9 (RelTol/err)^(1/5)))``, Hairer et
+  al. eq. (4.13) with the defaults of their DOPRI5 code (safety 0.9,
+  ``facmin = 0.2``, ``facmax = 10``) and ``facmax = 1`` right after a rejected
+  step (their recommendation); the same rule after repeated rejections;
+- also from their DOPRI5 code: the step is stretched to land on ``tfinal``
+  when ``1.01 h`` would reach it (here only if the remaining distance is
+  within ``MaxStep``, which is never exceeded); integration stops with a
+  warning when ``|h| <= 10 eps |t|`` (own addition: ``|t|`` is floored at
+  ``|tfinal - t0|`` so the test also works near ``t = 0``); ``RelTol`` must
+  exceed ``10 eps``;
 - starting step from Hairer et al. §II.4 (one extra RHS call), capped by
   ``MaxStep``; ``InitialStep`` overrides it; with a non-finite RHS at ``t0``
   the start is ``MaxStep`` and error control shrinks it;
 - ``Refine`` points at ``t + h k/Refine`` (k = 1 .. Refine-1); ``OutputFcn`` is
-  called after each accepted step that produced output.
+  called after each accepted step that produced output (with a sparse
+  ``tspan`` that can be much rarer than every step, which limits how quickly an
+  ``OutputFcn``-based timeout reacts).
 
 Near a singularity relative error control can accept steps on a very large
 ``y``; the solver then stops shortly after (not exactly at) the singularity.
@@ -190,6 +192,8 @@ def ode45(
         raise ValueError(f"unsupported ode45 options: {sorted(unknown)}")
 
     tspan = np.asarray(tspan, dtype=np.float64).reshape(-1)
+    if not np.all(np.isfinite(tspan)):
+        raise ValueError("tspan must be finite")
     if tspan.size < 2:
         raise ValueError("tspan must have at least 2 elements")
     t0, tfinal = float(tspan[0]), float(tspan[-1])
@@ -207,9 +211,8 @@ def ode45(
         raise ValueError("AbsTol must be a scalar or have one entry per equation")
     if rtol <= 0 or np.any(atol <= 0):
         raise ValueError("RelTol and AbsTol must be positive")
-    if rtol < 100 * np.finfo(float).eps:
-        warnings.warn("RelTol raised to 100*eps", RuntimeWarning, stacklevel=2)
-        rtol = 100 * np.finfo(float).eps
+    if rtol <= 10 * np.finfo(float).eps:
+        raise ValueError("RelTol must exceed 10*eps")
     atol_vec = np.broadcast_to(atol, (neq,)).copy()
     norm_control = str(opts.get("NormControl", "off")).lower() == "on"
     if norm_control and atol.size != 1:
@@ -244,7 +247,9 @@ def ode45(
     y = y0
     f = np.empty((neq, 7))
     f[:, 0] = call(t, y)
-    hmin = 16 * np.spacing(abs(t))
+    eps = np.finfo(float).eps
+    span_floor = abs(tfinal - t0)
+    hmin = 10 * eps * max(abs(t), span_floor)
 
     # Starting step (Hairer, Nørsett & Wanner, §II.4, with the order-4 estimate).
     if opts.get("InitialStep") is not None:
@@ -282,10 +287,10 @@ def ode45(
 
     done = False
     while not done:
-        hmin = 16 * np.spacing(abs(t))
+        hmin = 10 * eps * max(abs(t), span_floor)
         absh = min(hmax, max(hmin, absh))
         remaining = abs(tfinal - t)
-        if 1.1 * absh >= remaining and remaining <= hmax:  # land on tfinal
+        if 1.01 * absh >= remaining and remaining <= hmax:  # land on tfinal
             absh = remaining
             done = True
 
@@ -311,7 +316,7 @@ def ode45(
                 warnings.warn(message, RuntimeWarning, stacklevel=2)
                 break
             nofailed = False
-            shrink = max(0.2, 0.8 * (rtol / err) ** 0.2) if np.isfinite(err) else 0.2
+            shrink = max(0.2, 0.9 * (rtol / err) ** 0.2) if np.isfinite(err) else 0.2
             absh = max(hmin, absh * min(1.0, shrink))
             done = False
         if message:
@@ -352,7 +357,7 @@ def ode45(
         if done:
             break
         if nofailed:
-            absh *= 5.0 if err == 0 else min(5.0, 0.8 * (rtol / err) ** 0.2)
+            absh *= 10.0 if err == 0 else min(10.0, 0.9 * (rtol / err) ** 0.2)
         t, y = tnew, ynew
         f[:, 0] = f[:, 6]
 
