@@ -4,7 +4,7 @@
 k-wave-python; MATLAB k-Wave (LGPL) is only called through the engine. The
 MATLAB calls are the ones PROTEUS makes (``preprocess_transmit.m``,
 ``compute_bubble_mass_source.m``, ``get_transducer_integration_points.m``).
-Comparison class: signals, 1e-12 rel (ROADMAP §4). No k-Wave binary needed.
+Comparison class: float, 1e-9 rel (ROADMAP §4, D-13). No k-Wave binary needed.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ KWAVE_MATLAB = Path(
         "/Users/theodoremichel/Repos/TWENTE/Ultrasound/PROTEUS-cleaning/PROTEUS/external/k-wave/k-Wave",
     )
 )
-REL = 1e-12
+REL = 1e-9
 
 
 @pytest.fixture(scope="module")

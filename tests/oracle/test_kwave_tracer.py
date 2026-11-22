@@ -133,26 +133,23 @@ def test_matlab_3dc_ignores_alpha_mode(run, kwave_engine) -> None:
 
 
 def test_cpp_input_file_matches_matlab(run) -> None:
-    """Same HDF5 input as MATLAB: source (scaling + row order) bit-identical.
+    """Same HDF5 input as MATLAB: source (scaling + row order), medium, PML.
 
-    Only difference: the staggered densities ``rho0_sg*``. k-wave-python
-    averages with ``np.roll`` (the last plane wraps to the first, inside the
-    PML); MATLAB k-Wave keeps ``rho0`` there (B-13). Elsewhere <= 2 ulp.
+    Integer datasets equal, float datasets within float32 noise
+    (``kt.INPUT_REL``). Only real difference: the staggered densities
+    ``rho0_sg*``. k-wave-python averages with ``np.roll`` (the last plane wraps
+    to the first, inside the PML); MATLAB k-Wave keeps ``rho0`` there (B-13).
     """
     c, data = run["case"], run["data"]
     mat = kt.read_h5(data / f"matlab_{c.name}_input.h5")
     kwp = kt.read_h5(data / f"kwp_cpp_{c.name}" / "kwave_input.h5")
-    assert set(mat) == set(kwp)
-    for key in sorted(mat):
-        if key.startswith("rho0_sg"):
-            continue
-        assert np.array_equal(mat[key], kwp[key]), key
+    kt.assert_inputs_close(mat, kwp)
     for axis, key in enumerate(("rho0_sgx", "rho0_sgy", "rho0_sgz")):
         a = mat[key].transpose(2, 1, 0).astype(np.float64)  # h5py (z,y,x) -> [x,y,z]
         b = kwp[key].transpose(2, 1, 0).astype(np.float64)
         rel = np.abs(a - b) / a
-        assert np.delete(rel, -1, axis=axis).max() <= 2.4e-7, key
-        assert np.take(rel, -1, axis=axis).max() > 0, key  # B-13 still present (update if fixed)
+        assert np.delete(rel, -1, axis=axis).max() <= kt.INPUT_REL, key
+        assert np.take(rel, -1, axis=axis).max() > 1e-4, key  # B-13 still present
 
 
 def test_wrong_source_row_order_is_detected(run) -> None:
