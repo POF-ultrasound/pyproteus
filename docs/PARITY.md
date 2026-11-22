@@ -3,10 +3,14 @@
 Status of each ported function against the MATLAB oracle (PROTEUS commit
 `8d37938`, MATLAB R2025a). Comparison classes from ROADMAP §4:
 
-- **exact**: integer-valued results (indices, masks, rounding) equal; random draws bit-identical
-- **1e-12 rel**: geometry, delays, weights, signals
-- **ulp**: within a few ulp (e.g. `erfcinv`)
-- see ROADMAP §4 for the bubble, k-Wave and end-to-end classes
+Classes are D-13 (medium tolerance; parity is behaviour and results, not MATLAB's bits, D-12):
+
+- **float**: ≤ 1e-9 rel (small atol near zero): geometry, delays, weights, signals, interpolation, truncated normal, random draws
+- **statistical**: integers after rounding (indices, masks), ≥ 99.9 % equal, differences reported, downstream effect at the float/RF class
+- **exact**: only where it falls out naturally (data read from files, documented integer semantics on exact inputs, storage round trips)
+- **ODE**: ≈ 10·RelTol rel + AbsTol abs; **k-Wave** ≤ 1e-5; **end-to-end RF** ≤ 1e-4 (ROADMAP §4)
+
+Rows still marked "bit-identical" predate D-12 and are being moved to these classes.
 
 Status: ✅ oracle test passes, 🟡 partial, ❌ fails / open bug, ⬜ not started.
 
@@ -50,6 +54,34 @@ Notes:
   PROTEUS never does this).
 - Out of scope so far: `fft`/plain `ifft` with MATLAB's default dimension (use
   `np.fft` with an explicit `axis`), `unique`/`intersect`/`ismember` index order.
+
+## k-Wave backend (`pyproteus.backends.kwave`, M3)
+
+Against MATLAB k-Wave 1.4.1 (`external/k-wave/k-Wave`, added by the test, not by
+the oracle fixture). Both sides run k-wave-python's `kspaceFirstOrder-OMP` v1.4.1
+(D-10), so the field rows check input preparation and row order, not the binary.
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `kspaceFirstOrder3DC(kgrid, medium, source, sensor, ...)` as in `run_simulation.m` (`PMLInside=false`, `Smooth=false`, `DataCast='single'`, `PMLSize`/`PMLAlpha`): pressure, velocity (`ux`+`uy`, `ux` only), mixed velocity + pressure sources, `alpha_mode='no_dispersion'`, `Nt == n_sensor`; `record` `{'p'}`, `{'p_max','p_min'}`, `{'p','p_max','p_min'}` | `kspace_first_order(..., backend="cpp")` | 1e-5 rel | `test_kwave_backend.py` | ✅ |
+| same | `kspace_first_order(..., backend="python")` (NumPy float32) | 1e-5 rel | `test_kwave_backend.py` | ✅ (`alpha_mode` dropped, D-9) |
+| binary command line built by `kspaceFirstOrder3DC` | `binary_command` | exact | `test_kwave_backend.py::test_binary_command_matches_matlab` | ✅ (`-g` for 3DG not checked: no CUDA) |
+| `kgrid.k_max` | `KGrid.k_max` | 1e-12 rel | `test_kwave_signal.py` | ✅ |
+| `filterTimeSeries(Filter, Filter, x, 'ZeroPhase', true, 'TransitionWidth', TW, 'PPW', 2)` (struct kgrid/medium) and option sweep | `filter_time_series` | 1e-12 rel | `test_kwave_signal.py` | ✅ (B-60 workaround) |
+| `getWin(N, 'Tukey', 'Param', p)` | `get_win` | 1e-12 rel | `test_kwave_signal.py` | ✅ |
+
+Notes:
+
+- `getWin` is only called in `get_transducer_integration_points.m` inside
+  `if apodization_Z == true` with `apodization_Z = false` hard-coded: dead code.
+  `get_win` is a thin pass-through with an oracle test; port the call site only
+  if something reaches it.
+- Not covered: `kspaceFirstOrder3DG` / CUDA (`device="gpu"`, `device_num`), CuPy
+  (`backend="python", device="gpu"`), anisotropic
+  grids with pressure sources (refused), `record_start_index` (PROTEUS does not set it),
+  source signals longer than `Nt` (refused), a `2*pml >= N` grid against MATLAB (B-61;
+  only cpp vs python). An empty sensor mask raises; `run_simulation.m` returns
+  `zeros(0, Nt)` itself, which its port must reproduce.
 
 ## Settings (`pyproteus.config`, `pyproteus.data`)
 

@@ -52,16 +52,17 @@ HYPOTHESIS_PROFILE=oracle pytest -m oracle
    name table below.
 2. **Never translate MathWorks toolbox source** (`interp1.m`, `pchip.m`,
    `ode45.m`, `hilbert.m`, ...) or k-Wave MATLAB source (LGPL). Use the
-   documented behaviour, published papers and black-box comparison, or
-   k-wave-python.
+   documented behaviour and published papers, or k-wave-python. Do not probe
+   MATLAB to reproduce its internals at ulp level (D-12).
 3. Use the `pyproteus.numerics` helpers for every operation in the checklist below.
 4. Add an oracle test (same inputs through MATLAB and Python) whose inputs hit
    the traps: `.5` ties (also negative), equal values, odd and non-square
    shapes, single elements, out-of-range queries, NaN. Add pure unit tests so CI
    covers the code without MATLAB.
-5. Compare within the comparison class of ROADMAP §4 (exact for integers after
-   rounding, ≤ 1e-12 relative for geometry/signals, bit-identical for random
-   draws, ...). Add a row to `docs/PARITY.md`.
+5. Compare within the comparison class of ROADMAP §4 (D-13: ≤ 1e-9 relative for
+   geometry/signals/interpolation, statistical agreement for integers after
+   rounding, solver-tolerance-based for ODEs, ≤ 1e-5 for k-Wave fields, ...).
+   Add a row to `docs/PARITY.md`.
 
 ## MATLAB → NumPy semantics checklist
 
@@ -71,7 +72,7 @@ HYPOTHESIS_PROFILE=oracle pytest -m oracle
 | `sort`, `[~,I] = sort(x)` | default `np.sort`/`argsort` is not stable; NaN placement; `'descend'` is not a reversed ascending sort | `numerics.sort`, `numerics.argsort` |
 | `interp1(x,v,xq)` | `np.interp` clamps outside the range (MATLAB: NaN) | `numerics.interp1` |
 | `griddedInterpolant` | linear extrapolation by default; SciPy differs | `numerics.gridded_interpolant` |
-| `pchip` | end-slope rule must match to the ulp | `numerics.pchip` |
+| `pchip` | documented shape-preserving end-slope rule | `numerics.pchip` |
 | `find`, `sub2ind`, `ind2sub`, `x(:)`, `reshape`, `cumsum` on N-D | column-major order and 1-based indices | `numerics.find`, `numerics.sub2ind`, `numerics.ind2sub`, `order="F"` |
 | `ifft(X,[],dim,'symmetric')` | uses only the first half of the spectrum | `numerics.ifft_symmetric` |
 | `hilbert(X)` | MATLAB works along columns (dim 1); SciPy along the last axis | `numerics.hilbert` |

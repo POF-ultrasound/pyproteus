@@ -12,7 +12,8 @@ v1.4.1 macOS arm64 build, through ``bin/kspaceFirstOrder-OMP``):
                       legacy API, ``kWaveSimulation`` + ``save_to_disk``)
 
 All runners take and return MATLAB/PROTEUS conventions (rows in
-``find(mask)`` order, ``(n_sensor, Nt)``); ``adapter.py`` does the mapping.
+``find(mask)`` order, ``(n_sensor, Nt)``); ``pyproteus.backends.kwave`` does
+the mapping.
 Because the C++ solver binary is shared, the comparison isolates what the M3
 adapter controls: input preparation (source scaling, staggered density,
 absorption conversion, PML expansion) and row order. ``compare_inputs``
@@ -28,12 +29,11 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from pyproteus.backends import kwave as kwb  # row order + source scaling (M3)
+
 try:  # package-style import (tests) or script-style (python tools/tracer_bullet/...)
-    from . import adapter, ordering
     from .cases import Case
 except ImportError:  # pragma: no cover
-    import adapter  # type: ignore[no-redef]
-    import ordering  # type: ignore[no-redef]
     from cases import Case  # type: ignore[no-redef]
 
 HERE = Path(__file__).resolve().parent
@@ -125,6 +125,7 @@ def _to_matlab_struct(case: Case) -> dict:
         "pml_alpha": case.pml_alpha,
         "sensor_mask": matlab.logical(case.sensor_mask),
         "alpha_power": float(case.medium["alpha_power"]),
+        "record": list(case.record),
     }
     if "alpha_mode" in case.medium:
         s["alpha_mode"] = str(case.medium["alpha_mode"])
@@ -135,14 +136,30 @@ def _to_matlab_struct(case: Case) -> dict:
     return s
 
 
-def run_matlab(eng, case: Case, data_dir: Path) -> np.ndarray:
-    """Sensor data from MATLAB k-Wave, rows in find(sensor.mask) order."""
+def run_matlab_fields(
+    eng, case: Case, data_dir: Path, binary_dir: Path | None = None, **extra
+) -> dict[str, np.ndarray]:
+    """All recorded fields (``case.record``) from MATLAB k-Wave, rows in find(sensor.mask) order.
+
+    Time series as ``(n_sensor, Nt)``, aggregates (``p_max``...) as ``(n_sensor,)``.
+    ``binary_dir`` replaces the folder holding ``kspaceFirstOrder-OMP``;
+    ``extra`` adds fields to the MATLAB struct (``num_threads`` -> ``NumThreads``).
+    """
     data_dir = Path(data_dir).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
-    p = eng.run_kwave_matlab(
-        _to_matlab_struct(case), str(WRAPPER_DIR) + "/", str(data_dir) + "/", f"matlab_{case.name}"
-    )
-    return np.asarray(p, dtype=np.float64)
+    s = _to_matlab_struct(case) | extra  # e.g. num_threads=2.0
+    bdir = str(binary_dir or WRAPPER_DIR) + "/"
+    out = eng.run_kwave_matlab(s, bdir, str(data_dir) + "/", f"matlab_{case.name}")
+    res = {}
+    for k, v in out.items():
+        a = np.asarray(v, dtype=np.float64)
+        res[k] = a if k == "p" else a.reshape(-1)
+    return res
+
+
+def run_matlab(eng, case: Case, data_dir: Path) -> np.ndarray:
+    """Pressure sensor data from MATLAB k-Wave, rows in find(sensor.mask) order."""
+    return run_matlab_fields(eng, case, data_dir)["p"]
 
 
 def check_engine_layout(eng) -> None:
@@ -152,7 +169,7 @@ def check_engine_layout(eng) -> None:
     a = np.zeros((3, 4, 5))
     a[2, 1, 4] = 1.0
     idx = eng.find(matlab.double(a))
-    expected = ordering.matlab_find(a)
+    expected = kwb.matlab_find(a)
     if int(idx) != int(expected[0]):
         raise RuntimeError(f"engine layout mismatch: MATLAB find={idx}, expected {expected}")
 
@@ -193,7 +210,7 @@ def _kwp_objects(case: Case, backend: str = "cpp"):
 
     kgrid = kWaveGrid(list(case.shape), [case.dx] * 3)
     kgrid.setTime(case.Nt, case.dt)
-    m = adapter.medium_for_kwp(case.medium, backend)
+    m = kwb.medium_for_kwp(case.medium)  # drops alpha_mode on every backend (D-9)
     medium = kWaveMedium(**m)
     sensor = kSensor(mask=case.sensor_mask.copy())
     return kgrid, medium, sensor
@@ -215,7 +232,7 @@ def _kwp_source(case: Case, backend: str, *, raw_rows: str | None = None, unscal
     setattr(src, mask_key, mask.copy())
     for k, rows in signals.items():
         if raw_rows is None:
-            v = adapter.source_rows_to_kwp(
+            v = kwb.source_rows_to_kwp(
                 rows,
                 mask,
                 backend,
@@ -228,13 +245,13 @@ def _kwp_source(case: Case, backend: str, *, raw_rows: str | None = None, unscal
             v = rows
             if backend == "cpp" and not unscaled:  # the python backend scales internally
                 v = (
-                    adapter.additive_source_scale(
+                    kwb.additive_source_scale(
                         k, mask, case.medium["sound_speed"], case.dt, (case.dx,) * 3
                     )[:, None]
                     * v
                 )
             if raw_rows == "c":
-                v = ordering.rows_f_to_c(v, mask)
+                v = kwb.rows_f_to_c(v, mask)
         setattr(src, k, v)
     return src
 
@@ -289,7 +306,7 @@ def run_kwp(
             quiet=True,
             **kw,
         )
-    return adapter.sensor_rows_from_kwp(
+    return kwb.sensor_rows_from_kwp(
         np.asarray(res["p"], dtype=np.float64), case.sensor_mask, case.Nt, backend
     )
 
