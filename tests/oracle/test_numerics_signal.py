@@ -1,8 +1,8 @@
 """Oracle tests: ifft(...,'symmetric'), hilbert, conv/convn.
 
-FFT-based results use pocketfft (NumPy) vs FFTW (MATLAB): class ≤ 1e-12
-relative to the signal maximum. Convolutions are direct sums: exact for
-integer-valued data, ≤ 1e-12 relative otherwise.
+D-13 float class: ≤ 1e-9 relative to the signal maximum (pocketfft vs FFTW,
+different summation orders). Convolutions of small integers are exact in any
+summation order, so they are compared exactly.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from pyproteus import numerics as nm
 from tests.oracle.helpers import (
     ORACLE_SETTINGS,
     assert_rel,
-    assert_same_float,
     batch,
     col,
     get,
@@ -26,6 +25,7 @@ from tests.oracle.helpers import (
 )
 
 ORACLE = ORACLE_SETTINGS
+REL = 1e-9  # D-13 float class
 reals = st.floats(-1e3, 1e3, allow_nan=False)
 
 
@@ -37,9 +37,9 @@ def test_ifft_symmetric_nonsymmetric_input(matlab_engine, n) -> None:
     put(matlab_engine, X=X)
     matlab_engine.eval("pyp_r = ifft(X, [], 2, 'symmetric');", nargout=0)
     ref = get(matlab_engine, "pyp_r")
-    assert_rel(nm.ifft_symmetric(X, axis=1), ref)
+    assert_rel(nm.ifft_symmetric(X, axis=1), ref, rel=REL)
     matlab_engine.eval("pyp_r = ifft(X.', [], 1, 'symmetric');", nargout=0)
-    assert_rel(nm.ifft_symmetric(X.T, axis=0), get(matlab_engine, "pyp_r"))
+    assert_rel(nm.ifft_symmetric(X.T, axis=0), get(matlab_engine, "pyp_r"), rel=REL)
 
 
 def test_ifft_symmetric_proteus_pattern(matlab_engine) -> None:
@@ -53,7 +53,7 @@ def test_ifft_symmetric_proteus_pattern(matlab_engine) -> None:
         nargout=0,
     )
     P = np.fft.fft(p, N, axis=1) * np.exp(-1j * np.arange(N) / 7)
-    assert_rel(nm.ifft_symmetric(P, axis=1), get(matlab_engine, "pyp_r"))
+    assert_rel(nm.ifft_symmetric(P, axis=1), get(matlab_engine, "pyp_r"), rel=REL)
 
 
 @pytest.mark.parametrize("n_arg", [5, 8, 12])
@@ -62,7 +62,7 @@ def test_ifft_symmetric_n(matlab_engine, n_arg) -> None:
     X = rs.standard_normal((2, 8)) + 1j * rs.standard_normal((2, 8))
     put(matlab_engine, X=X, n=float(n_arg))
     matlab_engine.eval("pyp_r = ifft(X, n, 2, 'symmetric');", nargout=0)
-    assert_rel(nm.ifft_symmetric(X, n_arg, axis=1), get(matlab_engine, "pyp_r"))
+    assert_rel(nm.ifft_symmetric(X, n_arg, axis=1), get(matlab_engine, "pyp_r"), rel=REL)
 
 
 @ORACLE
@@ -78,16 +78,16 @@ def test_ifft_symmetric_n(matlab_engine, n_arg) -> None:
 def test_hilbert_matrices(matlab_engine, arrays) -> None:
     (H,) = batch(matlab_engine, "@(x) hilbert(x)", arrays)
     for a, h in zip(arrays, H, strict=True):
-        assert_rel(nm.hilbert(a), h.reshape(a.shape), err_msg=str(a.shape))
+        assert_rel(nm.hilbert(a), h.reshape(a.shape), err_msg=str(a.shape), rel=REL)
 
 
 @pytest.mark.parametrize("n", [1, 2, 7, 8, 129])
 def test_hilbert_vectors(matlab_engine, n) -> None:
     v = np.random.RandomState(n).standard_normal(n)
     (H,) = batch(matlab_engine, "@(x) hilbert(x)", [row(v), col(v)])
-    assert_rel(nm.hilbert(v.reshape(1, -1)), H[0].reshape(1, -1))
-    assert_rel(nm.hilbert(v.reshape(-1, 1)), H[1].reshape(-1, 1))
-    assert_rel(nm.hilbert(v), H[0].reshape(-1))
+    assert_rel(nm.hilbert(v.reshape(1, -1)), H[0].reshape(1, -1), rel=REL)
+    assert_rel(nm.hilbert(v.reshape(-1, 1)), H[1].reshape(-1, 1), rel=REL)
+    assert_rel(nm.hilbert(v), H[0].reshape(-1), rel=REL)
 
 
 # --- conv / convn ------------------------------------------------------------------
@@ -103,7 +103,7 @@ def test_conv_integer_exact(matlab_engine, u, v, shape) -> None:
     put(matlab_engine, u=row(u), v=row(v))
     matlab_engine.eval(f"pyp_r = conv(u, v, '{shape}');", nargout=0)
     ref = np.asarray(get(matlab_engine, "pyp_r")).reshape(-1)
-    assert_same_float(nm.conv(u, v, shape) + 0.0, ref + 0.0)  # +0.0: -0 vs 0 irrelevant
+    np.testing.assert_array_equal(nm.conv(u, v, shape), ref)
 
 
 @ORACLE
@@ -131,7 +131,7 @@ def test_convn_random(matlab_engine, a, b, shape) -> None:
     if ref.size == 0:
         assert mine.size == 0
         return
-    assert_rel(mine, ref)
+    assert_rel(mine, ref, rel=REL)
 
 
 def test_convn_smooth_distribution_pattern(matlab_engine) -> None:
@@ -141,13 +141,13 @@ def test_convn_smooth_distribution_pattern(matlab_engine) -> None:
     K = rs.random_sample((1, 6, 5))
     put(matlab_engine, P=P, K=K)
     matlab_engine.eval("pyp_r = convn(P, K, 'same');", nargout=0)
-    assert_rel(nm.convn(P, K, "same"), get(matlab_engine, "pyp_r"))
+    assert_rel(nm.convn(P, K, "same"), get(matlab_engine, "pyp_r"), rel=REL)
     # compute_RF: convn(p, IR) with a row kernel acting along axis 1
     p = rs.standard_normal((5, 40))
     ir = rs.standard_normal((1, 9))
     put(matlab_engine, p=p, ir=ir)
     matlab_engine.eval("pyp_r = convn(p, ir);", nargout=0)
-    assert_rel(nm.convn(p, ir), get(matlab_engine, "pyp_r"))
+    assert_rel(nm.convn(p, ir), get(matlab_engine, "pyp_r"), rel=REL)
 
 
 def test_ifft_symmetric_default_dim(matlab_engine) -> None:
@@ -157,4 +157,4 @@ def test_ifft_symmetric_default_dim(matlab_engine) -> None:
         put(matlab_engine, X=X)
         matlab_engine.eval("pyp_r = ifft(X, 'symmetric');", nargout=0)
         ref = np.asarray(get(matlab_engine, "pyp_r")).reshape(shape)
-        assert_rel(nm.ifft_symmetric(X), ref, err_msg=str(shape))
+        assert_rel(nm.ifft_symmetric(X), ref, err_msg=str(shape), rel=REL)

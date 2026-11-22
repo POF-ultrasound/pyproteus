@@ -9,12 +9,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: the engine puts MATLAB's libcrypto first; conda's `_ssl` then binds to it.
 - Workaround: import `ssl` (or `kwave`) before `matlab.engine`. The oracle fixture must do this.
 
-## B-20 — interp1/griddedInterpolant with matrix v: sign of zero on flat segments (open, minor)
-- Where: `pyproteus.numerics.interpolation._linear` (flat-segment rule `v0 == v1 → v0`).
-- Symptom: with matrix-valued `v` (one column per series), MATLAB R2025a returns +0 where pyproteus returns -0 on some flat segments made of ±0, e.g. `x=[0 1 3]`, `V(:,2)=[-0 0 1]`, `xq=0` or `0.5`. 76 of 2,187 special-value comparisons differ, all only in the sign of zero. Vector `v` matches MATLAB exactly.
-- Cause: MATLAB appears to use a different code path for matrix values (black-box observation).
-- Impact: none known; PROTEUS only interpolates vector `v`. Values are equal (`-0 == 0`).
-- Fix: not planned unless a ported function interpolates matrix-valued `v` with signed zeros.
+## B-20 — interp1/griddedInterpolant with matrix v: sign of zero on flat segments (closed: irrelevant under D-12)
+- Was: with matrix-valued `v`, MATLAB R2025a returned +0 where pyproteus returned -0 on some ±0 flat segments (76 of 2,187 special-value comparisons; values equal).
+- Closed 2026-11-22: the flat-segment rule that caused it was removed (D-14), and the sign of zero is not part of the comparison classes (D-12/D-13).
 
 ## B-10 — k-wave-python 0.6.2 `kspaceFirstOrder()`: backends disagree on source rows, scaling and output shape (workaround)
 - Where: `kwave.kspaceFirstOrder.kspaceFirstOrder` (the >= 0.6.1 API), `backend="cpp"` vs `backend="python"`.
@@ -93,3 +90,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Behaviour: `''` (0×0), `zeros(1,0)` char and `char(zeros(0,3))` all become `""`. MATLAB code tests them with `isempty`/`strcmp`, which treat them alike; PROTEUS never relies on the size of an empty char.
 - Also: an empty (0-element) struct array without fields saved in v5/v6 loads as an empty cell (SciPy cannot tell them apart); v7.3 gives an empty `StructArray`. PROTEUS never writes such values.
 
+## B-70 — linear interp1/griddedInterpolant next to Inf/NaN sample values gives NaN where MATLAB gives a number (accepted, D-14)
+- Where: `pyproteus.numerics.interpolation._linear` (plain blend `v0*(1-t) + v1*t`).
+- Symptom: on an interval with an Inf or NaN end value, a query on a node gives NaN (`0*Inf`, `0*NaN`), e.g. `interp1([0 1 2],[1 Inf 3],0)`: MATLAB 1, pyproteus NaN. Likewise a flat segment of infinities queried on a node or extrapolated (`[Inf Inf]`). Finite data are unaffected.
+- Cause: MATLAB's handling was found by black-box probing; the special cases reproducing it were removed under D-14 (no documented semantics).
+- Impact: none known; PROTEUS interpolates finite tables.
+- Test: `tests/oracle/test_numerics_interp.py::assert_linear` (such queries must be MATLAB's value or NaN), `tests/unit/test_numerics.py::test_interp1_flat_and_nonfinite_neighbours`.

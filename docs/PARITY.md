@@ -16,40 +16,43 @@ Status: ✅ oracle test passes, 🟡 partial, ❌ fails / open bug, ⬜ not star
 
 ## Numerics helpers (`pyproteus.numerics`)
 
+Classes per D-13. "exact" here means the helper's own output is integers or a
+permutation of exact inputs (documented semantics, not float noise).
+
 | MATLAB | Python | Class | Oracle test | Status |
 |---|---|---|---|---|
-| test harness (array transfer) | `tests/oracle/helpers.py` | exact | `tests/oracle/test_numerics_harness.py` | ✅ |
-| `round(x)` (double, single) | `matlab_round` | exact (incl. sign of zero) | `test_numerics_round_sort_index.py` | ✅ |
+| test harness (array transfer) | `tests/oracle/helpers.py` | exact (storage round trip) | `tests/oracle/test_numerics_harness.py` | ✅ |
+| `round(x)` (double, single) | `matlab_round` | exact (sign of zero not compared) | `test_numerics_round_sort_index.py` | ✅ |
 | `[S,I] = sort(x, dim, 'ascend'/'descend')` | `sort`, `argsort` (0-based `I`) | exact | `test_numerics_round_sort_index.py` | ✅ |
 | `find(x)`, `find(x,n)`, `find(x,n,'last')` | `find` (0-based, column-major) | exact | `test_numerics_round_sort_index.py` | ✅ |
 | `sub2ind`, `ind2sub` | `sub2ind`, `ind2sub` (0-based, column-major) | exact | `test_numerics_round_sort_index.py` | ✅ |
-| `interp1(x,v,xq)` linear, `'extrap'`, fill value | `interp1` | bit-identical (class 1e-12) | `test_numerics_interp.py` | ✅ |
-| `interp1(...,'nearest')` | `interp1(..., "nearest")` | bit-identical | `test_numerics_interp.py` | ✅ |
-| `griddedInterpolant(x,v)` (linear, linear extrapolation) | `gridded_interpolant` | bit-identical | `test_numerics_interp.py` | ✅ |
-| `pchip`, `interp1(...,'pchip')`, `griddedInterpolant(...,'pchip')` | `pchip`, `interp1`, `gridded_interpolant` | bit-identical (0 ulp) | `test_numerics_interp.py` | ✅ |
-| `ifft(X,n,dim,'symmetric')` | `ifft_symmetric` | 1e-12 rel (FFTW vs pocketfft) | `test_numerics_signal.py` | ✅ |
-| `hilbert(x)` (vectors along length, matrices along columns) | `hilbert` | 1e-12 rel | `test_numerics_signal.py` | ✅ |
-| `conv(u,v,shape)`, `convn(A,B,shape)` | `conv`, `convn` | exact on integers, else 1e-12 rel | `test_numerics_signal.py` | ✅ |
-| `rng(seed,'twister')`, `rand`, `randi` | `rng`, `MatlabRNG.rand`, `MatlabRNG.randi` | bit-identical | `test_numerics_random.py` | ✅ |
+| `interp1(x,v,xq)` linear, `'extrap'`, fill value | `interp1` | float (B-70 with Inf/NaN values) | `test_numerics_interp.py` | ✅ |
+| `interp1(...,'nearest')` | `interp1(..., "nearest")` | exact (selects sample values) | `test_numerics_interp.py` | ✅ |
+| `griddedInterpolant(x,v)` (linear, linear extrapolation) | `gridded_interpolant` | float (B-70) | `test_numerics_interp.py` | ✅ |
+| `pchip`, `interp1(...,'pchip')`, `griddedInterpolant(...,'pchip')` | `pchip`, `interp1`, `gridded_interpolant` (SciPy `PchipInterpolator`) | float | `test_numerics_interp.py` | ✅ |
+| `ifft(X,n,dim,'symmetric')` | `ifft_symmetric` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
+| `hilbert(x)` (vectors along length, matrices along columns) | `hilbert` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
+| `conv(u,v,shape)`, `convn(A,B,shape)` | `conv`, `convn` | exact on small integers, else float | `test_numerics_signal.py` | ✅ |
+| `rng(seed,'twister')`, `rand`, `randi` | `rng`, `MatlabRNG.rand`, `MatlabRNG.randi` | float (same MT19937 stream) | `test_numerics_random.py` | ✅ |
 | `randn` | not provided | — | — | ⬜ (only used with infinite truncation cutoff) |
 
 Notes:
 
 - Every oracle test runs Hypothesis-generated batches as well as fixed tie cases;
   `PYPROTEUS_ORACLE_EXAMPLES=300` was used for the sweep recorded in `docs/dev/LOG.md`.
+- Float class for interpolation: `|a - e| ≤ 1e-9·|e| + 1e-12·max|e|`, NaN and ±Inf
+  positions equal. Measured: pchip ≤ 4e-14 × max|ref| on random cases, linear ≤ 2e-15 rel.
 - `rng(0,'twister')` is MT19937 seed 5489 (MATLAB's default state), not seed 0.
-- Linear interpolation (interp1, griddedInterpolant) is `v0*(1-t)+v1*t` plus two
-  corrections found by black-box comparison: flat segments return `v0`, and on a
-  node a NaN caused only by a zero weight (0·Inf) is replaced by the node value.
-  Checked exhaustively over all {1, ±0, ±Inf, NaN, 2} value triples. Matrix-valued
-  `v` can differ in the sign of zero on ±0 flat segments (B-20; not used by PROTEUS).
-- pchip: SciPy's `PchipInterpolator` has the same slopes but different
-  coefficient rounding (≈ 89 % of points bit-equal, up to thousands of ulp near
-  zero crossings). `pyproteus.numerics` uses the Newton divided-difference form
-  (de Boor), chosen among algebraically equal forms by comparing with MATLAB's
-  `unmkpp(pchip(...))` coefficients; it matches bit for bit.
+- Linear interpolation is the plain blend `v0*(1-t)+v1*t` (D-14). With Inf/NaN
+  sample values, a query on a node or flat segment of that interval can give NaN
+  where MATLAB gives a number (B-70); the oracle test checks those queries are
+  MATLAB's value or NaN. Finite data are unaffected.
+- pchip uses SciPy's `PchipInterpolator` (Fritsch–Carlson/Fritsch–Butland interior
+  slopes, Moler's shape-preserving end slopes). A unit test checks it against an
+  independent textbook implementation of the documented slope rules.
 - `interp1(...,'pchip')` drops NaN sample values like MATLAB. Not compared yet:
-  `pchip(x,v,xq)` and `griddedInterpolant(...,'pchip')` with NaN in `v`.
+  `pchip(x,v,xq)` and `griddedInterpolant(...,'pchip')` with NaN in `v`; complex `v`
+  with pchip raises.
 - `convn`/`conv` with empty inputs raise `ValueError` (MATLAB's sizes are irregular;
   PROTEUS never does this).
 - Out of scope so far: `fft`/plain `ifft` with MATLAB's default dimension (use

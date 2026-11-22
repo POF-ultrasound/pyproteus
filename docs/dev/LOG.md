@@ -2,6 +2,14 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-22 — numerics helpers moved to medium tolerance (m0-numerics-tolerance)
+- Applied D-12..D-14 to `src/pyproteus/numerics/`. pchip is now SciPy `PchipInterpolator` (the de Boor coefficient grouping chosen for bit identity, D-8, is gone); linear interpolation is the plain blend `v0*(1-t)+v1*t` without the probed flat-segment and zero-weight-node rules. Kept documented semantics: NaN outside the range, `'extrap'`/fill, sorting in `interp1`, `griddedInterpolant` linear extrapolation, `'nearest'` midpoint to the upper point, pchip NaN-sample dropping.
+- Measured vs MATLAB R2025a: SciPy pchip ≤ 3.5e-14 × max|ref| on 300 random cases and 2e-16 on a bubble-pulse case; plain linear blend ≤ 1.8e-15 elementwise rel.
+- Other helpers reviewed: no ulp-tuned code left in round (trunc + half step, IEEE sign of zero), sort (NumPy stable sort), find/sub2ind/ind2sub (NumPy F-order), `ifft_symmetric`/`hilbert` (pocketfft), `convn` (SciPy direct), `rand`/`randi` (NumPy MT19937, reference seeding). Docstrings updated (no bit-for-bit claims).
+- Oracle tests: interp/pchip/random/FFT/convn at the D-13 float class (≤ 1e-9 rel; interp adds an absolute floor of 1e-12 × max|ref|); round, sort, find, sub2ind/ind2sub, `'nearest'` and small-integer `conv` stay exact; sign-of-zero checks and the pchip ulp report dropped. 91 numerics oracle tests pass with `PYPROTEUS_ORACLE_EXAMPLES=300`.
+- Unit tests: pchip checked against an independent textbook implementation of the documented slope rules, plus an end-slope-limiter case; B-70 behaviour pinned.
+- B-20 closed (irrelevant under D-12); B-70 opened (NaN next to Inf/NaN values in linear interpolation, accepted under D-14).
+
 ## 2026-11-22 — M3 adapter: D-12/D-13 tolerance alignment (m3-adapter)
 - PR #8 merged (72b0645). Follow-up per D-12/D-13: k-Wave input-file comparisons now check integer datasets (documented format) exactly and float datasets within float32 noise (1e-6 rel) instead of bit equality (`kwave_tracer.assert_inputs_close`); `filterTimeSeries`/`getWin`/`k_max` move from 1e-12 to the float class (1e-9); "bit-identical" wording dropped from the adapter docstrings and B-10/B-60. Binary command-line equality stays exact (documented k-Wave flags). No MATLAB-internals matching in the adapter. Oracle k-Wave tests rerun with the new assertions: 130 passed. Reviewer: SIGN-OFF.
 

@@ -5,8 +5,8 @@
 is one sample later than ``scipy.signal.convolve(..., mode='same')``.
 
 The full convolution is computed by direct summation (``method='direct'``),
-like MATLAB, so small values are not swamped by FFT round-off. Pass
-``method='fft'`` for large inputs when ≤ 1e-12 relative agreement is not needed.
+so small values are not swamped by FFT round-off. Pass ``method='fft'`` for
+large inputs where FFT round-off (relative to the largest output) is acceptable.
 """
 
 from __future__ import annotations
