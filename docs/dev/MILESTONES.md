@@ -45,10 +45,11 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 - [x] Oracle tests for every helper, with tie-hitting inputs
 
 ### Settings
-- [ ] pydantic models for the 7 settings groups, accepting MATLAB field names
-- [ ] Defaults ported from `reset_*`
-- [ ] Readers: MATLAB settings `.mat`, ground-truth frames, transducer models (`Transducer` and Verasonics `Trans`)
-- [ ] Convert shipped constants (shell fits, transfer-function fits, tissue properties, geometry metadata) into package data
+- [x] pydantic models for the 7 settings groups, accepting MATLAB field names (2026-11-22, `src/pyproteus/config/models.py`; MATLAB field order kept)
+- [x] Defaults ported from `reset_*` (2026-11-22; signal fields pending M1: `Transducer.*ImpulseResponse`, `Transmit.VoltageSignal/PressureSignal/MechanicalIndex`)
+- [x] Readers: MATLAB settings `.mat`, ground-truth frames, transducer models (`Transducer` and Verasonics `Trans`) (2026-11-22, v5 and v7.3)
+- [x] Convert shipped constants (shell fits, transfer-function fits, tissue properties, geometry metadata) into package data (2026-11-22, `src/pyproteus/data/`, `tools/convert_data.py`)
+- [x] JSON I/O for settings, lossless round trip (2026-11-22)
 
 ## M1: deterministic core
 
@@ -58,11 +59,11 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 - [ ] `get_voltage_signal`, `get_pressure_signal`
 - [ ] `compute_gaussian_distribution`, `compute_polydisperse_distribution`
 - [ ] `estimate_impulse_response`
-- [ ] `load_transducer_model`, `get_transducer_properties`
+- [x] `load_transducer_model`, `get_transducer_properties` (2026-11-22, `pyproteus.transducer`, settings PR)
 - [ ] `get_element_geometry` (linear and curved)
 - [ ] `compute_simulation_domain`, `compute_sound_speed_extrema`
 - [ ] `compute_delays`
-- [ ] medium/liquid property helpers (`assign_medium_properties`, `assign_liquid_properties`, `get_gas_properties`)
+- [x] medium/liquid property helpers (`assign_medium_properties`, `assign_liquid_properties`, `get_gas_properties`) (2026-11-22, `pyproteus.medium`, `pyproteus.microbubble`; also `compute_sound_speed_extrema`, `compute_polydisperse_distribution`)
 
 ### Grid, medium, transducer
 - [ ] `define_grid`, `optimize_grid_size`

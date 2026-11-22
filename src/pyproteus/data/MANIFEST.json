@@ -1,0 +1,142 @@
+{
+  "description": "Constants converted from MATLAB PROTEUS by tools/convert_data.py",
+  "licence": "MIT (PROTEUS)",
+  "oracle_commit": "8d37938f5e4fe5e408ae707e792dad463303b98d",
+  "files": {
+    "tissue_properties.json": {
+      "matlab_name": "tissue_properties.mat",
+      "sources": [
+        "GUIfunctions/tissue_properties.mat"
+      ],
+      "sha256": "01b4e6ab1565ea207baa4d23bc6e3339a07300883d5a8d6a20a9c54526e981d4",
+      "variables": [
+        "properties_name",
+        "tissue_names",
+        "tissue_properties"
+      ]
+    },
+    "fit_SigmaR_evaluated.json": {
+      "matlab_name": "fit_SigmaR_evaluated.mat",
+      "sources": [
+        "GUIfunctions/fit_SigmaR_evaluated.mat",
+        "microbubble-simulator/functions/fit_SigmaR_evaluated.mat"
+      ],
+      "sha256": "292223b0b60fcf2103be6e539e7e5e927e44a12d4952796ff895319d24af70fd",
+      "variables": [
+        "A_m",
+        "sig"
+      ]
+    },
+    "fit_SigmaR_evaluated_30PA.json": {
+      "matlab_name": "fit_SigmaR_evaluated_30PA.mat",
+      "sources": [
+        "microbubble-simulator/functions/fit_SigmaR_evaluated_30PA.mat",
+        "example_custom_data/fit_SigmaR_evaluated_30PA.mat"
+      ],
+      "sha256": "15f4fe876f1bdc45f4ad2de2a81eb0d32d7bad51b3e9b4cff02d02eaeba668b2",
+      "variables": [
+        "A_m",
+        "sig"
+      ]
+    },
+    "fit_SigmaR_evaluated_50PA.json": {
+      "matlab_name": "fit_SigmaR_evaluated_50PA.mat",
+      "sources": [
+        "microbubble-simulator/functions/fit_SigmaR_evaluated_50PA.mat",
+        "example_custom_data/fit_SigmaR_evaluated_50PA.mat"
+      ],
+      "sha256": "3a879b68aa955ddca7f867032f5c86ebbab938cb68408de13e2eb187c39da10e",
+      "variables": [
+        "A_m",
+        "sig"
+      ]
+    },
+    "fit_SigmaR_04-08-2017.json": {
+      "matlab_name": "fit_SigmaR_04-08-2017.mat",
+      "sources": [
+        "microbubble-simulator/functions/fit_SigmaR_04-08-2017.mat"
+      ],
+      "sha256": "4ca663183e8f289c66255c34f6bca4a1b59aaa74e982ecd45f313e99ef5f007f",
+      "variables": [
+        "fit"
+      ]
+    },
+    "TransmitTransferFunctionFit.npz": {
+      "matlab_name": "TransmitTransferFunctionFit.mat",
+      "sources": [
+        "microbubble-simulator/functions/TransmitTransferFunctionFit.mat"
+      ],
+      "sha256": "326de92ef73587711fceac8096163a213cf83b372a2a6ec6ba33454fbc10e234",
+      "variables": [
+        "Fs",
+        "Tfit"
+      ]
+    },
+    "ReceiveTransferFunctionFit.npz": {
+      "matlab_name": "ReceiveTransferFunctionFit.mat",
+      "sources": [
+        "microbubble-simulator/functions/ReceiveTransferFunctionFit.mat"
+      ],
+      "sha256": "478c3c503e5fbc996ea665d5a0dea5870146e13e729af988049f7186ce46d1ba",
+      "variables": [
+        "Fs",
+        "Hfit"
+      ]
+    },
+    "TwoWayTransferFunctionFit.npz": {
+      "matlab_name": "TwoWayTransferFunctionFit.mat",
+      "sources": [
+        "microbubble-simulator/functions/TwoWayTransferFunctionFit.mat"
+      ],
+      "sha256": "34b32ae2e1654c270f2ecccb7c8024ada653028d07b0edc31b296d63f8005d99",
+      "variables": [
+        "Fs",
+        "Vfit"
+      ]
+    },
+    "geometry_data/renal_tree/GeometryProperties.json": {
+      "matlab_name": "renal_tree/GeometryProperties.mat",
+      "sources": [
+        "geometry_data/renal_tree/GeometryProperties.mat"
+      ],
+      "sha256": "9dbf6bf3b6e701e00cdac0adf41295abf68354982e6996d2815b7f491c8d96a1",
+      "variables": [
+        "BoundingBox",
+        "EmbedVessel",
+        "Rotation",
+        "STLfile",
+        "STLunit",
+        "Visualization",
+        "vtuProperties",
+        "options"
+      ]
+    },
+    "geometry_data/mouse_brain/GeometryProperties.json": {
+      "matlab_name": "mouse_brain/GeometryProperties.mat",
+      "sources": [
+        "geometry_data/mouse_brain/GeometryProperties.mat"
+      ],
+      "sha256": "96016b1dcd013b0c6c9cb82fed9313bcf61e18bf76f3268eaef325a8daa039e8",
+      "variables": [
+        "BoundingBox",
+        "EmbedVessel",
+        "Rotation",
+        "STLfile",
+        "STLunit",
+        "Visualization",
+        "options",
+        "vtuProperties"
+      ]
+    },
+    "Transducer-models/C1-6D.json": {
+      "matlab_name": "C1-6D.mat",
+      "sources": [
+        "Transducer-models/C1-6D.mat"
+      ],
+      "sha256": "19ef4b7f59708d2dba8282b06c9c935a42ed367c944284868683c2cda1391524",
+      "variables": [
+        "Transducer"
+      ]
+    }
+  }
+}
