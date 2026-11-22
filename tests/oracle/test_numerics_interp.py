@@ -54,10 +54,14 @@ def assert_exact(actual, expected, err_msg: str = "") -> None:
 
 
 def _b70_queries(x, v, q):
-    """Queries whose linear-interpolation interval has an Inf/NaN end value (B-70)."""
+    """Queries where B-70 allows NaN: on a node, on a flat segment, or at ±Inf, of an
+    interval with an Inf/NaN end value (the blend's ``0*Inf`` or ``Inf - Inf``)."""
     xs, vs = (x, v) if x[0] < x[-1] else (x[::-1], v[::-1])
     k = np.clip(np.searchsorted(xs, q, side="right") - 1, 0, xs.size - 2)
-    return ~(np.isfinite(vs[k]) & np.isfinite(vs[k + 1])) & ~np.isnan(q)
+    v0, v1 = vs[k], vs[k + 1]
+    nonfinite = ~(np.isfinite(v0) & np.isfinite(v1))
+    on_node = (q == xs[k]) | (q == xs[k + 1])
+    return nonfinite & (on_node | (v0 == v1) | np.isinf(q))
 
 
 def assert_linear(actual, expected, x, v, q, err_msg: str = "") -> None:
@@ -85,7 +89,7 @@ def interp_case(draw):
     v = np.array(draw(st.lists(value, min_size=n, max_size=n)))
     span = x[-1] - x[0]
     q = list(draw(st.lists(st.floats(x[0] - span, x[-1] + span), min_size=1, max_size=60)))
-    q += [*x, x[0], x[-1], np.nan, *((x[:-1] + x[1:]) / 2)]  # nodes, midpoints
+    q += [*x, x[0], x[-1], np.nan, np.inf, -np.inf, *((x[:-1] + x[1:]) / 2)]
     return x, v, np.array(q)
 
 
@@ -210,7 +214,7 @@ NONFINITE = [
 @pytest.mark.parametrize(("x", "v"), [(FLAT_X, FLAT_V), *NONFINITE])
 def test_linear_fixed_cases(matlab_engine, x, v) -> None:
     span = x[-1] - x[0]
-    q = np.concatenate([np.linspace(x[0] - span, x[-1] + span, 2001), x])
+    q = np.concatenate([np.linspace(x[0] - span, x[-1] + span, 2001), x, [np.inf, -np.inf]])
     put(matlab_engine, x=row(x), v=row(v), q=row(q))
     matlab_engine.eval(
         "pyp_a = interp1(x, v, q); pyp_b = interp1(x, v, q, 'linear', 'extrap');"
@@ -250,7 +254,7 @@ SPECIAL = [1.0, -0.0, 0.0, np.inf, -np.inf, np.nan, 2.0]
 def test_linear_special_value_combinations(matlab_engine, n) -> None:
     """Every combination of special values at nodes, midpoints and outside."""
     x = np.arange(float(n))
-    q = np.array([-1.0, *np.arange(0, n - 0.5, 0.5), n - 1.0, float(n)])
+    q = np.array([-np.inf, -1.0, *np.arange(0, n - 0.5, 0.5), n - 1.0, float(n), np.inf])
     cases = [np.array(c) for c in itertools.product(SPECIAL, repeat=n)]
     put(matlab_engine, x=row(x), q=row(q))
     rows = [row(c) for c in cases]
@@ -263,3 +267,52 @@ def test_linear_special_value_combinations(matlab_engine, n) -> None:
         assert_linear(nm.interp1(x, c, q), vec(a), x, c, q, err_msg=str(c))
         assert_linear(nm.interp1(x, c, q, extrap="extrap"), vec(b), x, c, q, err_msg=str(c))
         assert_linear(nm.gridded_interpolant(x, c)(q), vec(g), x, c, q, err_msg=str(c))
+
+
+PCHIP_NONFINITE = [
+    np.array([1.0, np.inf, 3.0, 4.0]),
+    np.array([1.0, np.nan, 3.0, 4.0]),
+    np.array([-np.inf, 0.0, 1.0, np.inf]),
+    np.array([1.0, 2.0, 2.0, np.nan]),
+    np.array([0.0, 0.0, 0.0, 0.0]),
+    np.array([1.0, -1.0, 1.0, -1.0]),
+]
+
+
+@pytest.mark.parametrize("v", PCHIP_NONFINITE, ids=str)
+def test_pchip_nonfinite_values(matlab_engine, v) -> None:
+    """NaN samples dropped by interp1/pchip; propagated by griddedInterpolant; ±Inf queries."""
+    x = np.array([0.0, 1.0, 2.0, 3.5])
+    q = np.array([-np.inf, -1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 2.75, 3.5, 5.0, np.inf, np.nan])
+    put(matlab_engine, x=row(x), v=row(v), q=row(q))
+    matlab_engine.eval(
+        "pyp_a = interp1(x, v, q, 'pchip'); pyp_b = pchip(x, v, q);"
+        "pyp_F = griddedInterpolant(x, v, 'pchip'); pyp_c = pyp_F(q);",
+        nargout=0,
+    )
+    a, b, c = (vec(get(matlab_engine, n)) for n in ("pyp_a", "pyp_b", "pyp_c"))
+    assert_float_class(nm.interp1(x, v, q, "pchip"), a)
+    assert_float_class(nm.pchip(x, v, q), b)
+    assert_float_class(nm.gridded_interpolant(x, v, "pchip")(q), c)
+
+
+def test_pchip_matrix_values_with_nan(matlab_engine) -> None:
+    """interp1 'pchip' drops NaN rows column by column."""
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.5])
+    vm = np.array([[1, 1, 2], [np.nan, 2, 0], [2, np.nan, 1], [4, 5, 3], [3, 4, np.nan]])
+    q = np.array([-1.0, 0.5, 1.5, 2.5, 4.0, 6.0])
+    put(matlab_engine, x=col(x), vm=vm, q=col(q))
+    matlab_engine.eval("pyp_r = interp1(x, vm, q, 'pchip');", nargout=0)
+    assert_float_class(nm.interp1(x, vm, q, "pchip"), get(matlab_engine, "pyp_r"))
+
+
+def test_pchip_complex_values(matlab_engine) -> None:
+    x = np.array([0.0, 1.0, 2.0, 3.0])
+    v = np.array([1 + 1j, 2.0, 3j, -1 - 2j])
+    q = np.array([-0.5, 0.5, 1.5, 2.2, 3.5])
+    put(matlab_engine, x=row(x), v=row(v), q=row(q))
+    matlab_engine.eval("pyp_r = interp1(x, v, q, 'pchip');", nargout=0)
+    ref = vec(get(matlab_engine, "pyp_r"))
+    mine = nm.interp1(x, v, q, "pchip")
+    assert_float_class(mine.real, ref.real)
+    assert_float_class(mine.imag, ref.imag)

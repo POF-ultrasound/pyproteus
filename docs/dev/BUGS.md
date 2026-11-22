@@ -92,7 +92,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-70 — linear interp1/griddedInterpolant next to Inf/NaN sample values gives NaN where MATLAB gives a number (accepted, D-14)
 - Where: `pyproteus.numerics.interpolation._linear` (plain blend `v0*(1-t) + v1*t`).
-- Symptom: on an interval with an Inf or NaN end value, a query on a node gives NaN (`0*Inf`, `0*NaN`), e.g. `interp1([0 1 2],[1 Inf 3],0)`: MATLAB 1, pyproteus NaN. Likewise a flat segment of infinities queried on a node or extrapolated (`[Inf Inf]`). Finite data are unaffected.
+- Symptom: on an interval with an Inf or NaN end value, a query on a node gives NaN (`0*Inf`, `0*NaN`), e.g. `interp1([0 1 2],[1 Inf 3],0)`: MATLAB 1, pyproteus NaN. Likewise a flat segment of infinities queried on a node or extrapolated, and ±Inf queries on such an interval (`[Inf Inf]` at `Inf`: MATLAB Inf, pyproteus NaN). Finite data are unaffected (±Inf queries on finite data match MATLAB).
 - Cause: MATLAB's handling was found by black-box probing; the special cases reproducing it were removed under D-14 (no documented semantics).
 - Impact: none known; PROTEUS interpolates finite tables.
 - Test: `tests/oracle/test_numerics_interp.py::assert_linear` (such queries must be MATLAB's value or NaN), `tests/unit/test_numerics.py::test_interp1_flat_and_nonfinite_neighbours`.

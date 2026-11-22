@@ -347,6 +347,39 @@ def test_interp1_flat_and_nonfinite_neighbours() -> None:
     np.testing.assert_array_equal(nm.interp1([0, 1, 2], [1, np.nan, 3], [0, 0.5, 2]), np.nan)
 
 
+def test_infinite_queries() -> None:
+    inf = np.inf
+    # MATLAB R2025a values (checked in tests/oracle/test_numerics_interp.py)
+    np.testing.assert_array_equal(nm.interp1([0, 1], [2, 2], [inf, -inf], extrap="extrap"), 2)
+    np.testing.assert_array_equal(
+        nm.interp1([0, 1], [1, 2], [inf, -inf], extrap="extrap"), [inf, -inf]
+    )
+    np.testing.assert_array_equal(
+        nm.interp1([0, 2], [0, 5e-324], [inf, -inf], extrap="extrap"), [inf, -inf]
+    )
+    np.testing.assert_array_equal(nm.interp1([0, 1], [1, 2], [inf, -inf]), np.nan)
+    np.testing.assert_array_equal(nm.pchip([0, 1, 2], [0, 1, 3], [inf, -inf]), [-inf, inf])
+    assert np.isnan(nm.pchip([0, 1], [0, 0], [inf])).all()  # Horner: 0 * Inf
+
+
+def test_pchip_complex_and_nonfinite_values() -> None:
+    out = nm.interp1([0, 1, 2], [1 + 1j, 2, 3j], [0.5, 1.5], "pchip")
+    np.testing.assert_allclose(out, [1.8125 + 0.125j, 1.4375 + 0.875j], rtol=1e-12)  # MATLAB
+    out = nm.interp1([0, 1, 2, 3], [1, np.inf, 3, 4], [0.5, 2.5], "pchip")
+    assert np.isnan(out[0]) and out[1] == pytest.approx(3.125)  # MATLAB: [NaN 3.125]
+    vm = np.array([[1, 1], [np.nan, 2], [2, np.nan], [4, 5]])
+    np.testing.assert_allclose(  # NaN rows dropped column by column (MATLAB)
+        nm.interp1([0, 1, 2, 3], vm, [0.5, 2.5], "pchip"),
+        [[1.075892857142857, 1.457427536231884], [2.794642857142857, 4.125679347826087]],
+        rtol=1e-12,
+    )
+    q = np.array([0.5, 1.5, 2.5])
+    g = nm.gridded_interpolant([0, 1, 2, 3.5], [1, np.nan, 3, 4], "pchip")(q)
+    assert np.isnan(g).all()  # NaN end slopes propagate (MATLAB: all NaN)
+    g = nm.gridded_interpolant([0, 1, 2, 3.5], [1, 2, 2, np.nan], "pchip")([1.5, 2.5])
+    assert g[0] == 2 and np.isnan(g[1])
+
+
 def test_interp1_pchip_drops_nan_values() -> None:
     # MATLAB: interp1([0 1 2 3],[1 NaN 3 2],q,'pchip') == pchip([0 2 3],[1 3 2],q)
     q = np.array([0, 0.5, 1, 1.5, 2])
