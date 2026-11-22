@@ -38,7 +38,8 @@ other solver step for step):
   exceeded); ``RelTol`` must exceed ``10 eps``; integration stops with a
   warning when the error test fails at ``|h| <= 10 eps |t|`` (own addition:
   ``|t|`` is floored at ``|tfinal - t0|`` so the test also works near
-  ``t = 0``);
+  ``t = 0``); own validation: a ``MaxStep`` below that smallest step on
+  ``tspan`` raises, which guarantees progress;
 - starting step from Hairer et al. §II.4 (one extra RHS call), capped by
   ``MaxStep``; ``InitialStep`` overrides it; with a non-finite RHS at ``t0``
   the start is ``MaxStep`` and error control shrinks it;

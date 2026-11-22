@@ -403,7 +403,7 @@ def test_minimum_step(t0, span) -> None:
 
 
 def test_reltol_just_above_floor_accepted() -> None:
-    r = ode45(lambda t, y: -y, [0, 0.01], [1.0], odeset(RelTol=5e-15, AbsTol=1e-20))
+    r = ode45(lambda t, y: -y, [0, 0.01], [1.0], odeset(RelTol=2.3e-15, AbsTol=1e-20))
     assert r.y[-1, 0] == pytest.approx(np.exp(-0.01), rel=1e-12)
 
 
