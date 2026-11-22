@@ -127,7 +127,9 @@ def test_matlab_3dc_ignores_alpha_mode(run, kwave_engine) -> None:
     c2 = copy.deepcopy(c)
     c2.name += "_nomode"
     del c2.medium["alpha_mode"]
-    assert np.array_equal(kt.run_matlab(kwave_engine, c2, run["data"]), run["matlab"])
+    # not bit-for-bit: the OpenMP binary varies ~1e-6 rel run to run; alpha_mode
+    # would change the result by ~16 % (python backend)
+    assert kt.rel_err(kt.run_matlab(kwave_engine, c2, run["data"]), run["matlab"]) <= 1e-5
 
 
 def test_cpp_input_file_matches_matlab(run) -> None:

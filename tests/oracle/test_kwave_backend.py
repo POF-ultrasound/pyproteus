@@ -88,6 +88,7 @@ def _run(case, backend: str, data_path=None) -> dict[str, np.ndarray]:
         binary=kt.WRAPPER if backend == "cpp" else None,
         binary_env=kt.binary_env() if backend == "cpp" else None,
         data_path=data_path,
+        delete_data=data_path is None,
     )
 
 
@@ -147,7 +148,8 @@ def test_cpp_input_file_matches_matlab(run) -> None:
     """The adapter's cpp input file equals MATLAB's except ``rho0_sg*`` on the last plane (B-13)."""
     c, data = run["case"], run["data"]
     mat = kt.read_h5(data / f"matlab_{c.name}_input.h5")
-    ours = kt.read_h5(data / "pyproteus_cpp" / "kwave_input.h5")
+    (run_dir,) = (data / "pyproteus_cpp").iterdir()
+    ours = kt.read_h5(run_dir / "kwave_input.h5")
     assert set(mat) == set(ours)
     for key in sorted(mat):
         if not key.startswith("rho0_sg"):

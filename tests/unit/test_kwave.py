@@ -272,6 +272,7 @@ def test_kspace_first_order_rejects_options(change, exc, match) -> None:
         (lambda m, s, n: n.update(mask=np.zeros((3, 3, 3), bool)), ValueError, "sensor.mask"),
         (lambda m, s, n: n.pop("mask"), ValueError, "sensor.mask"),
         (lambda m, s, n: s.update(p=np.ones((2, 20))), ValueError, "one row per voxel"),
+        (lambda m, s, n: s.update(p=np.ones((3, G.Nt + 1))), NotImplementedError, "Nt"),
         (lambda m, s, n: s.update(p_mode="dirichlet"), NotImplementedError, "additive"),
         (lambda m, s, n: s.update(p0=np.ones(G.shape)), NotImplementedError, "p0"),
         (lambda m, s, n: s.update(p_mask=np.zeros(G.shape)), ValueError, "no active"),
@@ -299,6 +300,9 @@ def test_binary_path_resolution(tmp_path, monkeypatch) -> None:
     exe = tmp_path / "kspaceFirstOrder-OMP"
     exe.write_text("")
     assert kw.binary_path("cpu", exe) == exe
+    assert kw.binary_path("cpu", tmp_path) == exe  # a folder, like MATLAB's BinaryPath
+    with pytest.raises(FileNotFoundError):
+        kw.binary_path("gpu", tmp_path)  # no kspaceFirstOrder-CUDA there
     monkeypatch.setenv(kw.BINARY_ENV, str(exe))
     assert kw.binary_path() == exe
     with pytest.raises(FileNotFoundError):
@@ -324,15 +328,16 @@ def test_cpp_binary_command_line(tmp_path, monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="fake failure"):
         kw.kspace_first_order(
             G, medium, source, sensor, pml_size=10, binary=exe, num_threads=3, device_num=1,
-            binary_env={"KWAVE_LIBS": "/x"}, data_path=tmp_path / "data",
+            binary_env={"KWAVE_LIBS": "/x"}, data_path=tmp_path / "data", delete_data=False,
         )  # fmt: skip
     cmd, env = calls[0]
     assert cmd[0] == str(exe)
-    assert cmd[cmd.index("-i") + 1] == str((tmp_path / "data" / "kwave_input.h5").resolve())
+    (run_dir,) = (tmp_path / "data").iterdir()  # one uniquely named folder per call
+    assert cmd[cmd.index("-i") + 1] == str((run_dir / "kwave_input.h5").resolve())
     assert cmd[-2:] == ["--p_max", "--p_min"] and "--p_raw" not in cmd
     assert cmd[cmd.index("-t") + 1] == "3" and cmd[cmd.index("-g") + 1] == "1"
     assert env["KWAVE_LIBS"] == "/x"
-    assert (tmp_path / "data" / "kwave_input.h5").is_file()
+    assert (run_dir / "kwave_input.h5").is_file()
 
 
 # --- binary runs (skip without it)
@@ -426,16 +431,24 @@ def test_cpp_and_python_backends_agree(binary, n_sensor, tmp_path) -> None:
         assert cpp[key].shape == (n,)
         assert np.array_equal(cpp[key], fn(cpp["p"], axis=1))
         assert np.array_equal(py[key], fn(py["p"], axis=1))
-    # cpp rows are in find order: the source-plane sensors see the strongest signal
-    # first in time where the source fires first (a reorder would break this link)
+    # the F/C permutation is not trivial for this mask, so the agreement above is
+    # not an accident of row order (the order itself is checked against MATLAB in
+    # tests/oracle/test_kwave_backend.py)
     assert _rel(kw.rows_c_to_f(cpp["p"], sensor), cpp["p"]) > 0.1
 
 
 @pytest.mark.slow
-def test_cpp_data_path_keeps_files_and_is_reusable(binary, tmp_path) -> None:
+def test_cpp_data_path_unique_folders_and_delete_data(binary, tmp_path) -> None:
+    """DataPath/DeleteData: one folder per call, deleted by default (MATLAB deletes its files)."""
     g, medium, source, sensor = _small_case()
     kwargs = dict(pml_size=8, binary=binary, data_path=tmp_path)
     a = kw.kspace_first_order(g, medium, source, {"mask": sensor}, **kwargs)
-    b = kw.kspace_first_order(g, medium, source, {"mask": sensor}, **kwargs)  # files overwritten
-    assert (tmp_path / "kwave_input.h5").is_file() and (tmp_path / "kwave_output.h5").is_file()
-    assert np.array_equal(a["p"], b["p"])
+    assert list(tmp_path.iterdir()) == []
+    b = kw.kspace_first_order(g, medium, source, {"mask": sensor}, delete_data=False, **kwargs)
+    c = kw.kspace_first_order(g, medium, source, {"mask": sensor}, delete_data=False, **kwargs)
+    dirs = sorted(tmp_path.iterdir())
+    assert len(dirs) == 2
+    for d in dirs:
+        assert (d / "kwave_input.h5").is_file() and (d / "kwave_output.h5").is_file()
+    # the OpenMP binary is not bit-reproducible run to run (~1e-6 rel seen)
+    assert _rel(b["p"], a["p"]) < 1e-5 and _rel(c["p"], a["p"]) < 1e-5

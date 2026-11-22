@@ -9,6 +9,8 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - New k-wave-python findings: B-60 (zero-phase `filter_time_series` crashes; worked around, ≤ 1e-12 vs MATLAB), B-61 (rejects `2*pml >= N` with the PML outside; adapter expands the grid with kwp's own helper), B-62. Upstream drafts 4 and 5 added (not posted).
 - Tracer: `adapter.py`/`ordering.py` removed, `kwave_tracer.py` imports the package; new cases `velocity_ux`, `mixed` (`ux`+`uz` + pressure point sources), `nt_eq_n_sensor`, `pressure_field`; `run_kwave_matlab.m` returns every recorded field and accepts `NumThreads`.
 - Tests: `tests/unit/test_kwave.py` (row order 2-D/3-D, asymmetric, scaling, validation, binary command; binary runs skip without the binary), `tests/oracle/test_kwave_backend.py` (7 cases × both backends vs MATLAB 3DC, input file, command line), `tests/oracle/test_kwave_signal.py`.
+- Reviewer round 1 (CHANGES REQUESTED, nothing blocking) fixed: per-call unique HDF5 folder inside `DataPath`, deleted by default (`delete_data`, MATLAB `DeleteData`), so runs sharing `PATHS.DataPath` cannot collide; `binary` accepts a folder like MATLAB `BinaryPath`; source signals longer than `Nt` refused; B-60 provenance rests on the forward-backward construction only; B-14 text updated; docs notes on the empty-sensor case.
+- Found: the k-Wave OpenMP binary is not bit-reproducible run to run (two identical runs differ by ~1e-6 rel, FFTW/OpenMP threading). Within the 1e-5 class; frozen references (D-10) cannot be compared bit for bit.
 - Not covered: 3DG/CUDA, CuPy, source signals longer than Nt.
 
 ## 2026-11-20 — developer decisions, round 1 (main session)

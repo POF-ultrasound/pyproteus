@@ -175,8 +175,10 @@ def additive_source_scale(
     source would need one factor per density component: refused (PROTEUS grids
     are isotropic). MATLAB k-Wave applies this before writing the C++ input
     file; k-wave-python 0.6.2's ``cpp`` backend does not. Computed in float64
-    and cast to float32 when the input file is written, as MATLAB does: the
-    tracer bullet found the resulting HDF5 source datasets bit-identical.
+    and cast to float32 when the input file is written, as MATLAB does for
+    double source signals: the tracer bullet found the resulting HDF5 source
+    datasets bit-identical. (For single-precision signals MATLAB scales in
+    single, so results may differ by about 1 ulp.)
     """
     mask = np.asarray(mask, dtype=bool)
     spacing = tuple(float(d) for d in np.atleast_1d(spacing))
@@ -323,7 +325,9 @@ def binary_path(device: str = "cpu", path: str | os.PathLike | None = None) -> P
 
     ``path`` if given, else ``$PYPROTEUS_KWAVE_BINARY``, else the binary
     bundled with k-wave-python (``kspaceFirstOrder-OMP`` for ``device="cpu"``,
-    ``kspaceFirstOrder-CUDA`` for ``"gpu"``). On macOS the bundled binary links
+    ``kspaceFirstOrder-CUDA`` for ``"gpu"``). ``path`` may be a file or, like
+    MATLAB's ``BinaryPath`` (PROTEUS ``PATHS.BinaryPath``), a folder holding
+    the binary under its default name. On macOS the bundled binary links
     Homebrew libraries; without them, point this at the wrapper
     ``tools/tracer_bullet/bin/kspaceFirstOrder-OMP`` (D-10).
     """
@@ -337,6 +341,8 @@ def binary_path(device: str = "cpu", path: str | os.PathLike | None = None) -> P
         name = CUDA_NAME if device == "gpu" else OMP_NAME
         path = Path(kwave.BINARY_PATH) / name
     path = Path(path)
+    if path.is_dir():
+        path = path / (CUDA_NAME if device == "gpu" else OMP_NAME)
     if not path.is_file():
         raise FileNotFoundError(f"k-Wave binary not found: {path}")
     return path
@@ -400,6 +406,11 @@ def _sources(source: Any, kgrid: KGrid) -> dict[str, tuple[np.ndarray, dict[str,
                 raise ValueError(
                     f"source.{k} must be (n_source, M) with one row per voxel of "
                     f"source.{mask_key} ({int(mask.sum())}), got {v.shape}"
+                )
+            if v.shape[1] > kgrid.Nt:
+                raise NotImplementedError(
+                    f"source.{k} has {v.shape[1]} samples > Nt = {kgrid.Nt}: not compared "
+                    "with MATLAB yet"
                 )
             rows[k] = v
         out[mask_key] = (mask, rows)
@@ -485,6 +496,7 @@ def kspace_first_order(
     binary: str | os.PathLike | None = None,
     binary_env: Mapping[str, str] | None = None,
     data_path: str | os.PathLike | None = None,
+    delete_data: bool = True,
 ) -> dict[str, np.ndarray]:
     """Run k-Wave as PROTEUS ``run_simulation.m`` calls ``kspaceFirstOrder3DC``/``3DG``.
 
@@ -500,13 +512,21 @@ def kspace_first_order(
     ``PMLAlpha``, ``PMLInside=false``, ``Smooth=false``, ``DataCast`` ``'single'``
     (``'gpuArray-single'`` is accepted as its 3DG spelling), ``DeviceNum``
     (``device_num``), ``BinaryPath`` (``binary``, see :func:`binary_path`),
-    ``DataPath`` (``data_path``: keep the HDF5 files there; default: a
-    temporary folder, deleted). ``device="gpu"`` selects the CUDA binary
-    (``cpp``) or CuPy (``python``). ``binary_env`` adds environment variables
-    for the binary (e.g. ``KWAVE_LIBS`` for the macOS wrapper).
+    ``BinaryPath`` may be a folder, as in MATLAB. ``DataPath`` (``data_path``,
+    default: the system temporary folder) and ``DeleteData`` (``delete_data``):
+    each call writes its HDF5 files into a new uniquely named subfolder of
+    ``data_path`` (so concurrent runs sharing it do not collide, like MATLAB's
+    date-stamped names) and deletes it afterwards unless ``delete_data=False``.
+    ``device="gpu"`` selects the CUDA binary (``cpp``) or CuPy (``python``).
+    ``binary_env`` adds environment variables for the binary (e.g.
+    ``KWAVE_LIBS`` for the macOS wrapper).
 
     Returns ``{"p": (n_sensor, Nt), "p_max": (n_sensor,), ...}`` as float32,
     rows in ``find(sensor.mask)`` order.
+
+    Differences from ``run_simulation.m`` left to its port: an empty sensor
+    mask raises here, while ``run_simulation.m`` returns ``zeros(0, Nt)`` with a
+    warning before calling k-Wave; source signals longer than ``Nt`` raise.
     """
     _check_backend(backend)
     if device not in DEVICES:
@@ -544,16 +564,20 @@ def kspace_first_order(
             device_num, common,
         )  # fmt: skip
     exe = binary_path(device, binary)
-    if data_path is None:
-        with tempfile.TemporaryDirectory(prefix="pyproteus_kwave_") as tmp:
-            return _run_cpp(
-                kgrid, kw_grid, kw_medium, kw_source, kw_sensor, record, exe, binary_env,
-                Path(tmp), device, device_num, num_threads, common,
-            )  # fmt: skip
-    return _run_cpp(
-        kgrid, kw_grid, kw_medium, kw_source, kw_sensor, record, exe, binary_env,
-        Path(data_path), device, device_num, num_threads, common,
-    )  # fmt: skip
+    root = None if data_path is None else Path(data_path)
+    if root is not None:
+        root.mkdir(parents=True, exist_ok=True)
+    if not delete_data:
+        run_dir = Path(tempfile.mkdtemp(prefix="pyproteus_kwave_", dir=root))
+        return _run_cpp(
+            kgrid, kw_grid, kw_medium, kw_source, kw_sensor, record, exe, binary_env,
+            run_dir, device, device_num, num_threads, common,
+        )  # fmt: skip
+    with tempfile.TemporaryDirectory(prefix="pyproteus_kwave_", dir=root) as tmp:
+        return _run_cpp(
+            kgrid, kw_grid, kw_medium, kw_source, kw_sensor, record, exe, binary_env,
+            Path(tmp), device, device_num, num_threads, common,
+        )  # fmt: skip
 
 
 def _write_cpp_input(
@@ -725,15 +749,12 @@ def filter_time_series(
     # is forward-backward filtering: run the causal FIR filter F, time-reverse,
     # run F again, reverse back: y = flip(F(flip(F(x)))). The cascade squares the
     # magnitude response, so its stop-band attenuation in dB is twice that of F;
-    # F is therefore designed for half the requested attenuation. The halving is
-    # also what k-wave-python's own zero-phase branch does before it crashes
-    # (``apply_filter``: "correct the stopband attenuation if a zero phase filter
-    # is being used"). k-Wave's ``filterTimeSeries`` help text only says the
-    # filter is applied "as either a zero phase or linear phase filter" with a
-    # given stop-band attenuation; forward-backward filtering is the standard
-    # construction of a zero-phase filter from a causal one (as in SciPy's
-    # ``filtfilt``). No k-Wave MATLAB source
-    # (filterTimeSeries.m, applyFilter.m) was read; the result was checked
+    # F is therefore designed for half the requested attenuation. k-Wave's
+    # ``filterTimeSeries`` help text only says the filter is applied "as either
+    # a zero phase or linear phase filter" with a given stop-band attenuation;
+    # forward-backward filtering is the standard construction of a zero-phase
+    # filter from a causal one (as in SciPy's ``filtfilt``). No k-Wave MATLAB
+    # source (filterTimeSeries.m, applyFilter.m) was read; the result was checked
     # black-box against MATLAB k-Wave ``filterTimeSeries`` to <= 1e-12 rel
     # (``tests/oracle/test_kwave_signal.py``).
     half = stop_band_atten / 2

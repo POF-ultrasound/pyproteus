@@ -74,4 +74,7 @@ Notes:
   if something reaches it.
 - Not covered: `kspaceFirstOrder3DG` / CUDA (`device="gpu"`, `device_num`), CuPy
   (`backend="python", device="gpu"`), source signals longer than `Nt`, anisotropic
-  grids with pressure sources (refused), `record_start_index` (PROTEUS does not set it).
+  grids with pressure sources (refused), `record_start_index` (PROTEUS does not set it),
+  source signals longer than `Nt` (refused), a `2*pml >= N` grid against MATLAB (B-61;
+  only cpp vs python). An empty sensor mask raises; `run_simulation.m` returns
+  `zeros(0, Nt)` itself, which its port must reproduce.
