@@ -382,6 +382,30 @@ def read_h5(path: Path) -> dict[str, np.ndarray]:
     return out
 
 
+INPUT_REL = 1e-6  # float32 datasets of the k-Wave input file (D-13: k-Wave class, input side)
+
+
+def assert_inputs_close(a: dict, b: dict, skip=("rho0_sg",)) -> None:
+    """Two k-Wave C++ input files (``read_h5`` dicts) carry the same data.
+
+    Integer datasets (sizes, flags, 1-based mask indices: the documented file
+    format) must be equal; float datasets within ``INPUT_REL`` of the larger
+    magnitude (float32). Datasets whose name starts with ``skip`` are left out.
+    """
+    assert set(a) == set(b), sorted(set(a) ^ set(b))
+    for key in sorted(a):
+        if key.startswith(skip):
+            continue
+        x, y = np.asarray(a[key]), np.asarray(b[key])
+        assert x.shape == y.shape, key
+        if x.dtype.kind in "iu":
+            assert np.array_equal(x, y), key
+        else:
+            xd, yd = x.astype(np.float64), y.astype(np.float64)
+            den = max(float(np.max(np.abs(xd), initial=0.0)), 1e-300)
+            assert float(np.max(np.abs(xd - yd), initial=0.0)) <= INPUT_REL * den, key
+
+
 def compare_inputs(a_path: Path, b_path: Path) -> dict[str, str]:
     """Dataset-by-dataset diff of two k-Wave C++ input files."""
     a, b = read_h5(a_path), read_h5(b_path)

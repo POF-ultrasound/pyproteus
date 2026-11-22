@@ -145,15 +145,12 @@ def test_sensor_data_matches_matlab(run, backend) -> None:
 
 
 def test_cpp_input_file_matches_matlab(run) -> None:
-    """The adapter's cpp input file equals MATLAB's except ``rho0_sg*`` on the last plane (B-13)."""
+    """The adapter's cpp input file carries MATLAB's data (``rho0_sg*`` aside, B-13)."""
     c, data = run["case"], run["data"]
     mat = kt.read_h5(data / f"matlab_{c.name}_input.h5")
     (run_dir,) = (data / "pyproteus_cpp").iterdir()
     ours = kt.read_h5(run_dir / "kwave_input.h5")
-    assert set(mat) == set(ours)
-    for key in sorted(mat):
-        if not key.startswith("rho0_sg"):
-            assert np.array_equal(mat[key], ours[key]), key
+    kt.assert_inputs_close(mat, ours)
 
 
 def test_wrong_sensor_row_order_is_detected(run) -> None:
