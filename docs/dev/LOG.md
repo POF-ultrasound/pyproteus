@@ -2,6 +2,9 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-22 — tolerance policy (main session)
+- Developer: parity = same behaviour and results within medium tolerance, no bit-level copying or probing of MATLAB internals (D-12). New comparison classes (D-13); probed numerics code to be replaced (D-14, supersedes D-8). ROADMAP §4/§5, CLAUDE.md and CONTRIBUTING updated. Running sessions told on 2026-11-22.
+
 ## 2026-11-22 — M0 reference export and pooch registry (m0-refexport)
 - Format (`docs/REFERENCE_DATA.md`, `src/pyproteus/io/reference_format.py`): one HDF5 per case, `/inputs`, `/outputs`, `/extra`; every node has `matlab_class`/`matlab_size`; arrays stored with dims = MATLAB `size` so h5py returns MATLAB's shape and indexing (`a[i,j,k] == x(i+1,j+1,k+1)`, linear index = `ravel(order="F")`); structs, struct arrays, cells (elements by linear index), sparse, char/string/function handles. 22 required provenance attributes (MATLAB version, oracle commit + dirty flag, PROTEUS version, k-Wave MATLAB version, solver, binary path/version/SHA-256, seeds, extra MATLAB path, UTC date, exporter commit, platform); `full_run` files must record the binary (D-10).
 - Export (`tools/export_reference/`): spec registry (`specs.py`), CLI (`export.py`), engine session reusing the oracle fixture's constants (no change to `tests/oracle/conftest.py`), k-Wave + `PROTEUS_LOCAL_PATHS` file pointing PROTEUS at scratch folders; oracle git status checked before/after. MATLAB values go through `matlab/pyp_flatten.m` records so class and size survive the engine (1×1 → scalars, cell/struct shapes). Examples: `reset_acquisition`, `reset_transmit`. Full runs tiny/small/medium via `main_RF` with the oracle's own headless helpers (`tests/helpers`), synthetic ground truth seed 1, `rng(0)`.

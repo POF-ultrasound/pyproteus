@@ -6,7 +6,8 @@ Python port of MATLAB PROTEUS. Read `docs/ROADMAP.md` (plan), `docs/dev/MILESTON
 - Faithful port: reproduce MATLAB PROTEUS behaviour, quirks included. Record each quirk in `docs/QUIRKS.md`; do not fix it.
 - MATLAB oracle: `/Users/theodoremichel/Repos/TWENTE/Ultrasound/PROTEUS-cleaning/PROTEUS-oracle` (commit 8d37938, detached). Read-only: never edit, commit or switch branches there. Test-only shims go in `tests/oracle/shims/`.
 - Porting PROTEUS's own MATLAB code is fine (MIT). Never translate MathWorks toolbox source (e.g. `ode45.m`, `interp1.m`) or k-Wave MATLAB source (LGPL): clean-room from papers/docs, or use k-wave-python.
-- Every ported function gets an oracle test (same inputs through MATLAB Engine and Python) with inputs that hit ties at .5, equal values, odd/non-square shapes, out-of-range queries. Comparison classes: ROADMAP §4.
+- Every ported function gets an oracle test (same inputs through MATLAB Engine and Python) with inputs that hit ties at .5, equal values, odd/non-square shapes, out-of-range queries. Comparison classes: ROADMAP §4 (medium tolerances, D-13).
+- Parity means same behaviour and results within medium tolerance, not a bit-for-bit copy (D-12). Never probe MATLAB to reproduce its internals at ulp level (libm, summation order, formula grouping, solver step sequences): that is reverse-engineering proprietary software. Follow documented semantics and papers; use standard NumPy/SciPy routines when they meet the tolerance.
 - Use the `pyproteus.numerics` helpers for rounding, sorting, interpolation, column-major indexing, symmetric ifft, hilbert, convn. Never bare `np.round`, `np.argsort` without `kind="stable"`, or `np.interp`.
 - Keep MATLAB function names in snake_case; settings models accept MATLAB field names.
 

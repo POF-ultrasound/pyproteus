@@ -12,7 +12,7 @@ Reference: PROTEUS v1.1.0 · team: 1 developer + Claude Code · reviewed twice a
 1. **Faithful port first, improvements after.** pyproteus 1.0 reproduces every simulation mode of MATLAB PROTEUS v1.1.0, quirks included. Renaming, refactoring and bug fixes come in 1.x.
 2. **MATLAB is the test oracle and stays untouched.** Tests call the original MATLAB functions through the MATLAB Engine for Python and compare with the port on the same inputs. Frozen reference files keep the comparison in CI without MATLAB.
 3. **Silent MATLAB-vs-NumPy differences are the main risk** (rounding of halves, sort stability, extrapolation, column-major order). Dedicated helpers on day one, a lint rule, and test inputs that hit ties on purpose.
-4. **Random numbers match bit for bit:** the simulation path only uses `rand`/`randi`, which NumPy's MT19937 reproduces exactly (checked with seed 42).
+4. **Same random streams:** the simulation path only uses `rand`/`randi`; seeding NumPy's MT19937 the documented way gives the same draws (checked with seed 42). Results are compared at the float tolerance, not bit for bit.
 5. **First task: a k-Wave tracer bullet** (one tiny hybrid case through MATLAB 3DC and k-wave-python, compared).
 6. **CPU and GPU first, cluster later:** CPU on every OS, CUDA on Linux/Windows, Apple Silicon on CPU; parallel runs locally (one worker per GPU or core group). Cluster tooling (Slurm templates, containers) is out of scope until after 1.0.
 7. **Two test phases:** Phase A uses MATLAB as the oracle until parity is confirmed; Phase B replaces it with pyproteus' own CI testing physics and code behaviour.
@@ -20,7 +20,7 @@ Reference: PROTEUS v1.1.0 · team: 1 developer + Claude Code · reviewed twice a
 ## 1. Goals and constraints
 
 - **Goal:** leave MATLAB. Free tooling, larger community, Python ecosystem (k-wave-python, SciPy, meshio, pyvista, PyTorch).
-- **Parity:** at creation, same behaviour and results as MATLAB PROTEUS v1.1.0, exact where possible, within stated tolerances elsewhere.
+- **Parity:** at creation, same behaviour and results as MATLAB PROTEUS v1.1.0 within medium tolerances (§4, D-12/D-13). Not a bit-for-bit copy of MATLAB: no black-box reverse-engineering of MATLAB internals.
 - **Hardware:** CPU on Linux/Windows/macOS, NVIDIA GPU (CUDA), Apple Silicon on CPU; batched and parallel runs on one machine. Clusters later.
 - **GUI:** similar to the MATLAB apps, cleaner and easier.
 - **Resources:** 1 developer + Claude Code; research software; rely on the community later.
@@ -55,14 +55,16 @@ Reference: PROTEUS v1.1.0 · team: 1 developer + Claude Code · reviewed twice a
 
 | Quantity | Target | Why |
 |---|---|---|
-| Integer-valued after `round` (masks, voxel indices, DAS sample indices) | exact; report number of .5 ties | 1e-16 at a tie moves an index |
-| Geometry, delays, weights, signals | ≤ 1e-12 rel | same float ops |
-| Random draws | bit-identical | same MT19937 stream |
-| Medium background (truncated normal) | ≈ 1 ulp | `erfcinv` implementations differ |
-| Bubble radius, mass source | ≤ 1e-8 rel | same ODE method; FFT/BLAS ordering |
-| Streamlines (serial) | bit-exact; else identical up to first voxel flip + distribution checks | piecewise-constant velocity |
+| Integer-valued after `round` (masks, voxel indices, DAS sample indices) | statistical: ≥ 99.9 % equal, differences reported; downstream effect checked at the float/RF class | float noise at a .5 tie moves an index |
+| Geometry, delays, weights, signals, interpolation | ≤ 1e-9 rel (plus a small atol near zero) | same formulas; libm/FFT/BLAS differ |
+| Random draws | same stream; compared at the float class | documented MT19937 seeding |
+| Medium background (truncated normal) | ≤ 1e-9 rel | `erfcinv` implementations differ |
+| Bubble radius, mass source | ≈ 10·RelTol rel + AbsTol abs of the solver settings; plus accuracy vs analytical/high-accuracy references | same ODE method, adaptive steps may differ |
+| Streamlines (serial) | statistical: paths agree until the first voxel flip; distributions (positions, velocities, counts) match | piecewise-constant velocity |
 | k-Wave fields, RF | ≤ 1e-5 rel (single) | same binary; input preparation |
 | End-to-end RF, images | RF ≤ 1e-4; image metrics equal | accumulated differences |
+
+Tolerance policy (D-12, 2026-11-22): reproduce behaviour and results, not MATLAB's bits. Never tune code to MATLAB ulps (libm rounding, summation order, formula grouping, solver step sequences) by probing MATLAB; use documented semantics, papers and standard library routines.
 
 Parity report generated from test output. Parity covers serial mode; after 1.0, one seeded stream per bubble makes parallel = serial.
 
@@ -77,11 +79,11 @@ Each gets a helper in `numerics/` before any physics is ported.
 
 | MATLAB | NumPy/SciPy trap | Where |
 |---|---|---|
-| `round` halves away from zero (checked) | `np.round` halves to even; `floor(x+0.5)` wrong near 0.5 | all index computations, DAS sample indices |
-| `sort` stable (checked) | default `argsort` not stable | radius sort before ODE batching |
+| `round` halves away from zero (documented) | `np.round` halves to even; `floor(x+0.5)` wrong near 0.5 | all index computations, DAS sample indices |
+| `sort` stable (documented) | default `argsort` not stable | radius sort before ODE batching |
 | `interp1` NaN outside range | `np.interp` clamps, `interp1d` raises | `draw_random_radii`, `getShellProperties`, `compute_surface_tension` |
 | `griddedInterpolant` linear extrapolation | SciPy defaults differ | `getShellProperties`, `compute_bubble_mass_source` |
-| `pchip` end rule | confirm `PchipInterpolator` to the ulp | bubble driving pressure |
+| `pchip` end rule | documented shape-preserving end slopes; SciPy/textbook form at the float class | bubble driving pressure |
 | column-major `find`, `sub2ind`, `cumsum`, `reshape` | row-major default | sensor/source row order, weighted sampling |
 | `ifft(...,'symmetric')` | = `irfft` of first N/2+1 bins | `compute_RF`, `define_source_transducer` |
 | `hilbert` along columns | SciPy: last axis | RF, DAS |
@@ -91,7 +93,7 @@ Each gets a helper in `numerics/` before any physics is ported.
 
 **ODE solvers:** clean-room `ode45` (Dormand-Prince) and `ode23` (Bogacki-Shampine, with event location) from Shampine & Reichelt 1997, checked against the oracle. Do **not** translate MATLAB's readable solver source (MathWorks copyright in an MIT repo). Same for k-Wave MATLAB code (LGPL): use k-wave-python's `filterTimeSeries`, `getWin`, source scaling.
 
-**Random numbers:** `rand` exact (MT19937); `randi` exact as `floor(u·n)+1`; `randn` only when the truncated-normal cutoff is infinite (not default); `randperm` only in plotting/preprocessing (out of scope).
+**Random numbers:** `rand` via MT19937 with documented seeding; `randi` as `floor(u·n)+1`; `randn` only when the truncated-normal cutoff is infinite (not default); `randperm` only in plotting/preprocessing (out of scope).
 
 ## 6. k-Wave
 
