@@ -1,8 +1,10 @@
-"""MATLAB ``rng(seed, 'twister')`` streams: ``rand`` and ``randi``, bit for bit.
+"""MATLAB ``rng(seed, 'twister')`` streams: ``rand`` and ``randi``.
 
-MATLAB's ``'twister'`` generator is MT19937 seeded with ``init_genrand(seed)``
-and draws doubles with 53-bit resolution (two 32-bit outputs per double), the
-same as NumPy's legacy ``RandomState``. Verified against MATLAB R2025a:
+MATLAB's ``'twister'`` generator is the Mersenne Twister MT19937 (Matsumoto &
+Nishimura 1998) with the reference ``init_genrand(seed)`` seeding and 53-bit
+doubles built from two 32-bit outputs (the reference ``genrand_res53``), which
+is what NumPy's legacy ``RandomState`` implements. The same seed therefore
+gives the same stream. Oracle tests compare draws at the D-13 float class:
 
 - ``rng(s,'twister'); rand(...)`` equals ``RandomState(s).random_sample(...)``,
   except that **seed 0 means MT seed 5489** (MATLAB's default state).

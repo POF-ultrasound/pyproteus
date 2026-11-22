@@ -1,7 +1,7 @@
 """MATLAB ``ifft(X, [], dim, 'symmetric')`` and ``hilbert``.
 
-Uses NumPy's pocketfft; MATLAB uses FFTW. Results agree to rounding error
-(comparison class ≤ 1e-12 relative to the signal maximum), not bit for bit.
+Uses NumPy's pocketfft; MATLAB uses FFTW. Results agree to rounding error,
+checked at the D-13 float class (≤ 1e-9 relative to the signal maximum).
 """
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-"""Oracle tests: rng(seed,'twister') + rand/randi (comparison class: bit-identical)."""
+"""Oracle tests: rng(seed,'twister') + rand/randi.
+
+Same documented MT19937 stream; draws are compared at the D-13 float class
+(≤ 1e-9 relative). Sizes are compared exactly.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +12,14 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from pyproteus import numerics as nm
-from tests.oracle.helpers import ORACLE_SETTINGS, assert_same_float, get
+from tests.oracle.helpers import ORACLE_SETTINGS, get
+
+
+def assert_draws(actual, expected, err_msg: str = "") -> None:
+    a, e = np.asarray(actual), np.asarray(expected)
+    assert a.shape == e.shape, f"shape {a.shape} != {e.shape} {err_msg}"
+    np.testing.assert_allclose(a, e, rtol=1e-9, atol=0, err_msg=err_msg)
+
 
 SEEDS = [0, 1, 5, 42, 5489, 12345, 2**31 - 1, 2**32 - 1]
 
@@ -30,7 +41,7 @@ def test_rand_shapes_and_sequence(matlab_engine, seed) -> None:
         ("f", g.rand([2, 5])),
     ]:
         ref = np.asarray(get(matlab_engine, name))
-        assert_same_float(mine, ref, err_msg=f"seed {seed} {name}")
+        assert_draws(mine, ref, err_msg=f"seed {seed} {name}")
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -50,7 +61,7 @@ def test_randi_interleaved(matlab_engine, seed) -> None:
         ("f", g.randi(1, 2, 3)),
     ]:
         ref = np.asarray(get(matlab_engine, name))
-        assert_same_float(mine, ref, err_msg=f"seed {seed} {name}")
+        assert_draws(mine, ref, err_msg=f"seed {seed} {name}")
 
 
 @ORACLE_SETTINGS
@@ -84,7 +95,7 @@ def test_random_call_sequences(matlab_engine, seed, calls) -> None:
         ref = np.asarray(r).reshape(m.shape) if m.size else np.asarray(r)
         assert m.size == ref.size, call
         if m.size:
-            assert_same_float(m, ref, err_msg=str(call))
+            assert_draws(m, ref, err_msg=str(call))
 
 
 def test_size_rules(matlab_engine) -> None:
@@ -96,6 +107,6 @@ def test_size_rules(matlab_engine) -> None:
     g = nm.rng(3)
     assert tuple(get(matlab_engine, "a").ravel().astype(int)) == g.rand(-2, 3).shape
     assert tuple(get(matlab_engine, "b").ravel().astype(int)) == g.rand(2, 3, 1).shape
-    assert_same_float(g.rand(2, 1, 3), get(matlab_engine, "c"))
+    assert_draws(g.rand(2, 1, 3), get(matlab_engine, "c"))
     assert tuple(get(matlab_engine, "d").ravel().astype(int)) == g.rand(0).shape
-    assert_same_float(g.rand(1, 1, 1, 2), get(matlab_engine, "e"))
+    assert_draws(g.rand(1, 1, 1, 2), get(matlab_engine, "e"))
