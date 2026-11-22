@@ -175,10 +175,9 @@ def additive_source_scale(
     source would need one factor per density component: refused (PROTEUS grids
     are isotropic). MATLAB k-Wave applies this before writing the C++ input
     file; k-wave-python 0.6.2's ``cpp`` backend does not. Computed in float64
-    and cast to float32 when the input file is written, as MATLAB does for
-    double source signals: the tracer bullet found the resulting HDF5 source
-    datasets bit-identical. (For single-precision signals MATLAB scales in
-    single, so results may differ by about 1 ulp.)
+    and cast to float32 when the input file is written; the resulting HDF5
+    source datasets agree with MATLAB k-Wave's within float32 noise
+    (``tests/oracle/test_kwave_backend.py``).
     """
     mask = np.asarray(mask, dtype=bool)
     spacing = tuple(float(d) for d in np.atleast_1d(spacing))
@@ -755,7 +754,7 @@ def filter_time_series(
     # forward-backward filtering is the standard construction of a zero-phase
     # filter from a causal one (as in SciPy's ``filtfilt``). No k-Wave MATLAB
     # source (filterTimeSeries.m, applyFilter.m) was read; the result was checked
-    # black-box against MATLAB k-Wave ``filterTimeSeries`` to <= 1e-12 rel
+    # against MATLAB k-Wave ``filterTimeSeries`` (float class, 1e-9 rel)
     # (``tests/oracle/test_kwave_signal.py``).
     half = stop_band_atten / 2
     y = causal(causal(row, half)[:, ::-1].copy(), half)[:, ::-1]
