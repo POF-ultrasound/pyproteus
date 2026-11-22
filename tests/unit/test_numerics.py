@@ -383,6 +383,9 @@ def test_pchip_complex_and_nonfinite_values() -> None:
     out = nm.interp1([0, 1, 2], [1 + 1j, 2 + 3j, 3], [inf, -inf], extrap="extrap")
     np.testing.assert_array_equal(out.real, [inf, -inf])  # MATLAB: Inf-Infi, -Inf-Infi
     np.testing.assert_array_equal(out.imag, [-inf, -inf])
+    out = nm.interp1([0, 1, 2], [1 + 1j, 2 + 1j, 3 + 2j], [inf, -inf], extrap="extrap")
+    np.testing.assert_array_equal(out.real, [inf, -inf])  # MATLAB: Inf+Infi, -Inf+1i
+    np.testing.assert_array_equal(out.imag, [inf, 1])
 
 
 def test_interp1_pchip_drops_nan_values() -> None:

@@ -97,9 +97,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Impact: none known; PROTEUS interpolates finite tables.
 - Test: `tests/oracle/test_numerics_interp.py::assert_linear` (such queries must be MATLAB's value or NaN), `tests/unit/test_numerics.py::test_interp1_flat_and_nonfinite_neighbours`.
 
-## B-71 — griddedInterpolant pchip next to a NaN sample: NaN where MATLAB sometimes gives a number (accepted, D-14)
+## B-71 — pchip next to NaN or ±Inf samples: NaN where MATLAB sometimes gives a number or ±Inf (accepted, D-14)
 - Where: `pyproteus.numerics.interpolation.pchip_slopes` (NaN secant → NaN slopes at its nodes).
-- Symptom: `griddedInterpolant(x, v, 'pchip')` with a NaN in `v` gives NaN on the intervals next to the NaN sample. MATLAB R2025a gives NaN there in some cases and a number in others (e.g. `v = [NaN 5 4 3 2 1]` at 1.5: MATLAB 4.625, pyproteus NaN; `v = [NaN 1 2 3 4 5]` at 1.5: both NaN). pyproteus never returns a number where MATLAB returns NaN. `interp1`/`pchip` drop NaN samples and are unaffected.
-- Cause: MATLAB's NaN-slope rule is undocumented; replicating it would need probing (D-14). Plain NaN propagation is used instead.
+- Symptom: `griddedInterpolant(x, v, 'pchip')` with a NaN in `v` gives NaN on the intervals next to the NaN sample. MATLAB R2025a gives NaN there in some cases and a number in others (e.g. `x = 0:5`, `v = [NaN 5 4 3 2 1]` at 1.5: MATLAB 4.625, pyproteus NaN; `v = [NaN 1 2 3 4 5]` at 1.5: both NaN). With ±Inf samples, all three pchip APIs (`interp1`, `pchip`, `griddedInterpolant`) can give NaN where MATLAB gives ±Inf or a number (Inf - Inf in the slopes/coefficients), e.g. `interp1([0 1],[-3 Inf],[0.5 -1],'pchip')`: MATLAB `[Inf -Inf]`, pyproteus NaN (MATLAB's own `pchip()` also gives NaN there). A reviewer sweep of 3000 random cases found pyproteus never returns a number where MATLAB returns NaN, never a wrong Inf sign, and agrees at the float class wherever both are finite.
+- Cause: MATLAB's NaN/Inf slope handling is undocumented; replicating it would need probing (D-14). Plain IEEE propagation is used instead.
 - Impact: none known; PROTEUS interpolates finite tables.
 - Test: `tests/oracle/test_numerics_interp.py::test_pchip_nonfinite_values` (`assert_value_or_nan`), `tests/unit/test_numerics.py::test_pchip_complex_and_nonfinite_values`.

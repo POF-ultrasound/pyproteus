@@ -330,9 +330,13 @@ def test_pchip_complex_values(matlab_engine) -> None:
     assert_float_class(mine.imag, ref.imag)
 
 
-def test_linear_complex_infinite_queries(matlab_engine) -> None:
+@pytest.mark.parametrize(
+    "v",
+    [np.array([1 + 1j, 2 + 3j, 3.0]), np.array([1 + 1j, 2 + 1j, 3 + 2j])],  # 2nd: flat imag start
+    ids=str,
+)
+def test_linear_complex_infinite_queries(matlab_engine, v) -> None:
     x = np.array([0.0, 1.0, 2.0])
-    v = np.array([1 + 1j, 2 + 3j, 3.0])
     q = np.array([-np.inf, -1.0, 0.5, 1.5, 3.0, np.inf])
     put(matlab_engine, x=row(x), v=row(v), q=row(q))
     matlab_engine.eval(
