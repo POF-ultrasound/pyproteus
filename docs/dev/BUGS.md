@@ -103,3 +103,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: MATLAB's NaN/Inf slope handling is undocumented; replicating it would need probing (D-14). Plain IEEE propagation is used instead.
 - Impact: none known; PROTEUS interpolates finite tables.
 - Test: `tests/oracle/test_numerics_interp.py::test_pchip_nonfinite_values` (`assert_value_or_nan`), `tests/unit/test_numerics.py::test_pchip_complex_and_nonfinite_values`.
+
+## B-52 — MATLAB and NumPy elementary functions need not round identically (observation only)
+- Where: transcendental functions (`cos`, `sin`, `exp`, `log`, `power`) in MATLAB vs NumPy.
+- Observation: their last bit can differ between the two environments, so ported formulas are not expected to be bit-identical to MATLAB.
+- Impact: ~1 ulp per operation, far inside the tolerance classes (D-12/D-13/D-14).
+- Action: none; no code acts on this.
