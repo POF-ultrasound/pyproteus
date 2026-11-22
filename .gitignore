@@ -24,3 +24,5 @@ kwave_output*/
 # k-Wave tracer bullet: runtime libs prefix and generated data
 tools/tracer_bullet/.kwave-libs/
 tools/tracer_bullet/data/
+# reference export output (published on Zenodo, hashes in src/pyproteus/io/reference_registry.txt)
+tools/export_reference/data/
