@@ -1,0 +1,28 @@
+{
+  "BoundingBox": {
+    "Xmax": 0.0008424639892578125,
+    "Xmin": 0.000522719970703125,
+    "Ymax": 0.0003441199951171875,
+    "Ymin": 3.7048000335693355e-05,
+    "Zmax": 0.0013314560546875,
+    "Zmin": 0.00010214399719238281
+  },
+  "EmbedVessel": true,
+  "Rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+  "STLfile": "lpa_mouse_t10.stl",
+  "STLunit": 1e-06,
+  "Visualization": {
+    "Image": "mouse_brain.png",
+    "Fraction": 0.02
+  },
+  "options": {
+    "MaxStep": 3.47660291698163e-05
+  },
+  "vtuProperties": {
+    "lengthUnit": 1e-06,
+    "velocityUnit": 0.001,
+    "inletDiameter": 1.5e-05,
+    "inletNormal": [[-1.0, 0.0, 0.0]],
+    "velocityField": "velocity_phy"
+  }
+}
