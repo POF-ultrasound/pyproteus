@@ -49,3 +49,31 @@ Before posting: re-check each issue against the latest k-wave-python release and
 **Impact.** Small: the plane sits inside the outer PML when `PMLInside=False`. In our tracer case it adds about 5e-7 relative to the sensor data. It can matter with `PMLInside=True` and strong density contrast at the boundary.
 
 **Expected.** Match MATLAB k-Wave's staggered-grid density on the boundary plane (no wrap-around).
+
+---
+
+## Issue 4 (B-62): `kspaceFirstOrder(backend="cpp")` ignores `sensor.record`
+
+**Status: draft, not posted.**
+
+**k-wave-python version:** 0.6.2
+
+**Summary.** With `backend="cpp"`, `kspaceFirstOrder()` warns that `sensor.record` is not yet supported and runs the binary without output flags, so only `p` is recorded. `sensor.record = ["p_max", "p_min"]` returns `p` instead. The `python` backend honours `sensor.record`.
+
+**Details.** `CppSimulation._execute` (`kwave/solvers/cpp_simulation.py` ~line 353) builds `-i/-o/-t/-g/--verbose` only. MATLAB k-Wave 1.4.1 `kspaceFirstOrder3DC` maps `sensor.record` to binary flags; captured from MATLAB for `{'p'}`, `{'p_max','p_min'}` and `{'p','p_max','p_min'}`: `--p_raw`, `--p_max`, `--p_min` (in that order), plus `-t n` for `NumThreads`.
+
+**Expected.** Translate `sensor.record` into the binary's output flags (and `record_start_index` into `-s`), and return those fields with the same shapes as the `python` backend.
+
+---
+
+## Issue 5 (B-60): `filter_time_series(..., zerophase=True)` raises `IndexError`
+
+**Status: draft, not posted.**
+
+**k-wave-python version:** 0.6.2
+
+**Summary.** `kwave.utils.filters.apply_filter` with `zero_phase=True` (reached from `filter_time_series(zerophase=True)`) fails for every input with `IndexError: index L+N is out of bounds`.
+
+**Details.** The reverse pass (~line 541) indexes `filtered_signal[np.arange(L + N, 1, -1)]`, a 1-based range carried over from MATLAB (valid 0-based indices are `L + N - 1` down to `0`), then calls `np.fliplr` on a 1-D array. Expected: filter the time-reversed signal and reverse the result.
+
+**Check.** Built from the causal path instead (filter at half the stop-band attenuation, forwards, then backwards on the reversed result), the output matches MATLAB k-Wave `filterTimeSeries(..., 'ZeroPhase', true)` to ≤ 1e-12 relative on several signals and grids, so a fix of the indexing should give the same.

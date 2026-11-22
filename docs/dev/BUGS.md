@@ -20,7 +20,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Where: `kwave.kspaceFirstOrder.kspaceFirstOrder` (the >= 0.6.1 API), `backend="cpp"` vs `backend="python"`.
 - Symptom: with MATLAB-convention inputs (rows in `find` order, unscaled signals) the `cpp` backend goes unstable (NaN); with C-order rows the results are wrong (1.2-1.6 rel); the documented `(n_sensor, Nt)` output is actually `(Nt, n_sensor)` for `cpp`.
 - Cause (`kwave/solvers/cpp_simulation.py`): the cpp path writes `source.p`/`ux`/`uy` to the HDF5 file unchanged next to an F-order (`find`) index list and does not apply k-Wave's time-varying source scaling; it reads `p` back as `(Nt, n_sensor)`, and its F→C row reordering only runs when `shape[0] == n_sensor`, so it is skipped (and if `Nt == n_sensor` it would permute the time axis). The `python` backend expects C-order source rows, scales internally and returns `(n_sensor, Nt)` in C order.
-- Workaround: `tools/tracer_bullet/adapter.py` (to become `backends/kwave.py`): cpp = find-order rows × `additive_source_scale` (p: `2dt/(3 c0 dx)`, u: `2 c0 dt/dx`, per voxel), output transposed (and, if `Nt == n_sensor`, k-wave-python's spurious time-axis permutation undone); python = C-order rows, output reordered C→F. With it both backends match MATLAB k-Wave to < 7e-7 rel and the cpp source datasets are bit-identical to MATLAB's. Pin k-wave-python exactly. Test: `tests/oracle/test_kwave_tracer.py`.
+- Workaround: `pyproteus.backends.kwave` (lifted from the tracer's `adapter.py`; its `kspace_first_order` runs the binary itself for `cpp` and reads the output file, so the output-shape part no longer applies there): cpp = find-order rows × `additive_source_scale` (p: `2dt/(3 c0 dx)`, u: `2 c0 dt/dx`, per voxel), output transposed (and, if `Nt == n_sensor`, k-wave-python's spurious time-axis permutation undone); python = C-order rows, output reordered C→F. With it both backends match MATLAB k-Wave to < 7e-7 rel and the cpp source datasets are bit-identical to MATLAB's. Pin k-wave-python exactly. Test: `tests/oracle/test_kwave_tracer.py`.
 
 ## B-11 — MATLAB engine breaks `pyexpat` (matplotlib, k-wave-python legacy API) in the same process (fixed)
 - Where: any process that imports `matlab.engine` before `xml.parsers.expat` (pulled in by matplotlib → plistlib, e.g. `kwave.kspaceFirstOrder3D`).
@@ -42,9 +42,31 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-14 — PROTEUS `alpha_mode='no_dispersion'` has no effect on the k-Wave C++ path (quirk, reproduced)
 - Where: oracle `acoustic-module/define_medium.m` sets `medium.alpha_mode = 'no_dispersion'` when `|alpha_power - 1| < 0.1`; `run_simulation.m` then calls `kspaceFirstOrder3DC`/`3DG`.
-- Symptom: MATLAB 3DC output is bit-identical with and without `alpha_mode` (the C++ HDF5 format has no field for it), so PROTEUS runs full power-law absorption + dispersion on the C++/CUDA path; the MATLAB-native `kspaceFirstOrder3D` (PROTEUS' local-movie mode) and k-wave-python's `python` backend honour it (16 % rel difference on the tracer case with y = 1.05). k-wave-python's `cpp` backend raises `ValueError`.
-- Faithful-port handling: the adapter drops `alpha_mode` for `cpp` (matches MATLAB 3DC to 5.9e-7) and refuses it for `python` (`adapter.medium_for_kwp`). Recorded as `docs/QUIRKS.md` Q-1. Decided (D-9): M3 drops `alpha_mode` on the `python` backend too.
+- Symptom: MATLAB 3DC output is identical with and without `alpha_mode` within the binary's run-to-run noise (~1e-6, B-63) (the C++ HDF5 format has no field for it), so PROTEUS runs full power-law absorption + dispersion on the C++/CUDA path; the MATLAB-native `kspaceFirstOrder3D` (PROTEUS' local-movie mode) and k-wave-python's `python` backend honour it (16 % rel difference on the tracer case with y = 1.05). k-wave-python's `cpp` backend raises `ValueError`.
+- Faithful-port handling (D-9): `pyproteus.backends.kwave.medium_for_kwp` drops `alpha_mode` on every backend, so `cpp` and `python` both match MATLAB 3DC (≤ 1e-5, case `pressure_nodisp` in `tests/oracle/test_kwave_backend.py`). Recorded as `docs/QUIRKS.md` Q-1.
 - Test: `test_matlab_3dc_ignores_alpha_mode`, case `pressure_nodisp`.
+
+## B-60 — k-wave-python 0.6.2 `filter_time_series(zerophase=True)` crashes (workaround)
+- Where: `kwave.utils.filters.apply_filter`, zero-phase branch.
+- Symptom: `IndexError: index L is out of bounds` for any signal; PROTEUS always calls `filterTimeSeries(..., 'ZeroPhase', true, ...)` (`preprocess_transmit.m`, `compute_bubble_mass_source.m`).
+- Cause: the reverse pass indexes `filtered_signal[np.arange(L + N, 1, -1)]` (1-based leftover) and then calls `np.fliplr` on a 1-D array.
+- Workaround: `pyproteus.backends.kwave.filter_time_series` builds the zero-phase result from k-wave-python's causal filter: design at half the stop-band attenuation, filter forwards, then filter the time-reversed result and reverse it back. Provenance: forward-backward filtering is the standard zero-phase construction (as SciPy's `filtfilt`); the cascade squares the magnitude response, doubling the stop-band attenuation in dB, hence half per pass. k-Wave's `filterTimeSeries` help text (via `help` in MATLAB) only says "zero phase or linear phase". No k-Wave MATLAB source (`filterTimeSeries.m`, `applyFilter.m`) was opened. Matches MATLAB k-Wave `filterTimeSeries` ≤ 1e-12 rel (`tests/oracle/test_kwave_signal.py`). Upstream draft: `docs/dev/upstream/k-wave-python-issues.md` issue 5.
+
+## B-61 — k-wave-python 0.6.2 rejects `2*pml_size >= N` even with the PML outside the grid (workaround)
+- Where: `kwave.solvers.validation.validate_pml`, called by `kspaceFirstOrder()` on the *unexpanded* grid.
+- Symptom: `ValueError: pml_size[i]=10 is too large for grid size N[i]=17` with `pml_inside=False`. MATLAB `kspaceFirstOrder3DC` with `PMLInside=false` accepts it. PROTEUS can hit it: `compute_self_sense_pressure.m` uses a 10-point PML on local grids cropped at the domain edge.
+- Workaround: `kspace_first_order` expands the grid itself with k-wave-python's `_expand_for_pml_outside` (what `pml_inside=False` does internally) and calls `kspaceFirstOrder(pml_inside=True)`; same input file. Test: `tests/unit/test_kwave.py::test_cpp_and_python_backends_agree` (grid 20×17×15, PML 8/10/7); the oracle cases run through the same path.
+
+## B-62 — k-wave-python 0.6.2 `kspaceFirstOrder(backend="cpp")` ignores `sensor.record` (workaround)
+- Where: `kwave/kspaceFirstOrder.py` (cpp branch warns "sensor.record is not yet supported for backend='cpp'") and `CppSimulation._execute` (passes no output flags, so the binary records only `p`).
+- Symptom: `sensor.record = ['p_max', 'p_min']` (PROTEUS `main_pressure_field.m`) returns `p` only on `cpp`; the `python` backend honours it.
+- Workaround: `pyproteus.backends.kwave` writes the input file with `kspaceFirstOrder(save_only=True)` (one function, `_write_cpp_input`), runs the binary with the flags MATLAB `kspaceFirstOrder3DC` passes (captured from MATLAB: `--p_raw`, `--p_max`, `--p_min`, `-t`; `binary_command`) and reads the output file (`read_cpp_output`). Tests: `tests/oracle/test_kwave_backend.py::test_binary_command_matches_matlab`, cases `nt_eq_n_sensor`, `pressure_field`. Upstream draft: issue 4.
+
+## B-63 — k-Wave OpenMP binary is not bit-reproducible run to run (open, within tolerance)
+- Where: `kspaceFirstOrder-OMP` v1.4.1 (k-wave-python's macOS arm64 build), from MATLAB 3DC and from `pyproteus.backends.kwave` alike.
+- Symptom: two runs of the same input file differ by ~1e-6 relative in the sensor data (seen in `tests/unit/test_kwave.py::test_cpp_data_path_unique_folders_and_delete_data`, about 1 run in 6).
+- Cause: likely FFTW planning / OpenMP thread scheduling (summation order); not investigated.
+- Impact: within the 1e-5 k-Wave class. Frozen references (D-10) and run-vs-run tests cannot be compared bit for bit; tests compare at 1e-5.
 
 ## B-30 — `scipy.io.loadmat(mat_dtype=True)` drops the imaginary part of complex arrays (workaround)
 - Where: SciPy 1.15 `loadmat(..., mat_dtype=True)`, e.g. `microbubble-simulator/functions/*TransferFunctionFit.mat` (complex 1×50000).

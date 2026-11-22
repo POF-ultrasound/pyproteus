@@ -42,9 +42,11 @@ class Case:
     pml_size: tuple[int, int, int]
     pml_alpha: float
     medium: dict[str, np.ndarray | float | str]
-    source: dict[str, np.ndarray | str]  # "p_mask"+"p"  or  "u_mask"+"ux"+"uy"; rows in find order
+    # "p_mask"+"p" and/or "u_mask"+"ux"/"uy"/"uz"; rows in find order
+    source: dict[str, np.ndarray | str]
     sensor_mask: np.ndarray
     info: dict = field(default_factory=dict)
+    record: tuple[str, ...] = ("p",)  # sensor.record
 
 
 def _medium(rng: np.random.Generator, shape) -> dict:
@@ -179,8 +181,74 @@ def pressure_nodisp_case(seed: int = 1) -> Case:
     return c
 
 
+def velocity_ux_case(seed: int = 3) -> Case:
+    """Linear-array-like dipole: ``ux`` only (``define_source_transducer.m``, linear arrays)."""
+    c = pressure_case(seed)
+    mask = c.source["p_mask"]
+    c.name = "velocity_ux"
+    c.source = {"u_mask": mask, "ux": c.source["p"] / (1540.0 * 1000.0)}
+    return c
+
+
+def mixed_case(seed: int = 4) -> Case:
+    """Velocity transducer (``ux`` + ``uz``) plus pressure point sources at once.
+
+    ``full_simulator.m``: ``update_source.m`` adds bubble pressure sources
+    (``p_mask``/``p``) to a dipole transducer source (``u_mask``/``ux``...).
+    ``uz`` covers the third velocity component (not used by PROTEUS itself).
+    """
+    rng = np.random.default_rng(seed)
+    c = velocity_case(seed)
+    c.name = "mixed"
+    u_mask = c.source["u_mask"]
+    p_mask = np.zeros(c.shape, bool)
+    p_mask.ravel()[rng.choice(p_mask.size, 40, replace=False)] = True
+    p_mask[:10] = False  # "bubbles" away from the transducer
+    p_mask[25, 3, 20] = True
+    ijk = _voxels_f(p_mask)
+    c.source = {
+        "u_mask": u_mask,
+        "ux": c.source["ux"],
+        "uz": 0.3 * c.source["uy"][:, ::-1],  # differs from ux in shape
+        "p_mask": p_mask,
+        "p": 0.1 * _rows_from_voxels(ijk, rng, M=NT, steer_deg=3.0),  # as long as Nt
+    }
+    return c
+
+
+def nt_equals_n_sensor_case(seed: int = 5) -> Case:
+    """Pressure case with exactly ``Nt`` sensor voxels, recording ``p``, ``p_max``, ``p_min``.
+
+    ``Nt == n_sensor`` makes k-wave-python 0.6.2 permute the time axis of cpp
+    output (B-10). ``main_pressure_field.m`` records ``{'p_max','p_min'}``.
+    """
+    rng = np.random.default_rng(seed)
+    c = pressure_case(seed)
+    c.name = "nt_eq_n_sensor"
+    mask = c.sensor_mask.copy()
+    free = np.flatnonzero(~mask.ravel() & (np.indices(c.shape)[0].ravel() >= 8))
+    mask.ravel()[rng.choice(free, NT - int(mask.sum()), replace=False)] = True
+    assert mask.sum() == NT
+    c.sensor_mask = mask
+    c.record = ("p", "p_max", "p_min")
+    c.info["n_sensor"] = NT
+    return c
+
+
+def pressure_field_case(seed: int = 5) -> Case:
+    """``Nt == n_sensor`` recording only ``{'p_max','p_min'}``, as ``main_pressure_field.m``."""
+    c = nt_equals_n_sensor_case(seed)
+    c.name = "pressure_field"
+    c.record = ("p_max", "p_min")
+    return c
+
+
 CASES = {
     "pressure": pressure_case,
     "velocity": velocity_case,
     "pressure_nodisp": pressure_nodisp_case,
+    "velocity_ux": velocity_ux_case,
+    "mixed": mixed_case,
+    "nt_eq_n_sensor": nt_equals_n_sensor_case,
+    "pressure_field": pressure_field_case,
 }
