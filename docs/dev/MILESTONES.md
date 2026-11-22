@@ -32,8 +32,8 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 
 ### Parity harness
 - [x] `tests/oracle/`: fixture starting the MATLAB Engine with PROTEUS on the path; skipped without MATLAB
-- [ ] `tools/` reference export to HDF5 (per module, tiny/small/medium full runs)
-- [ ] pooch registry for reference data; first Zenodo record (draft)
+- [x] `tools/` reference export to HDF5 (per module, tiny/small/medium full runs) (2026-11-22, `tools/export_reference/`, format `docs/REFERENCE_DATA.md`; tiny and small exported locally, medium needs the renal tree STL from Zenodo)
+- [x] pooch registry for reference data; first Zenodo record (draft) (2026-11-22, `src/pyproteus/io/reference.py`; Zenodo metadata drafted in `tools/export_reference/zenodo_metadata.json`, nothing published)
 
 ### Numerics helpers
 - [x] MATLAB `round` (halves away from zero)
