@@ -8,7 +8,8 @@ masks, PML outside, ``Smooth=false``) run through
 * k-wave-python ``kspaceFirstOrder(backend="cpp")`` on the *same* binary, and
 * k-wave-python ``kspaceFirstOrder(backend="python")`` (NumPy solver),
 
-with the row-order / scaling mapping of ``tools/tracer_bullet/adapter.py``.
+with the row-order / scaling mapping of ``pyproteus.backends.kwave``
+(``tests/oracle/test_kwave_backend.py`` tests the package's own runner).
 Comparison class: k-Wave fields <= 1e-5 relative (ROADMAP §4).
 
 Needs MATLAB (shared ``matlab_engine`` fixture), MATLAB k-Wave 1.4.x
@@ -27,7 +28,7 @@ import pytest
 TOOLS = Path(__file__).resolve().parents[2] / "tools"
 sys.path.insert(0, str(TOOLS))
 
-from tracer_bullet import adapter, ordering  # noqa: E402  (numpy only)
+from pyproteus.backends import kwave as kw  # noqa: E402
 
 try:  # load conda's shared libraries before matlab.engine (B-1, B-11)
     from tracer_bullet import cases
@@ -43,90 +44,7 @@ CASE_NAMES = ("pressure", "velocity", "pressure_nodisp")
 ROW_TOL = 2e-5  # per sensor row (rows >= 1e-3 of the peak row norm): float32 noise floor
 
 
-# ------------------------------------------------------------------------ row order (no MATLAB)
-
-
-@pytest.mark.parametrize("shape", [(37, 29, 23), (5, 1, 7), (1, 4, 3), (6, 6, 6)])
-@pytest.mark.parametrize("fill", [0.0, 0.3, 1.0])
-def test_row_order_maps_find_order_to_c_order(shape, fill) -> None:
-    rng = np.random.default_rng(hash((shape, fill)) % 2**32)
-    mask = rng.random(shape) < fill
-    if fill == 1.0:
-        assert mask.all()
-    # rows tagged with their voxel subscripts, built independently of ordering.py
-    ijk = np.indices(shape).reshape(3, -1)  # C-order enumeration of all voxels
-    lin_f = np.ravel_multi_index(ijk, shape, order="F")
-    rows_c = ijk.T[mask.ravel()]  # == np.argwhere(mask): C order
-    rows_f = ijk.T[np.argsort(lin_f, kind="stable")][mask.ravel(order="F")]  # MATLAB find order
-    assert np.array_equal(rows_c, np.argwhere(mask))
-    assert np.array_equal(ordering.rows_f_to_c(rows_f, mask), rows_c)
-    assert np.array_equal(ordering.rows_c_to_f(rows_c, mask), rows_f)
-    perm = ordering.f_to_c_rows(mask)
-    assert np.array_equal(perm[ordering.c_to_f_rows(mask)], np.arange(perm.size))
-    # matlab_find: 1-based column-major linear indices of the rows in find order
-    expected = np.ravel_multi_index(tuple(rows_f.T), shape, order="F") + 1
-    assert np.array_equal(ordering.matlab_find(mask), expected)
-
-
-def test_row_order_rejects_wrong_row_count() -> None:
-    mask = np.zeros((3, 4, 5), bool)
-    mask[1, 2, 3] = mask[2, 0, 1] = True
-    with pytest.raises(ValueError, match="rows"):
-        ordering.rows_f_to_c(np.zeros((3, 4)), mask)
-
-
-def test_adapter_cpp_sensor_shape_guards() -> None:
-    mask = np.zeros((3, 4, 5), bool)
-    mask[0, 1, 2] = mask[2, 3, 4] = True
-    p = np.arange(10.0).reshape(5, 2)  # (Nt, n_sensor) as k-wave-python 0.6.2 cpp returns it
-    assert np.array_equal(adapter.sensor_rows_from_kwp(p, mask, 5, "cpp"), p.T)
-    with pytest.raises(ValueError, match="shape"):
-        adapter.sensor_rows_from_kwp(p.T, mask, 5, "cpp")
-
-
-@pytest.mark.parametrize("n", [3, 7])
-def test_adapter_undoes_kwp_time_permutation_when_nt_equals_n_sensor(n) -> None:
-    """With Nt == n_sensor, k-wave-python 0.6.2 permutes the time axis (B-10); undo it.
-
-    Runs k-wave-python's own ``CppSimulation._fix_output_order`` on a fake output.
-    """
-    kwave_cpp = pytest.importorskip("kwave.solvers.cpp_simulation")
-    from types import SimpleNamespace
-
-    shape = (4, 3, 5)
-    rng = np.random.default_rng(n)
-    while True:  # a mask whose F->C permutation is not the identity
-        mask = np.zeros(shape, bool)
-        mask.ravel()[rng.choice(mask.size, n, replace=False)] = True
-        if not np.array_equal(ordering.f_to_c_rows(mask), np.arange(n)):
-            break
-    truth = rng.standard_normal((n, n))  # (n_sensor, Nt), rows in find order
-    fake = SimpleNamespace(
-        ndim=3,
-        kgrid=SimpleNamespace(N=shape),
-        sensor=SimpleNamespace(mask=mask),
-        _FULL_GRID_SUFFIXES=kwave_cpp.CppSimulation._FULL_GRID_SUFFIXES,
-    )
-    out = kwave_cpp.CppSimulation._fix_output_order(fake, {"p": truth.T.copy()})["p"]
-    assert not np.array_equal(out, truth.T)  # k-wave-python scrambled it
-    assert np.array_equal(adapter.sensor_rows_from_kwp(out, mask, n, "cpp"), truth)
-
-
-def test_adapter_source_scale_axes_and_alpha_mode() -> None:
-    mask = np.zeros((3, 4, 5), bool)
-    mask[1, 2, 3] = True
-    c = np.full(mask.shape, 1500.0)
-    spacing = (1e-4, 2e-4, 4e-4)
-    for kind, d in zip(("ux", "uy", "uz"), spacing, strict=True):
-        assert adapter.additive_source_scale(kind, mask, c, 1e-8, spacing)[0] == 2 * 1500 * 1e-8 / d
-    with pytest.raises(ValueError, match="anisotropic"):
-        adapter.additive_source_scale("p", mask, c, 1e-8, spacing)
-    with pytest.raises(ValueError, match="spacing"):
-        adapter.additive_source_scale("ux", mask, c, 1e-8, (1e-4, 1e-4))
-    medium = {"sound_speed": c, "alpha_mode": "no_dispersion"}
-    assert "alpha_mode" not in adapter.medium_for_kwp(medium, "cpp")
-    with pytest.raises(ValueError, match="B-14"):
-        adapter.medium_for_kwp(medium, "python")
+# Row-order / scaling unit tests (no MATLAB): tests/unit/test_kwave.py
 
 
 # ------------------------------------------------------------------------ MATLAB vs k-wave-python
@@ -158,7 +76,7 @@ def run(request, kwave_engine, tmp_path_factory):
         "data": data,
         "matlab": kt.run_matlab(kwave_engine, case, data),
         "cpp": kt.run_kwp(case, data, "cpp"),
-        "python": None if "alpha_mode" in case.medium else kt.run_kwp(case, None, "python"),
+        "python": kt.run_kwp(case, None, "python"),  # alpha_mode dropped there too (D-9)
     }
 
 
@@ -182,7 +100,7 @@ def test_matlab_find_matches_engine(run, kwave_engine) -> None:
     c = run["case"]
     for mask in (c.sensor_mask, *[v for k, v in c.source.items() if k.endswith("mask")]):
         idx = np.asarray(kwave_engine.find(matlab.logical(mask)), dtype=np.int64).ravel()
-        assert np.array_equal(idx, ordering.matlab_find(mask))
+        assert np.array_equal(idx, kw.matlab_find(mask))
 
 
 def test_cpp_sensor_data_matches_matlab(run) -> None:
@@ -194,8 +112,7 @@ def test_cpp_sensor_data_matches_matlab(run) -> None:
 
 
 def test_python_backend_matches_matlab(run) -> None:
-    if run["python"] is None:
-        pytest.skip("alpha_mode: MATLAB 3DC ignores it, the python backend would apply it (B-14)")
+    """Incl. ``pressure_nodisp``: alpha_mode dropped, so python matches 3DC (D-9)."""
     assert kt.rel_err(run["python"], run["matlab"]) <= TOL
     assert kt.rel_err_rows(run["python"], run["matlab"]) <= ROW_TOL
 
@@ -210,7 +127,9 @@ def test_matlab_3dc_ignores_alpha_mode(run, kwave_engine) -> None:
     c2 = copy.deepcopy(c)
     c2.name += "_nomode"
     del c2.medium["alpha_mode"]
-    assert np.array_equal(kt.run_matlab(kwave_engine, c2, run["data"]), run["matlab"])
+    # not bit-for-bit: the OpenMP binary varies ~1e-6 rel run to run; alpha_mode
+    # would change the result by ~16 % (python backend)
+    assert kt.rel_err(kt.run_matlab(kwave_engine, c2, run["data"]), run["matlab"]) <= 1e-5
 
 
 def test_cpp_input_file_matches_matlab(run) -> None:
@@ -244,7 +163,7 @@ def test_wrong_source_row_order_is_detected(run) -> None:
 
 def test_wrong_sensor_row_order_is_detected(run) -> None:
     c = run["case"]
-    p_wrong = ordering.rows_c_to_f(run["cpp"], c.sensor_mask)  # treat F rows as C rows
+    p_wrong = kw.rows_c_to_f(run["cpp"], c.sensor_mask)  # treat F rows as C rows
     assert kt.rel_err(p_wrong, run["matlab"]) > 0.1
 
 

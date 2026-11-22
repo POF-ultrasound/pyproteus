@@ -1,17 +1,17 @@
 # k-Wave tracer bullet (M0)
 
 Checks that k-wave-python 0.6.2 reproduces MATLAB k-Wave 1.4.1 on tiny
-PROTEUS-style hybrid cases, and pins the row-order and source-scaling mapping
-that the M3 adapter (`pyproteus.backends.kwave`) needs. Findings: BUGS.md
+PROTEUS-style hybrid cases. The row-order and source-scaling mapping it found
+now lives in the package (`pyproteus.backends.kwave`, M3); this folder imports
+it from there and keeps the cases, the MATLAB runner and the binary wrapper,
+which `tests/oracle/test_kwave_backend.py` reuses. Findings: BUGS.md
 B-10 to B-14 and `docs/dev/LOG.md` (2026-11-20).
 
 | File | Purpose |
 |---|---|
-| `ordering.py` | MATLAB `find` (column-major) ↔ C-order row permutations |
-| `adapter.py` | per-backend conventions of `kspaceFirstOrder()` (rows, additive source scaling, output shape); to be lifted into M3 |
-| `cases.py` | the cases: pressure (linear array), velocity (curved array), pressure with `alpha_mode='no_dispersion'`; 37×29×23, asymmetric masks |
-| `kwave_tracer.py` | runners: MATLAB `kspaceFirstOrder3DC` via the engine, k-wave-python `cpp`/`python`/legacy; HDF5 input diff |
-| `run_kwave_matlab.m` | MATLAB side, options as PROTEUS `run_simulation.m` |
+| `cases.py` | the cases (37×29×23, asymmetric masks): pressure (linear array), velocity `ux`+`uy` (curved array), velocity `ux` only, mixed velocity + pressure sources, pressure with `alpha_mode='no_dispersion'`, `Nt == n_sensor` recording `p`/`p_max`/`p_min` |
+| `kwave_tracer.py` | runners: MATLAB `kspaceFirstOrder3DC` via the engine, k-wave-python `kspaceFirstOrder()` `cpp`/`python` and legacy API (mapping from `pyproteus.backends.kwave`); HDF5 input diff |
+| `run_kwave_matlab.m` | MATLAB side, options as PROTEUS `run_simulation.m`; returns every recorded field |
 | `run_tracer.py` | runs everything, writes `data/` (gitignored): k-Wave HDF5 files, `tracer_reference.h5`, `report.md` |
 | `bin/kspaceFirstOrder-OMP` | wrapper so MATLAB and Python run the same binary with its runtime libraries |
 | `setup_libs.sh` | creates `.kwave-libs/` (gitignored conda prefix: fftw, hdf5, libomp, zlib) |

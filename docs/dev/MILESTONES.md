@@ -112,9 +112,9 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 
 ### Adapter
-- [ ] `backends/kwave.py` over pinned k-wave-python (from the M0 tracer bullet)
-- [ ] Source/sensor row-order mapping covered by tests
-- [ ] `filterTimeSeries`, `getWin` from k-wave-python, checked against MATLAB k-Wave
+- [x] `backends/kwave.py` over pinned k-wave-python (from the M0 tracer bullet) (2026-11-22)
+- [x] Source/sensor row-order mapping covered by tests (2026-11-22)
+- [x] `filterTimeSeries`, `getWin` from k-wave-python, checked against MATLAB k-Wave (2026-11-22; B-60 workaround for ZeroPhase)
 
 ### Hybrid simulator (default path)
 - [ ] `preprocess_transmit`
