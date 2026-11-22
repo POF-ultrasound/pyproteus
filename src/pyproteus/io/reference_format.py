@@ -176,6 +176,11 @@ def _size_attr(shape: tuple[int, ...]) -> np.ndarray:
 
 
 def _write_value(parent: h5py.Group, name: str, value: Any) -> None:
+    shape = getattr(value, "shape", ())
+    if isinstance(value, StructArray | np.ndarray) and len(shape) > 2 and shape[-1] == 1:
+        raise ReferenceFormatError(
+            f"{name}: shape {shape} has a trailing singleton; MATLAB size never does"
+        )
     if isinstance(value, StructArray):
         g = parent.create_group(name, track_order=True)
         g.attrs["matlab_class"] = "struct"

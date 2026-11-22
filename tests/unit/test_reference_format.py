@@ -199,6 +199,7 @@ def test_cell_and_struct_array_column_major(tmp_path):
         {"1bad": np.ones((1, 1))},  # invalid field name
         sp.csc_array(np.ones((2, 2), dtype=np.float32)),  # sparse single
         np.ones((2, 3, 1)),  # trailing singleton: MATLAB size never ends in 1 after dim 2
+        np.empty((2, 3, 1), dtype=object),  # same for cells
     ],
 )
 def test_rejects_ambiguous_values(tmp_path, bad):

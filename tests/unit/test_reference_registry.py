@@ -145,6 +145,7 @@ def test_download_through_pooch(tmp_path, monkeypatch, http_folder):
     (served / "other.h5").write_bytes(b"not hdf5")
     with pytest.raises(ref.ReferenceHashMismatch):
         ref.fetch("other", registry_path=reg)
+    assert not (tmp_path / "cache" / "other.h5").exists(), "corrupt download left in cache"
     # Missing on the server.
     write_registry(reg, {"gone.h5": H}, url)
     with pytest.raises(ref.ReferenceDataUnavailable):

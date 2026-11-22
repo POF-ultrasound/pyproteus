@@ -328,7 +328,8 @@ class ExportSession:
     def _runtime_info(binary: Path, wrapper: Path, env: dict[str, str]) -> dict[str, Any]:
         """Environment that can change the binary's results (libraries, threads)."""
         full = {**os.environ, **env}
-        info: dict[str, Any] = {
+        info: dict[str, Any] = {"cpu_count": os.cpu_count()}
+        info |= {
             k: full.get(k, "")
             for k in ("KWAVE_LIBS", "OMP_NUM_THREADS", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH")
         }

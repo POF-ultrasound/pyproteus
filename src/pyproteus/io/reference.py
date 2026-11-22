@@ -150,18 +150,23 @@ def fetch(name: str, *, registry_path: str | os.PathLike | None = None) -> Path:
         )
     import pooch
 
+    # Hashes are checked here, not by pooch: pooch raises ValueError for many
+    # unrelated failures (file missing from a Zenodo record, DOI resolution...).
     fetcher = pooch.create(
         path=cache_dir(),
         base_url=url if url.endswith("/") else url + "/",
-        registry=entries,
+        registry=dict.fromkeys(entries),
         retry_if_failed=2,
     )
     try:
-        return Path(fetcher.fetch(fname))
-    except ValueError as exc:  # pooch: downloaded file does not match the registry hash
-        raise ReferenceHashMismatch(f"{fname}: {exc}") from exc
-    except OSError as exc:  # network errors (requests exceptions are OSErrors), HTTP 404...
+        path = Path(fetcher.fetch(fname))
+    except (OSError, ValueError) as exc:  # network, HTTP 404, missing in record, bad DOI
         raise ReferenceDataUnavailable(f"could not download {fname}: {exc}") from exc
+    actual = sha256(path)
+    if actual != entries[fname]:
+        path.unlink(missing_ok=True)  # never leave a corrupt file in the cache
+        raise ReferenceHashMismatch(f"downloaded {fname}: {actual} != registry {entries[fname]}")
+    return path
 
 
 def load(name: str, *, registry_path: str | os.PathLike | None = None) -> Reference:

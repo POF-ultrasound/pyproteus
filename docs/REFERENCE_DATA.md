@@ -97,7 +97,7 @@ where not applicable).
 Further attributes written by the exporter: `matlab_parallel_pool_workers`
 (open pool size; PROTEUS uses `parfor` for bubbles when a pool exists),
 `numpy_version`; for k-Wave runs `kwave_matlab_sha256` (hash of all `.m` files
-of the MATLAB k-Wave toolbox), `kwave_runtime` (JSON: `KWAVE_LIBS`,
+of the MATLAB k-Wave toolbox), `kwave_runtime` (JSON: CPU count, `KWAVE_LIBS`,
 `OMP_NUM_THREADS`, library path variables, Homebrew libraries present on macOS,
 which take precedence over `KWAVE_LIBS` in the wrapper), `geometries_path`,
 and, when `BinaryPath` holds a wrapper script (macOS arm64),
