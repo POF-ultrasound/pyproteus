@@ -216,9 +216,16 @@ def test_step_size_failure_warns_and_stops(rtol) -> None:
 
 
 def test_nonfinite_rhs() -> None:
+    times = []
+
+    def nan_rhs(t, y):
+        times.append(t)
+        return np.full(1, np.nan)
+
     with pytest.warns(RuntimeWarning, match="error test fails"):
-        r = ode45(lambda t, y: np.full(1, np.nan), [0, 1], [1.0])
+        r = ode45(nan_rhs, [0, 1], [1.0])
     assert r.stopped and r.t[-1] == 0.0
+    assert np.all(np.isfinite(times))  # never evaluated at a NaN time
     with pytest.warns(RuntimeWarning, match="error test fails"):
         r = ode45(lambda t, y: np.array([np.nan if t > 0.5 else -y[0]]), [0, 1], [1.0])
     assert r.stopped and 0.45 < r.t[-1] <= 0.5 + 1e-12
@@ -318,14 +325,15 @@ def test_growth_factor_bounded_by_facmax() -> None:
 def test_error_test_uses_max_norm() -> None:
     """Componentwise (documented) test: zero padding changes nothing; an RMS norm would."""
     osc = lambda t, y: np.concatenate([[y[1], -y[0]], np.zeros(y.size - 2)])  # noqa: E731
-    base = ode45(osc, [0, 10], [1.0, 0.0], odeset(RelTol=1e-6, AbsTol=1e-9))
-    padded = ode45(osc, [0, 10], np.r_[1.0, 0.0, np.zeros(8)], odeset(RelTol=1e-6, AbsTol=1e-9))
+    opts = odeset(RelTol=1e-6, AbsTol=1e-9, InitialStep=0.01)
+    base = ode45(osc, [0, 10], [1.0, 0.0], opts)
+    padded = ode45(osc, [0, 10], np.r_[1.0, 0.0, np.zeros(8)], opts)
     np.testing.assert_array_equal(base.t_steps, padded.t_steps)
 
 
-@pytest.mark.parametrize(("target", "rejects"), [(0.8, False), (1.25, True)])
+@pytest.mark.parametrize(("target", "rejects"), [(0.99, False), (1.01, True)])
 def test_accept_threshold_is_reltol(target, rejects) -> None:
-    """A first attempt whose scaled error is 0.8*RelTol is accepted, 1.25*RelTol rejected."""
+    """A first attempt whose scaled error is 0.99*RelTol is accepted, 1.01*RelTol rejected."""
     f = lambda t, y: np.array([np.cos(3 * t) * y[0]])  # noqa: E731
     rtol, atol = 1e-6, 1e-12
     # scaled error of one step grows like h^5: solve for h giving the target
@@ -383,6 +391,17 @@ def test_landing_rule_is_1_01() -> None:
     np.testing.assert_array_equal(r.t_steps, [0.0, 1.005])
 
 
+@pytest.mark.parametrize(("t0", "span"), [(0.0, 1.0), (1e6, 1.0), (0.0, 1e-3)])
+def test_minimum_step(t0, span) -> None:
+    """The failure warning fires at the documented smallest step 10 eps max(|t|, span)."""
+    f = lambda t, y: np.array([np.nan if t > t0 else -y[0]])  # noqa: E731
+    with pytest.warns(RuntimeWarning, match="error test fails"):
+        r = ode45(f, [t0, t0 + span], [1.0])
+    hmin = 10 * np.finfo(float).eps * max(abs(t0), span)
+    assert f"({hmin:.3e})" in r.message
+    assert r.stopped and r.t[-1] == t0 and np.all(np.isfinite(r.y))
+
+
 def test_reltol_just_above_floor_accepted() -> None:
     r = ode45(lambda t, y: -y, [0, 0.01], [1.0], odeset(RelTol=5e-15, AbsTol=1e-20))
     assert r.y[-1, 0] == pytest.approx(np.exp(-0.01), rel=1e-12)
@@ -400,6 +419,8 @@ def test_reltol_just_above_floor_accepted() -> None:
         (dict(options={"InitialStep": -1}), "InitialStep"),
         (dict(options={"Refine": 0}), "Refine"),
         (dict(options={"RelTol": 1e-17}), "10\\*eps"),
+        (dict(options={"RelTol": 2e-15}), "10\\*eps"),
+        (dict(tspan=[1e6, 1e6 + 1], options={"MaxStep": 1e-12}), "MaxStep is below"),
         (dict(tspan=[0, np.nan, 1]), "finite"),
         (dict(tspan=[0, np.inf]), "finite"),
         (dict(options={"NormControl": "on", "AbsTol": [1e-6, 1e-7]}), "NormControl"),

@@ -231,6 +231,8 @@ def ode45(
     max_step = float(opts.get("MaxStep", 0.1 * span))
     if max_step <= 0:
         raise ValueError("MaxStep must be positive")
+    if max_step <= 10 * _EPS * max(abs(t_start), abs(t_end), span):
+        raise ValueError("MaxStep is below the smallest representable step on tspan")
     refine = int(opts.get("Refine", 4))
     if refine < 1:
         raise ValueError("Refine must be a positive integer")
