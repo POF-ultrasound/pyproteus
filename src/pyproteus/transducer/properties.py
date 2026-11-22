@@ -96,6 +96,8 @@ def get_transducer_properties(
     the models shipped in :mod:`pyproteus.data`, = PROTEUS ``Transducer-models``).
     """
     T = transducer.copy_struct()
+    if T.Type is None:
+        raise ValueError("Transducer has no field Type")  # MATLAB: reference error
     if T.Type in _CATALOGUE:
         T.calibrated = 0.0
         T.ImpulseResponseType = "Estimate"
@@ -150,6 +152,23 @@ def _as_row(ir: Any) -> np.ndarray:
     return np.asarray(arr, dtype=np.float64).reshape(1, -1, order="F")
 
 
+def _times_double(a: np.ndarray, x: float) -> np.ndarray:
+    """MATLAB ``a*x`` for a double scalar ``x``: the result keeps ``a``'s class.
+
+    Integer classes round to nearest (halves away from zero) and saturate
+    (Q-32); single stays single.
+    """
+    if a.dtype.kind in "iu":
+        from pyproteus.numerics import matlab_round
+
+        info = np.iinfo(a.dtype)
+        y = matlab_round(a.astype(np.float64) * x)
+        return np.clip(y, info.min, info.max).astype(a.dtype)
+    if a.dtype == np.bool_:
+        return a.astype(np.float64) * x
+    return (a * np.asarray(x, dtype=a.dtype)).astype(a.dtype)
+
+
 def _isfield(s: dict[str, Any], *names: str) -> bool:
     return isinstance(s, dict) and all(n in s for n in names)
 
@@ -168,6 +187,8 @@ def load_transducer_model(
     Raises ``ValueError`` where MATLAB raises an error.
     """
     T = transducer.copy_struct()
+    if T.Type is None:
+        raise ValueError("Transducer has no field Type")  # MATLAB: reference error
     found = _read_model_file(T.Type, folder)
     if found is None:
         return T
@@ -208,9 +229,8 @@ def load_transducer_model(
                 f"load_transducer_model:noImpulseResponse: {where} does not contain Trans.IR1wy."
             )
         fs = 250e6
-        ir = np.asarray(trans["IR1wy"])
-        ir_trans = ir * fs
-        ir_rec = ir * fs
+        ir_trans = _times_double(np.asarray(trans["IR1wy"]), fs)
+        ir_rec = ir_trans.copy()
     else:
         raise ValueError(
             f"load_transducer_model:unknownFormat: {where} contains neither a Transducer "

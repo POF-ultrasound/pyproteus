@@ -8,6 +8,8 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - Package data: 11 constant files from the oracle → `src/pyproteus/data/` (JSON, complex fits as `.npz`), `MANIFEST.json` with sources, SHA-256 and oracle commit; `tools/convert_data.py`.
 - Oracle: 145 tests (`tests/oracle/test_config.py`, `test_data.py`) compare flattened trees (class, size, field order, bit-exact values); all pass. Unit: 125 tests.
 - Found: B-30 (SciPy drops imaginary parts with `mat_dtype`), B-31 (MATLAB `exp` not correctly rounded), B-32 (MATLAB `sum` order), B-33 (0-byte `[]` elements), B-34 (empty char size); Q-30 (tissue substring match), Q-31 (unknown keys). v7.3: MATLAB itself loads variables in alphabetical order.
+- Developer policy (2026-11-22, via main): reproduce PROTEUS within tolerance, no probing of MATLAB internals to match ulps/sum order. `linspace`, `Radii`, `Probabilities` compared at 1e-12; B-31/B-32 kept as observations. Loaded data and constants stay exact.
+- Reviewer pass: fixed field-less structs (v5 and v7.3), v4 files no longer scanned as v5, integer Verasonics IR saturation (Q-32), missing `Transducer.Type` raises, v7.3 `canonical empty`.
 - Next: M1 signal leaves fill `PENDING_FIELDS`; derived settings (`compute_simulation_domain`, `update_simulation_parameters`) in M1.
 
 ## 2026-11-20 — developer decisions, round 1 (main session)

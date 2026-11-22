@@ -159,3 +159,22 @@ def test_unsupported_objects(tmp_path: Path) -> None:
     sio.savemat(f, {"sp": scipy.sparse.eye(3).tocsc()})
     with pytest.raises(TypeError, match="sparse"):
         loadmat(f)
+
+
+def test_v4_file_is_not_scanned_as_v5(tmp_path: Path) -> None:
+    """S3: bytes after offset 128 of a v4 file must not be parsed as v5 tags."""
+    from pyproteus.config.matfile import _zero_byte_elements
+
+    f = tmp_path / "v4.mat"
+    # 15 = miCOMPRESSED at offset 128 would make a v5 scan call zlib on garbage.
+    payload = np.frombuffer(struct.pack("<II", 15, 100) * 40, dtype=np.float64).reshape(1, -1)
+    sio.savemat(f, {"x": payload}, format="4")
+    assert _zero_byte_elements(f) == []
+    np.testing.assert_array_equal(loadmat(f)["x"], payload)
+
+
+def test_struct_array_rejects_1x1() -> None:
+    elems = np.empty((1, 1), dtype=object)
+    elems[0, 0] = {}
+    with pytest.raises(ValueError, match="dict"):
+        StructArray(elems, [])

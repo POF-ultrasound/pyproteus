@@ -176,7 +176,9 @@ def _decode_tagged(v: dict[str, Any]) -> Any:
         for i, e in enumerate(data):
             out[i] = tree_from_jsonable(e)
         out = out.reshape(size, order="F")
-        return StructArray(out, list(v["fields"])) if cls == "struct" else out
+        if cls == "struct":
+            return out.reshape(-1)[0] if out.size == 1 else StructArray(out, list(v["fields"]))
+        return out
     dtype = _DTYPE_OF[cls]
     if v.get("complex"):
         ctype = np.complex64 if cls == "single" else np.complex128

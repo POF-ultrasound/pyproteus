@@ -327,3 +327,23 @@ def test_transmit_model_has_all_matlab_fields() -> None:
     assert {"Delays", "Apodization", "VoltageSignal", "PressureSignal", "MechanicalIndex"} <= (
         declared
     )
+
+
+def test_json_1x1_struct_array_decodes_to_dict() -> None:
+    doc = {"__matlab__": "struct", "size": [1, 1], "fields": ["a"], "data": [{"a": 1.0}]}
+    out = tree_from_jsonable(doc)
+    assert isinstance(out, dict) and out["a"][0, 0] == 1.0
+
+
+def test_verasonics_integer_ir_saturates(tmp_path: Path) -> None:
+    """Q-32: MATLAB computes IR1wy*250e6 in the integer class (round, saturate)."""
+    sio.savemat(tmp_path / "P4-1.mat", {"Trans": {"IR1wy": np.array([[1, -2, 0]], dtype=np.int16)}})
+    t = ptr.load_transducer_model(Transducer(Type="P4-1"), tmp_path)
+    np.testing.assert_array_equal(t.TransmitImpulseResponse, [[32767.0, -32768.0, 0.0]])
+
+
+def test_missing_type_raises() -> None:
+    with pytest.raises(ValueError, match="Type"):
+        ptr.get_transducer_properties(Transducer())
+    with pytest.raises(ValueError, match="Type"):
+        ptr.load_transducer_model(Transducer())

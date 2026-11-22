@@ -64,6 +64,8 @@ class StructArray:
             raise TypeError("elements must be an object array of dicts")
         if elements.ndim < 2:
             raise ValueError("MATLAB arrays are ≥ 2-D")
+        if elements.size == 1:
+            raise ValueError("a 1×1 struct is a dict, not a StructArray")
         self.elements = elements
         self.fields = list(fields)
 
@@ -73,6 +75,14 @@ class StructArray:
 
     def __repr__(self) -> str:
         return f"StructArray(shape={self.shape}, fields={self.fields})"
+
+
+def _dict_array(shape: tuple[int, ...]) -> np.ndarray:
+    """Object array of empty dicts (elements of a struct array with no fields)."""
+    out = np.empty(shape, dtype=object)
+    for idx in np.ndindex(shape):
+        out[idx] = {}
+    return out
 
 
 def is_struct(value: Any) -> bool:
@@ -150,7 +160,12 @@ def _from_scipy(typed: Any, raw: Any) -> Any:
         if typed.size == 1:
             return out.reshape(-1)[0]
         return StructArray(out, list(names))
-    if typed.dtype == object:  # cell array (or empty struct field)
+    if typed.dtype == object and typed.size and all(e is None for e in typed.flat):
+        # SciPy gives an object array of None for a struct with no fields.
+        if typed.size == 1:
+            return {}
+        return StructArray(_dict_array(typed.shape), [])
+    if typed.dtype == object:  # cell array
         out = np.empty(typed.shape, dtype=object)
         for idx in np.ndindex(typed.shape):
             out[idx] = _from_scipy(typed[idx], raw[idx])
@@ -187,9 +202,12 @@ def _zero_byte_elements(path: Path) -> list[tuple[str, list[tuple[Any, ...]]]]:
     import zlib
 
     buf = path.read_bytes()
-    if len(buf) < 128:
-        return []
+    if len(buf) < 128 or buf[126:128] not in (b"IM", b"MI"):
+        return []  # not a v5 file (v4 has no 128-byte header)
     endian = "<" if buf[126:128] == b"IM" else ">"
+    version = int.from_bytes(buf[124:126], "little" if endian == "<" else "big")
+    if version != 0x0100:
+        return []
     found: list[tuple[str, list[tuple[Any, ...]]]] = []
 
     def tag(b: bytes, pos: int) -> tuple[int, int, int, int]:
@@ -339,8 +357,15 @@ def _from_h5(obj: Any, f: Any) -> Any:
                 if order is None
                 else [b"".join(np.asarray(n).astype("S1")).decode() for n in order]
             )
-            return StructArray(np.empty(dims, dtype=object), fields)
-        return np.zeros(dims, dtype=_H5_NUMERIC.get(cls, np.float64))
+            n = int(np.prod(dims))
+            if n == 1:
+                return {}  # MATLAB writes struct() (1×1, no fields) as an empty dataset
+            return StructArray(_dict_array(dims), fields)
+        if cls == "canonical empty":  # MATLAB's [] inside cells and structs
+            return np.zeros(dims)
+        if cls not in _H5_NUMERIC:
+            raise TypeError(f"unsupported MATLAB class {cls!r} in v7.3 file ({obj.name})")
+        return np.zeros(dims, dtype=_H5_NUMERIC[cls])
     data = obj[()]
     if cls == "cell":
         cell = np.empty(data.shape, dtype=object)

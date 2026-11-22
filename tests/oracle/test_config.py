@@ -127,6 +127,7 @@ def flatten_tree(v: Any, prefix: str = "") -> dict[str, Entry]:
     elif isinstance(v, str):
         out[prefix] = ("char", (1, len(v)) if v else None, empty, empty, v)
     elif isinstance(v, StructArray):
+        assert v.elements.size != 1, f"{prefix}: a 1×1 struct must be a dict"
         out[prefix] = ("struct", v.shape, empty, empty, ",".join(v.fields))
         for i, e in enumerate(v.elements.reshape(-1, order="F")):
             assert list(e) == v.fields, f"{prefix}({i + 1}): fields {list(e)} != {v.fields}"
@@ -207,8 +208,8 @@ def py_struct(model: Any) -> dict[str, Entry]:
 
 # ----------------------------------------------------------------- defaults
 
-#: Probabilities = R.^2.*exp(-a*R)/sum(...): MATLAB exp/sum differ by ulps (B-31, B-32).
-PROB_REL = {".Distribution.Probabilities": 1e-12}
+#: Computed with linspace/exp/sum: compared within tolerance, not bit for bit (B-31, B-32).
+PROB_REL = {".Distribution.Radii": 1e-12, ".Distribution.Probabilities": 1e-12}
 
 
 def _pending(group: str) -> tuple[str, ...]:
@@ -346,6 +347,8 @@ def test_get_transducer_properties_custom_linear(meng: Any, irtype: str | None) 
 # defining the variables, variables to save, save option).
 MODEL_FILES = {
     "verasonics": ("Trans.IR1wy = [0 0.25 0.5 0.25 0]';", "Trans", "-v7"),
+    "verasonics_int16": ("Trans.IR1wy = int16([1 -2 3; 0 4 -5]);", "Trans", "-v7"),
+    "verasonics_uint8": ("Trans.IR1wy = uint8([0 1 255]');", "Trans", "-v7"),
     "verasonics_single": ("Trans.IR1wy = single([0.1; -0.3; 0.7]); Trans.x = 1;", "Trans", "-v7"),
     "proteus_new": (
         "Transducer.TransmitImpulseResponse = [1;2;3]; Transducer.ReceiveImpulseResponse = "
@@ -535,7 +538,7 @@ def test_compute_polydisperse_distribution(meng: Any) -> None:
     P = np.asarray(meng.workspace["pyp_P__"])
     meng.eval("clear pyp_R__ pyp_P__", nargout=0)
     r, p = pmb.compute_polydisperse_distribution()
-    assert_same_float(r, R)
+    assert_rel(r, R, rel=1e-12)
     assert_rel(p, P, rel=1e-12)  # B-31/B-32: exp and sum differ by ulps
     assert p.shape == P.shape == (1, 1001)
 
@@ -546,7 +549,7 @@ def test_compute_polydisperse_distribution(meng: Any) -> None:
 )
 def test_linspace(meng: Any, d1: float, d2: float, n: int) -> None:
     expected = np.asarray(meng.eval(f"linspace({d1!r}, {d2!r}, {n})"))
-    assert_same_float(pmb.linspace(d1, d2, n), expected.reshape(1, -1))
+    assert_rel(pmb.linspace(d1, d2, n), expected.reshape(1, -1), rel=1e-12)
 
 
 # ---------------------------------------------------------------- readers
@@ -570,7 +573,9 @@ def _build_settings(eng: Any, oracle_path: Path, var: str = "S") -> None:
         f"{var}.Transducer.integration_points = reshape(1:24, 2, 4, 3);"
         f"{var}.Microbubble.Shell.FitFile = '/some/fit file.mat';"
         f"{var}.Transducer.cellfield = {{'a', [1 2; 3 4]; int8(-3), {{}}}};"
-        f"{var}.Medium.Vessel.sarray = struct('x', {{1, 'b', []}});",
+        f"{var}.Medium.Vessel.sarray = struct('x', {{1, 'b', []}});"
+        f"{var}.Acquisition.s0 = struct(); {var}.Acquisition.sa0 = repmat(struct(), 2, 1);"
+        f"{var}.Acquisition.se = struct('a', {{}}); {var}.Acquisition.e03 = zeros(0, 3);",
         nargout=0,
     )
 

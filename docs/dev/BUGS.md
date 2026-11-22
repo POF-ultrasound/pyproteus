@@ -51,16 +51,16 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Symptom: real-valued result plus a `ComplexWarning`. Without `mat_dtype`, integer-valued doubles come back in their storage class (`10` → `uint8`).
 - Workaround: `pyproteus.config.matfile` reads twice (typed + raw) and takes complex arrays from the raw read. Test: `tests/unit/test_config_matfile.py::test_v5_classes_and_shapes`, `tests/oracle/test_data.py`.
 
-## B-31 — MATLAB `exp` (R2025a maca64) is not correctly rounded: 1-ulp differences (open, within class)
+## B-31 — MATLAB `exp` (R2025a maca64) is not correctly rounded: 1-ulp differences (observation, within class)
 - Where: any port that evaluates transcendental functions; first seen in `compute_polydisperse_distribution` (`reset_microbubble` default `Distribution.Probabilities`).
 - Symptom: on 41k random inputs MATLAB `exp` equals the correctly rounded result 90.2 % of the time, NumPy/Apple libm 99.8 %; 87 of 1001 values differ by 1 ulp in the default distribution. `Probabilities` agree to 7e-16 rel.
 - Cause: MATLAB ships its own libm. Not reproducible without reverse-engineering it.
-- Handling: such fields are compared at the ROADMAP §4 signal class (≤ 1e-12 rel); everything else exact. Reported to the main session. Test: `tests/oracle/test_config.py::test_compute_polydisperse_distribution`, `test_reset_microbubble`.
+- Handling: observation only (developer policy 2026-11-22: no replication of MATLAB's libm). Such fields are compared at the ROADMAP §4 signal class (≤ 1e-12 rel). Test: `tests/oracle/test_config.py::test_compute_polydisperse_distribution`, `test_reset_microbubble`.
 
-## B-32 — MATLAB `sum` of a vector uses interleaved partial sums, not NumPy's pairwise order (open)
+## B-32 — MATLAB `sum` of a vector differs from NumPy's pairwise sum in the last bits (observation, within class)
 - Where: `P/sum(P)` in `compute_polydisperse_distribution` and wherever PROTEUS sums vectors.
-- Symptom: `sum` of the 1001-element distribution differs from `np.sum` (1.4e-14 abs); MATLAB's value is reproduced by 2- or 4-lane interleaved accumulation (black-box).
-- Handling: within the 1e-12 class here. Possible numerics follow-up: `numerics.sum` with MATLAB's lane order (needs a black-box study over lengths and thread counts).
+- Symptom: `sum` of the 1001-element distribution differs from `np.sum` by 1.4e-14 abs (1e-16 rel).
+- Handling: observation only (developer policy 2026-11-22: no replication of MATLAB's summation order, no `numerics.sum`). Within the 1e-12 class.
 
 ## B-33 — SciPy reads MATLAB's 0-byte `[]` matrix element as 1×0; MATLAB loads 0×0 (workaround)
 - Where: `GUIfunctions/tissue_properties.mat` (`properties_name{2,5}`), written by MATLAB on Windows in 2022; older MATLAB versions write `[]` inside cells/struct fields as a miMATRIX element of 0 bytes. R2025a writes a full header instead.

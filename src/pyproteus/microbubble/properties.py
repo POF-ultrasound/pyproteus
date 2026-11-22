@@ -1,7 +1,7 @@
 """Microbubble gas properties and size distribution (ports of PROTEUS ``GUIfunctions``).
 
 * ``get_gas_properties``
-* ``compute_polydisperse_distribution`` (with a black-box matched MATLAB ``linspace``)
+* ``compute_polydisperse_distribution`` (with a ``linspace`` helper)
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def get_gas_properties(gas: Gas) -> Gas:
 
 
 def linspace(d1: float, d2: float, n: int) -> np.ndarray:
-    """MATLAB ``linspace(d1, d2, n)`` as a 1×n row (black-box matched, see PARITY.md)."""
+    """``linspace(d1, d2, n)`` as a 1×n row: ``d1 + k*(d2-d1)/(n-1)``, last element ``d2``."""
     n = int(np.floor(n))
     if n < 1:
         return np.zeros((1, 0))

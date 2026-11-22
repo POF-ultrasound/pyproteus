@@ -13,7 +13,7 @@ and writes them to ``src/pyproteus/data/``:
 every source path, the oracle commit and the source SHA-256. Run it again only
 when the oracle is re-pinned::
 
-    python tools/convert_data.py [--oracle PATH]
+    python tools/convert_data.py [--oracle PATH]   # default: $PYPROTEUS_ORACLE
 
 ``time-estimation/beta_coeff.mat`` is out of parity scope and not converted.
 These files come from PROTEUS (MIT licence), so shipping them is fine.
@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -35,7 +36,10 @@ from pyproteus.config.matfile import loadmat
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "src" / "pyproteus" / "data"
 DEFAULT_ORACLE = Path(
-    "/Users/theodoremichel/Repos/TWENTE/Ultrasound/PROTEUS-cleaning/PROTEUS-oracle"
+    os.environ.get(
+        "PYPROTEUS_ORACLE",
+        "/Users/theodoremichel/Repos/TWENTE/Ultrasound/PROTEUS-cleaning/PROTEUS-oracle",
+    )
 )
 
 #: data file → (name PROTEUS passes to ``load``, source paths in the oracle).
