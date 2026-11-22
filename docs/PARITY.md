@@ -3,10 +3,14 @@
 Status of each ported function against the MATLAB oracle (PROTEUS commit
 `8d37938`, MATLAB R2025a). Comparison classes from ROADMAP §4:
 
-- **exact**: integer-valued results (indices, masks, rounding) equal; random draws bit-identical
-- **1e-12 rel**: geometry, delays, weights, signals
-- **ulp**: within a few ulp (e.g. `erfcinv`)
-- see ROADMAP §4 for the bubble, k-Wave and end-to-end classes
+Classes are D-13 (medium tolerance; parity is behaviour and results, not MATLAB's bits, D-12):
+
+- **float**: ≤ 1e-9 rel (small atol near zero): geometry, delays, weights, signals, interpolation, truncated normal, random draws
+- **statistical**: integers after rounding (indices, masks), ≥ 99.9 % equal, differences reported, downstream effect at the float/RF class
+- **exact**: only where it falls out naturally (data read from files, documented integer semantics on exact inputs, storage round trips)
+- **ODE**: ≈ 10·RelTol rel + AbsTol abs; **k-Wave** ≤ 1e-5; **end-to-end RF** ≤ 1e-4 (ROADMAP §4)
+
+Rows still marked "bit-identical" predate D-12 and are being moved to these classes.
 
 Status: ✅ oracle test passes, 🟡 partial, ❌ fails / open bug, ⬜ not started.
 
