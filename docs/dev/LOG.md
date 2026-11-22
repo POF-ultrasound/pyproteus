@@ -3,7 +3,7 @@
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
 ## 2026-11-22 — M3 adapter: D-12/D-13 tolerance alignment (m3-adapter)
-- PR #8 merged (72b0645). Follow-up per D-12/D-13: k-Wave input-file comparisons now check integer datasets (documented format) exactly and float datasets within float32 noise (1e-6 rel) instead of bit equality (`kwave_tracer.assert_inputs_close`); `filterTimeSeries`/`getWin`/`k_max` move from 1e-12 to the float class (1e-9); "bit-identical" wording dropped from the adapter docstrings and B-10/B-60. Binary command-line equality stays exact (documented k-Wave flags). No MATLAB-internals matching in the adapter.
+- PR #8 merged (72b0645). Follow-up per D-12/D-13: k-Wave input-file comparisons now check integer datasets (documented format) exactly and float datasets within float32 noise (1e-6 rel) instead of bit equality (`kwave_tracer.assert_inputs_close`); `filterTimeSeries`/`getWin`/`k_max` move from 1e-12 to the float class (1e-9); "bit-identical" wording dropped from the adapter docstrings and B-10/B-60. Binary command-line equality stays exact (documented k-Wave flags). No MATLAB-internals matching in the adapter. Oracle k-Wave tests rerun with the new assertions: 130 passed. Reviewer: SIGN-OFF.
 
 ## 2026-11-22 — tolerance policy (main session)
 - Developer: parity = same behaviour and results within medium tolerance, no bit-level copying or probing of MATLAB internals (D-12). New comparison classes (D-13); probed numerics code to be replaced (D-14, supersedes D-8). ROADMAP §4/§5, CLAUDE.md and CONTRIBUTING updated. Running sessions told on 2026-11-22.

@@ -389,8 +389,8 @@ def assert_inputs_close(a: dict, b: dict, skip=("rho0_sg",)) -> None:
     """Two k-Wave C++ input files (``read_h5`` dicts) carry the same data.
 
     Integer datasets (sizes, flags, 1-based mask indices: the documented file
-    format) must be equal; float datasets within ``INPUT_REL`` of the larger
-    magnitude (float32). Datasets whose name starts with ``skip`` are left out.
+    format) must be equal; float datasets within ``INPUT_REL`` of the maximum
+    magnitude of the reference ``a`` (float32). Datasets whose name starts with ``skip`` are left out.
     """
     assert set(a) == set(b), sorted(set(a) ^ set(b))
     for key in sorted(a):

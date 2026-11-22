@@ -36,7 +36,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-13 — k-wave-python staggered density wraps at the last plane (open, within tolerance)
 - Where: `CppSimulation._compute_staggered_density` (`np.roll` average).
-- Symptom: `rho0_sgx/y/z` in the HDF5 input differ from MATLAB k-Wave's only on the last grid plane along the staggered axis (inside the outer PML), up to 0.55 % rel; elsewhere ≤ 2 float32 ulp.
+- Symptom: `rho0_sgx/y/z` in the HDF5 input differ from MATLAB k-Wave's only on the last grid plane along the staggered axis (inside the outer PML), up to 0.55 % rel; elsewhere within float32 noise (≤ 1e-6 rel).
 - Cause: `np.roll` averages the last plane with the first; MATLAB k-Wave keeps `rho0` there. Contributes the ~5e-7 residual in sensor data, well below the 1e-5 target.
 - Workaround: none needed for parity; if a case ever misses 1e-5, write the HDF5 input with the adapter's own `rho0_sg*` (fallback route in ROADMAP §6). Test: `test_cpp_input_file_matches_matlab` (asserts it is still the only difference).
 
