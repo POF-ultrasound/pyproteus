@@ -2,6 +2,9 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-22 — tolerance policy (main session)
+- Developer: parity = same behaviour and results within medium tolerance, no bit-level copying or probing of MATLAB internals (D-12). New comparison classes (D-13); probed numerics code to be replaced (D-14, supersedes D-8). ROADMAP §4/§5, CLAUDE.md and CONTRIBUTING updated. Running sessions told on 2026-11-22.
+
 ## 2026-11-22 — M3 k-Wave adapter (m3-adapter)
 - `src/pyproteus/backends/kwave.py`: `kspace_first_order(kgrid, medium, source, sensor, ...)` in MATLAB/PROTEUS conventions (rows in `find` order, unscaled additive `p`/`ux`/`uy`/`uz` sources, `(n_sensor, Nt)` float32 out, `record` `p`/`p_max`/`p_min`), options as `run_simulation.m`; backends `cpp` (parity target) and `python` (NumPy/CuPy); `device`, `device_num`, `num_threads`, `binary` / `$PYPROTEUS_KWAVE_BINARY`, `data_path`. Row-order and scaling helpers lifted from the tracer; `filter_time_series`, `get_win`, `KGrid.k_max`.
 - cpp path: k-wave-python writes the input file (`save_only=True`, one function), the adapter runs the binary with the flags MATLAB 3DC passes (captured from MATLAB with a logging shim: `--p_raw`, `--p_max`, `--p_min`, `-t`) and reads the output file. Reason: kwp ignores `sensor.record` for cpp (B-62). Agreed with the main session.

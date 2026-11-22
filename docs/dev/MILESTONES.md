@@ -67,7 +67,7 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 
 ### Grid, medium, transducer
 - [ ] `define_grid`, `optimize_grid_size`
-- [ ] `random_truncated_normal` (≈ 1 ulp, `erfcinv`)
+- [ ] `random_truncated_normal` (float class ≤ 1e-9, `erfcinv` via SciPy)
 - [ ] `define_medium`, `voxelize_media_points`
 - [ ] `get_transducer_integration_points`, `get_transducer_integration_delays`
 - [ ] `compute_travel_times`, `evaluate_delta_function`
@@ -136,7 +136,7 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 
 ## M4: flow and geometry
 
-Plan: port order steps 10-11. Streamlines use nearest-voxel velocity: aim for bit-exact in serial mode.
+Plan: port order steps 10-11. Streamlines use nearest-voxel velocity: compare statistically in serial mode (D-13).
 
 ### Clean-room ode23
 - [ ] Bogacki-Shampine with terminal event location (no MATLAB source)
@@ -155,7 +155,7 @@ Plan: port order steps 10-11. Streamlines use nearest-voxel velocity: aim for bi
 - [ ] Port `VOXELISE` (keep BSD-2 notice)
 
 ### Done when
-- [ ] Streamlines bit-exact (or identical up to first voxel flip + distribution checks)
+- [ ] Streamlines: paths agree until the first voxel flip, and the distributions match (D-13)
 - [ ] Full pipeline from geometry to RF matches MATLAB on a small case
 
 ## M5: execution and hardware
