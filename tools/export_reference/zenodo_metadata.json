@@ -1,0 +1,41 @@
+{
+  "_comment": "DRAFT metadata for the first pyproteus reference-data record on Zenodo (legacy deposit API 'metadata' object). Nothing has been created or published. Fill the creators and check every field before use; see README.md in this folder.",
+  "metadata": {
+    "upload_type": "dataset",
+    "title": "pyproteus reference data: MATLAB PROTEUS 1.1.0 (commit 8d37938) outputs for parity testing",
+    "description": "<p>Frozen inputs and outputs of MATLAB PROTEUS (oracle commit 8d37938, revamp branch; to be re-pinned to v1.1.0), used by the Python port pyproteus to check parity in continuous integration without MATLAB.</p><p>One HDF5 file per case: single function calls (module references) and end-to-end RF simulations (full runs: tiny, small, medium) with the k-Wave 1.4.1 C++ binary. Every file records the MATLAB version, the PROTEUS commit, the k-Wave version and binary (path, build, SHA-256), seeds and creation date. File format: docs/REFERENCE_DATA.md in the pyproteus repository. Exported with tools/export_reference/ through the MATLAB Engine for Python.</p>",
+    "version": "0.1.0",
+    "language": "eng",
+    "access_right": "open",
+    "license": "cc-by-4.0",
+    "creators": [
+      {
+        "name": "TODO: Family, Given",
+        "affiliation": "University of Twente"
+      }
+    ],
+    "keywords": [
+      "ultrasound",
+      "contrast-enhanced ultrasound",
+      "microbubbles",
+      "k-Wave",
+      "simulation",
+      "PROTEUS",
+      "reference data",
+      "parity testing"
+    ],
+    "related_identifiers": [
+      {
+        "identifier": "https://github.com/POF-ultrasound/pyproteus",
+        "relation": "isSupplementTo",
+        "resource_type": "software"
+      },
+      {
+        "identifier": "https://github.com/PROTEUS-SIM/PROTEUS",
+        "relation": "isDerivedFrom",
+        "resource_type": "software"
+      }
+    ],
+    "notes": "Generated on macOS arm64 with MATLAB R2025a; k-Wave C++ OpenMP binary v1.4.1 as distributed with k-wave-python 0.6.2 (decision D-10 in the pyproteus repository). Values are stored with MATLAB's array sizes; read them with pyproteus or h5py (see docs/REFERENCE_DATA.md)."
+  }
+}
