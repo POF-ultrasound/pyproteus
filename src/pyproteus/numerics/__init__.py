@@ -14,6 +14,7 @@ See ``docs/PARITY.md`` for the oracle status of each helper.
 from .convolution import conv, convn
 from .indexing import find, ind2sub, sub2ind
 from .interpolation import GriddedInterpolant, gridded_interpolant, interp1, pchip
+from .ode45 import ODEResult, ODEStats, ode45, odeset
 from .random import MatlabRNG, rng
 from .rounding import matlab_round
 from .sorting import argsort, first_nonsingleton_axis, sort
@@ -22,6 +23,8 @@ from .spectral import hilbert, ifft_symmetric
 __all__ = [
     "GriddedInterpolant",
     "MatlabRNG",
+    "ODEResult",
+    "ODEStats",
     "argsort",
     "conv",
     "convn",
@@ -33,6 +36,8 @@ __all__ = [
     "ind2sub",
     "interp1",
     "matlab_round",
+    "ode45",
+    "odeset",
     "pchip",
     "rng",
     "sort",
