@@ -50,3 +50,21 @@ Notes:
   PROTEUS never does this).
 - Out of scope so far: `fft`/plain `ifft` with MATLAB's default dimension (use
   `np.fft` with an explicit `axis`), `unique`/`intersect`/`ismember` index order.
+
+## ODE solvers (`pyproteus.numerics`)
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `ode45` step sequence (RHS calls, accepted/rejected steps, `sol.x`, `sol.y`, `sol.stats`) | `ode45` (`t_steps`, `y_steps`, `stats`) | bit-identical | `test_ode45.py` | ✅ |
+| `[t,y] = ode45(...)` at steps (`Refine` 1, or `tspan` points that are steps) | `ode45` | bit-identical | `test_ode45.py` | ✅ |
+| `[t,y] = ode45(...)` dense output (`Refine` > 1, `tspan` points inside a step) | `ode45` | ≤ 1e-15 rel (bit-identical for 1 equation) | `test_ode45.py` | 🟡 B-50 |
+| Rayleigh–Plesset-like batch, PROTEUS options | `ode45` + test RHS | bit-identical steps (fdlibm RHS); ≤ 1.5e-13 rel with NumPy `**` (class 1e-8) | `test_ode45.py::test_rayleigh_plesset_batch` | ✅ |
+| `OutputFcn` protocol (flags, arguments, stop) | `ode45(..., OutputFcn=...)` | exact | `test_ode45.py::test_outputfcn_protocol` | ✅ |
+| scalar/array `x^0.2` (fdlibm `pow`) | `ode45._pow5` | bit-identical | `test_ode45.py::test_step_rule_power_is_fdlibm` | ✅ |
+| `ode23` + events | — | — | — | ⬜ (M4) |
+
+Notes:
+
+- Options covered: `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxStep` (default and set), `InitialStep` (set and automatic), `Refine`, `OutputFcn`; `BDF`/`MaxOrder` accepted and ignored (as MATLAB's ode45 does). Forward and backward integration; 2-point and many-point `tspan`; step-size failure.
+- Not supported (raise): `Events`, `Mass`, `NonNegative`, `Vectorized` and other options; `Stats` is accepted and ignored. PROTEUS' bubble code needs none.
+- Bit parity of a full simulation also needs the RHS to use MATLAB's arithmetic (B-51, B-52).

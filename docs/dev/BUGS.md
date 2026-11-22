@@ -45,3 +45,22 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Symptom: MATLAB 3DC output is bit-identical with and without `alpha_mode` (the C++ HDF5 format has no field for it), so PROTEUS runs full power-law absorption + dispersion on the C++/CUDA path; the MATLAB-native `kspaceFirstOrder3D` (PROTEUS' local-movie mode) and k-wave-python's `python` backend honour it (16 % rel difference on the tracer case with y = 1.05). k-wave-python's `cpp` backend raises `ValueError`.
 - Faithful-port handling: the adapter drops `alpha_mode` for `cpp` (matches MATLAB 3DC to 5.9e-7) and refuses it for `python` (`adapter.medium_for_kwp`). Recorded as `docs/QUIRKS.md` Q-1. Decided (D-9): M3 drops `alpha_mode` on the `python` backend too.
 - Test: `test_matlab_3dc_ignores_alpha_mode`, case `pressure_nodisp`.
+
+## B-50 — ode45 dense output: MATLAB's evaluation order for several equations not pinned down (open, minor)
+- Where: `pyproteus.numerics.ode45._interp` (continuous extension at `Refine` points and at `tspan` points inside a step).
+- Symptom: for one equation the interpolated output is bit-identical to MATLAB R2025a; with 2–9 equations 30–97 % of output rows are bit-equal and the rest differ by ≤ 1.1e-16 of the solution scale (large ulp counts only near zero crossings, where MATLAB's value is closer to the exact one). Step sequences and the solution at the steps are bit-identical regardless.
+- Cause: unknown. Tried (black-box, against logged stage slopes): power form vs Horner weights, every summation order of the 7 terms, `h` placement, sequential FMA, `y` as BLAS accumulator, Hermite nested forms, `s` exact vs recomputed. `deval` on the returned `sol` gives yet another rounding (33/301 rows equal to ode45's own output), so it cannot be used to dissect it.
+- Impact: none for parity: dense output does not feed back into the integration; 1e-16 vs the 1e-8 bubble class.
+- Test: `tests/oracle/test_ode45.py` (dense output asserted ≤ 1e-15 rel; bit-identical for one equation).
+
+## B-51 — NumPy scalar `np.float64 ** 2` is not correctly rounded on macOS arm64 (workaround)
+- Where: any ported formula that squares a NumPy *scalar* (e.g. `y[0]**2` inside an RHS).
+- Symptom: `np.float64(-1.9353426215005738)**2` gives `3.745551062596713`; `x*x` (and MATLAB `x^2`) give `3.7455510625967134`. 4 of 1867 van der Pol RHS calls differed, which made the ode45 step sequence drift from MATLAB's after ~500 calls. Array `x**2` is exact (NumPy special-cases it).
+- Cause: scalar `**` calls libm `pow`, which is not correctly rounded here.
+- Workaround: write `x*x` for squares in ported code (MATLAB's `x^2` equals `x*x`).
+
+## B-52 — MATLAB R2025a elementary functions are fdlibm (finding, affects bit parity of ported formulas)
+- Where: MATLAB `cos`, `sin`, `exp`, `log`, `power` (`x^y`, `x.^y`, scalar and array).
+- Symptom: on 3 000–200 000 samples each, MATLAB equals Java `StrictMath` (= fdlibm 5.3) bit for bit, while NumPy/libm differ on 5–10 % of inputs (cos 317/6595, sin 268/6595, exp 674/6595 on the ode45 call times; `x.^0.2` ~10 %).
+- Impact: a ported RHS (e.g. `simple_RP` with `(1+x).^(-3*kappa)`) using NumPy functions cannot be bit-identical to MATLAB; differences stay ~1e-13 rel in the RP probe (class 1e-8 holds). Bit parity is reachable with fdlibm ports: `pyproteus.numerics.ode45._fdlibm_pow` already covers `pow` for x > 0.
+- Next: decide whether to add `pyproteus.numerics` fdlibm helpers (pow, exp, log, sin, cos) for bit parity, or keep the 1e-8 class (question raised with the main session).
