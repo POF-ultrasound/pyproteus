@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-22 — M3 k-Wave adapter (m3-adapter)
+- `src/pyproteus/backends/kwave.py`: `kspace_first_order(kgrid, medium, source, sensor, ...)` in MATLAB/PROTEUS conventions (rows in `find` order, unscaled additive `p`/`ux`/`uy`/`uz` sources, `(n_sensor, Nt)` float32 out, `record` `p`/`p_max`/`p_min`), options as `run_simulation.m`; backends `cpp` (parity target) and `python` (NumPy/CuPy); `device`, `device_num`, `num_threads`, `binary` / `$PYPROTEUS_KWAVE_BINARY`, `data_path`. Row-order and scaling helpers lifted from the tracer; `filter_time_series`, `get_win`, `KGrid.k_max`.
+- cpp path: k-wave-python writes the input file (`save_only=True`, one function), the adapter runs the binary with the flags MATLAB 3DC passes (captured from MATLAB with a logging shim: `--p_raw`, `--p_max`, `--p_min`, `-t`) and reads the output file. Reason: kwp ignores `sensor.record` for cpp (B-62). Agreed with the main session.
+- D-9: `alpha_mode` dropped on every backend; python backend with `alpha_mode` set matches MATLAB 3DC within 1e-5 (case `pressure_nodisp`).
+- New k-wave-python findings: B-60 (zero-phase `filter_time_series` crashes; worked around, ≤ 1e-12 vs MATLAB), B-61 (rejects `2*pml >= N` with the PML outside; adapter expands the grid with kwp's own helper), B-62. Upstream drafts 4 and 5 added (not posted).
+- Tracer: `adapter.py`/`ordering.py` removed, `kwave_tracer.py` imports the package; new cases `velocity_ux`, `mixed` (`ux`+`uz` + pressure point sources), `nt_eq_n_sensor`, `pressure_field`; `run_kwave_matlab.m` returns every recorded field and accepts `NumThreads`.
+- Tests: `tests/unit/test_kwave.py` (row order 2-D/3-D, asymmetric, scaling, validation, binary command; binary runs skip without the binary), `tests/oracle/test_kwave_backend.py` (7 cases × both backends vs MATLAB 3DC, input file, command line), `tests/oracle/test_kwave_signal.py`.
+- Not covered: 3DG/CUDA, CuPy, source signals longer than Nt.
+
 ## 2026-11-20 — developer decisions, round 1 (main session)
 - D-8 (pchip clean-room, PR #4), D-9 (drop `alpha_mode` on every k-wave-python backend, B-14/Q-1), D-10 (frozen k-Wave references on the Mac with k-wave-python's v1.4.1 OMP binary), D-11 (upstream k-wave-python issue drafts in `docs/dev/upstream/`, posted only after developer approval).
 - Still open: university cluster GPU compute capability (developer to run `nvidia-smi`).
