@@ -269,7 +269,17 @@ def test_linear_special_value_combinations(matlab_engine, n) -> None:
         assert_linear(nm.gridded_interpolant(x, c)(q), vec(g), x, c, q, err_msg=str(c))
 
 
+def assert_value_or_nan(actual, expected, err_msg: str = "") -> None:
+    """B-71: where pyproteus gives NaN, MATLAB may give a number; elsewhere float class."""
+    a, e = np.asarray(actual), np.asarray(expected)
+    ours_nan = np.isnan(a)
+    assert np.all(ours_nan[np.isnan(e)]), f"MATLAB NaN but pyproteus a number {err_msg}"
+    assert_float_class(a[~ours_nan], e[~ours_nan], err_msg)
+
+
 PCHIP_NONFINITE = [
+    np.array([np.nan, 1.0, 2.0, 3.0]),
+    np.array([np.nan, 5.0, 4.0, 3.0]),
     np.array([1.0, np.inf, 3.0, 4.0]),
     np.array([1.0, np.nan, 3.0, 4.0]),
     np.array([-np.inf, 0.0, 1.0, np.inf]),
@@ -281,7 +291,7 @@ PCHIP_NONFINITE = [
 
 @pytest.mark.parametrize("v", PCHIP_NONFINITE, ids=str)
 def test_pchip_nonfinite_values(matlab_engine, v) -> None:
-    """NaN samples dropped by interp1/pchip; propagated by griddedInterpolant; ±Inf queries."""
+    """NaN samples dropped by interp1/pchip; propagated by griddedInterpolant (B-71); ±Inf."""
     x = np.array([0.0, 1.0, 2.0, 3.5])
     q = np.array([-np.inf, -1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 2.75, 3.5, 5.0, np.inf, np.nan])
     put(matlab_engine, x=row(x), v=row(v), q=row(q))
@@ -293,7 +303,9 @@ def test_pchip_nonfinite_values(matlab_engine, v) -> None:
     a, b, c = (vec(get(matlab_engine, n)) for n in ("pyp_a", "pyp_b", "pyp_c"))
     assert_float_class(nm.interp1(x, v, q, "pchip"), a)
     assert_float_class(nm.pchip(x, v, q), b)
-    assert_float_class(nm.gridded_interpolant(x, v, "pchip")(q), c)
+    assert_value_or_nan(nm.gridded_interpolant(x, v, "pchip")(q), c)
+    if not np.isnan(v).any():  # no NaN: strict float class
+        assert_float_class(nm.gridded_interpolant(x, v, "pchip")(q), c)
 
 
 def test_pchip_matrix_values_with_nan(matlab_engine) -> None:
@@ -316,3 +328,22 @@ def test_pchip_complex_values(matlab_engine) -> None:
     mine = nm.interp1(x, v, q, "pchip")
     assert_float_class(mine.real, ref.real)
     assert_float_class(mine.imag, ref.imag)
+
+
+def test_linear_complex_infinite_queries(matlab_engine) -> None:
+    x = np.array([0.0, 1.0, 2.0])
+    v = np.array([1 + 1j, 2 + 3j, 3.0])
+    q = np.array([-np.inf, -1.0, 0.5, 1.5, 3.0, np.inf])
+    put(matlab_engine, x=row(x), v=row(v), q=row(q))
+    matlab_engine.eval(
+        "pyp_a = interp1(x, v, q, 'linear', 'extrap');"
+        "pyp_F = griddedInterpolant(x, v); pyp_b = pyp_F(q);",
+        nargout=0,
+    )
+    for mine, name in [
+        (nm.interp1(x, v, q, extrap="extrap"), "pyp_a"),
+        (nm.gridded_interpolant(x, v)(q), "pyp_b"),
+    ]:
+        ref = vec(get(matlab_engine, name)).astype(complex)
+        assert_float_class(mine.real, ref.real, name)
+        assert_float_class(mine.imag, ref.imag, name)

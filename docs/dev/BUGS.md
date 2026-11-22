@@ -96,3 +96,10 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: MATLAB's handling was found by black-box probing; the special cases reproducing it were removed under D-14 (no documented semantics).
 - Impact: none known; PROTEUS interpolates finite tables.
 - Test: `tests/oracle/test_numerics_interp.py::assert_linear` (such queries must be MATLAB's value or NaN), `tests/unit/test_numerics.py::test_interp1_flat_and_nonfinite_neighbours`.
+
+## B-71 — griddedInterpolant pchip next to a NaN sample: NaN where MATLAB sometimes gives a number (accepted, D-14)
+- Where: `pyproteus.numerics.interpolation.pchip_slopes` (NaN secant → NaN slopes at its nodes).
+- Symptom: `griddedInterpolant(x, v, 'pchip')` with a NaN in `v` gives NaN on the intervals next to the NaN sample. MATLAB R2025a gives NaN there in some cases and a number in others (e.g. `v = [NaN 5 4 3 2 1]` at 1.5: MATLAB 4.625, pyproteus NaN; `v = [NaN 1 2 3 4 5]` at 1.5: both NaN). pyproteus never returns a number where MATLAB returns NaN. `interp1`/`pchip` drop NaN samples and are unaffected.
+- Cause: MATLAB's NaN-slope rule is undocumented; replicating it would need probing (D-14). Plain NaN propagation is used instead.
+- Impact: none known; PROTEUS interpolates finite tables.
+- Test: `tests/oracle/test_numerics_interp.py::test_pchip_nonfinite_values` (`assert_value_or_nan`), `tests/unit/test_numerics.py::test_pchip_complex_and_nonfinite_values`.

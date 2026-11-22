@@ -29,7 +29,7 @@ permutation of exact inputs (documented semantics, not float noise).
 | `interp1(x,v,xq)` linear, `'extrap'`, fill value | `interp1` | float (B-70 with Inf/NaN values) | `test_numerics_interp.py` | ✅ |
 | `interp1(...,'nearest')` | `interp1(..., "nearest")` | exact (selects sample values) | `test_numerics_interp.py` | ✅ |
 | `griddedInterpolant(x,v)` (linear, linear extrapolation) | `gridded_interpolant` | float (B-70) | `test_numerics_interp.py` | ✅ |
-| `pchip`, `interp1(...,'pchip')`, `griddedInterpolant(...,'pchip')` | `pchip`, `interp1`, `gridded_interpolant` (textbook Hermite, Fritsch–Butland/Moler slopes) | float | `test_numerics_interp.py` | ✅ |
+| `pchip`, `interp1(...,'pchip')`, `griddedInterpolant(...,'pchip')` | `pchip`, `interp1`, `gridded_interpolant` (textbook Hermite, Fritsch–Butland/Moler slopes) | float (B-71 with NaN in `griddedInterpolant`) | `test_numerics_interp.py` | ✅ |
 | `ifft(X,n,dim,'symmetric')` | `ifft_symmetric` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `hilbert(x)` (vectors along length, matrices along columns) | `hilbert` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `conv(u,v,shape)`, `convn(A,B,shape)` | `conv`, `convn` | exact on small integers, else float | `test_numerics_signal.py` | ✅ |
@@ -41,8 +41,8 @@ Notes:
 - Every oracle test runs Hypothesis-generated batches as well as fixed tie cases;
   `PYPROTEUS_ORACLE_EXAMPLES=300` was used for the sweep recorded in `docs/dev/LOG.md`.
 - Float class for interpolation: `|a - e| ≤ 1e-9·|e| + 1e-12·max|e|`, NaN and ±Inf
-  positions equal. Measured: pchip ≤ 4e-14 × max|ref| on random cases (SciPy's
-  `PchipInterpolator`, same rules, measured the same), linear ≤ 2e-15 rel.
+  positions equal. Measured (300 random cases): pchip ≤ 2.2e-14 × max|ref|
+  (1.5e-16 on a bubble-pulse case), linear ≤ 2e-15 elementwise rel.
 - `rng(0,'twister')` is MT19937 seed 5489 (MATLAB's default state), not seed 0.
 - Linear interpolation is the plain blend `v0*(1-t)+v1*t` (D-14). With Inf/NaN
   sample values, a query on a node, on a flat segment or at ±Inf of that interval
@@ -56,8 +56,10 @@ Notes:
   against an independent Hermite-basis implementation.
 - NaN/Inf/complex sample values with pchip (oracle-tested): `interp1`/`pchip` drop
   NaN samples (column by column for matrix `v`); `griddedInterpolant` keeps them
-  (a NaN secant gives an interior slope of 0, a NaN end slope propagates); Inf
-  values propagate; complex values are interpolated per real/imaginary part.
+  and a NaN secant makes its node slopes NaN, so it can give NaN next to a NaN
+  sample where MATLAB gives a number (B-71; never a number where MATLAB gives
+  NaN); Inf values propagate; complex values are interpolated per real/imaginary
+  part, also for linear ±Inf queries.
 - `convn`/`conv` with empty inputs raise `ValueError` (MATLAB's sizes are irregular;
   PROTEUS never does this).
 - Out of scope so far: `fft`/plain `ifft` with MATLAB's default dimension (use

@@ -15,7 +15,9 @@ numerics are standard and self-contained (D-12, D-14):
   *Numerical Computing with MATLAB*, 2004, §3.4. These are the same rules as
   SciPy's ``PchipInterpolator``; the own implementation is kept because SciPy
   rejects non-finite and complex sample values, which MATLAB accepts (NaN/Inf
-  propagate; real and imaginary parts are interpolated separately).
+  propagate; real and imaginary parts are interpolated separately). A NaN
+  secant makes its node slopes NaN, so ``griddedInterpolant`` can give NaN
+  next to a NaN sample where MATLAB gives a number (B-71).
 - ±Inf queries with extrapolation: linear gives the limit of the end line
   (its value if flat, else ±Inf by the sign of the slope); pchip evaluates the local power form by
   Horner's rule, so a flat or cancelling cubic gives NaN, as in MATLAB.
@@ -71,8 +73,8 @@ def pchip_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     Interior: weighted harmonic mean of the neighbouring secants when they have
     the same sign, else 0 (Fritsch & Butland 1984). Ends: three-point formula,
     limited to preserve shape (Moler 2004, §3.4). ``y`` may have trailing axes.
-    A NaN secant counts as a sign change at interior nodes (slope 0) but makes
-    the end slope NaN; NaN values propagate through the polynomials that use them.
+    A NaN secant makes the slopes at its nodes NaN (interior and end), so NaN
+    propagates to the neighbouring intervals (B-71).
     """
     h = _trailing(np.diff(x), y.ndim)
     with np.errstate(invalid="ignore", over="ignore"):
@@ -88,7 +90,8 @@ def pchip_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     # Tiny secants can overflow w/δ to Inf; the harmonic mean is then 0.
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
         interior = (w1 + w2) / (w1 / d0 + w2 / d1)
-    d[1:-1] = np.where(same, interior, 0.0)  # a NaN secant is not "same sign": 0
+    d[1:-1] = np.where(same, interior, 0.0)
+    d[1:-1] = np.where(np.isnan(d0) | np.isnan(d1), np.nan, d[1:-1])  # NaN propagates (B-71)
     d[0] = _end_slope(h[0], h[1], delta[0], delta[1])
     d[-1] = _end_slope(h[-1], h[-2], delta[-1], delta[-2])
     return d
@@ -125,15 +128,23 @@ def _pchip_coefficients(x: np.ndarray, v: np.ndarray) -> list[np.ndarray]:
 def _pchip(x: np.ndarray, v: np.ndarray, xq: np.ndarray) -> np.ndarray:
     if np.iscomplexobj(v):  # MATLAB interpolates real and imaginary parts separately
         return _pchip(x, v.real, xq) + 1j * _pchip(x, v.imag, xq)
-    c0, c1, c2, c3 = (c[_intervals(x, xq)] for c in _pchip_coefficients(x, v))
-    s = _trailing(xq - x[_intervals(x, xq)], v.ndim)
+    k = _intervals(x, xq)
+    c0, c1, c2, c3 = (c[k] for c in _pchip_coefficients(x, v))
+    s = _trailing(xq - x[k], v.ndim)
     with np.errstate(invalid="ignore", over="ignore"):
         return c0 + s * (c1 + s * (c2 + s * c3))
 
 
 def _infinite_queries(x, v, xq, out) -> None:
     """Linear extrapolation at ±Inf queries: the limit of the end line (its value
-    if flat, else ±Inf by the sign of the slope), where the blend gives Inf - Inf."""
+    if flat, else ±Inf by the sign of the slope), where the blend gives Inf - Inf.
+    Complex values: real and imaginary parts separately."""
+    if np.iscomplexobj(v):
+        re, im = out.real.copy(), out.imag.copy()
+        _infinite_queries(x, v.real, xq, re)
+        _infinite_queries(x, v.imag, xq, im)
+        out.real[...], out.imag[...] = re, im  # re + 1j*im would turn 0*Inf into NaN
+        return
     for sign, k in ((1.0, x.size - 2), (-1.0, 0)):
         mask = xq == sign * np.inf
         if mask.any():
@@ -177,8 +188,7 @@ def _evaluate(
     xq_flat = np.asarray(xq, dtype=np.float64).reshape(-1)
     if method == "linear":
         out = _linear(xa, va, xq_flat)
-        if not np.iscomplexobj(va):
-            _infinite_queries(xa, va, xq_flat, out)
+        _infinite_queries(xa, va, xq_flat, out)
     elif method == "nearest":
         out = _nearest(xa, va, xq_flat)
     elif method == "pchip":

@@ -376,8 +376,13 @@ def test_pchip_complex_and_nonfinite_values() -> None:
     q = np.array([0.5, 1.5, 2.5])
     g = nm.gridded_interpolant([0, 1, 2, 3.5], [1, np.nan, 3, 4], "pchip")(q)
     assert np.isnan(g).all()  # NaN end slopes propagate (MATLAB: all NaN)
-    g = nm.gridded_interpolant([0, 1, 2, 3.5], [1, 2, 2, np.nan], "pchip")([1.5, 2.5])
-    assert g[0] == 2 and np.isnan(g[1])
+    # B-71: a NaN secant makes its node slopes NaN (MATLAB gives 2 at 1.5 here).
+    g = nm.gridded_interpolant([0, 1, 2, 3.5], [1, 2, 2, np.nan], "pchip")([0.5, 1.5, 2.5])
+    assert np.isfinite(g[0]) and np.isnan(g[1:]).all()
+    inf = np.inf
+    out = nm.interp1([0, 1, 2], [1 + 1j, 2 + 3j, 3], [inf, -inf], extrap="extrap")
+    np.testing.assert_array_equal(out.real, [inf, -inf])  # MATLAB: Inf-Infi, -Inf-Infi
+    np.testing.assert_array_equal(out.imag, [-inf, -inf])
 
 
 def test_interp1_pchip_drops_nan_values() -> None:
