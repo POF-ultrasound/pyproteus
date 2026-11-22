@@ -29,7 +29,7 @@ def test_round_specials() -> None:
     x = np.array([0.49999999999999994, -0.49999999999999994, 4503599627370495.5, np.nan])
     out = nm.matlab_round(x)
     np.testing.assert_array_equal(out, [0, -0, 4503599627370496, np.nan])
-    assert np.signbit(nm.matlab_round(-0.4))  # MATLAB: round(-0.4) is -0
+    assert np.signbit(nm.matlab_round(-0.4))  # IEEE/C round(): sign of x kept
     assert np.signbit(nm.matlab_round(-0.0))
     np.testing.assert_array_equal(nm.matlab_round([np.inf, -np.inf]), [np.inf, -np.inf])
 
@@ -182,16 +182,53 @@ def test_pchip_shape_preserving_and_two_points() -> None:
     np.testing.assert_allclose(nm.pchip([0, 2], [1, 5], [1, 3]), [3, 7])
 
 
-def test_pchip_matches_scipy() -> None:
-    from scipy.interpolate import PchipInterpolator
+def _pchip_reference(x, y, q):
+    """Textbook pchip: Fritsch-Butland interior slopes, Moler's shape-preserving end
+    slopes (Numerical Computing with MATLAB, 2004, §3.4), cubic Hermite basis."""
+    h = np.diff(x)
+    delta = np.diff(y) / h
+    d = np.zeros_like(y)
+    for k in range(1, x.size - 1):
+        if delta[k - 1] * delta[k] > 0:
+            w1, w2 = 2 * h[k] + h[k - 1], h[k] + 2 * h[k - 1]
+            d[k] = (w1 + w2) / (w1 / delta[k - 1] + w2 / delta[k])
 
-    rs = np.random.RandomState(0)
-    x = np.cumsum(rs.random_sample(30) + 0.1)
-    y = rs.standard_normal(30)
-    q = np.linspace(x[0], x[-1], 1000)
-    np.testing.assert_allclose(
-        nm.pchip(x, y, q), PchipInterpolator(x, y)(q), rtol=1e-12, atol=1e-12
-    )
+    def end(h0, h1, del0, del1):
+        e = ((2 * h0 + h1) * del0 - h0 * del1) / (h0 + h1)
+        if np.sign(e) != np.sign(del0):
+            return 0.0
+        if np.sign(del0) != np.sign(del1) and abs(e) > abs(3 * del0):
+            return 3 * del0
+        return e
+
+    d[0] = end(h[0], h[1], delta[0], delta[1])
+    d[-1] = end(h[-1], h[-2], delta[-1], delta[-2])
+    k = np.clip(np.searchsorted(x, q, side="right") - 1, 0, x.size - 2)
+    s = (q - x[k]) / h[k]
+    h00, h10 = 2 * s**3 - 3 * s**2 + 1, s**3 - 2 * s**2 + s
+    h01, h11 = -2 * s**3 + 3 * s**2, s**3 - s**2
+    return h00 * y[k] + h10 * h[k] * d[k] + h01 * y[k + 1] + h11 * h[k] * d[k + 1]
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_pchip_documented_slope_rules(seed) -> None:
+    rs = np.random.RandomState(seed)
+    n = 3 + seed * 5
+    x = np.cumsum(rs.random_sample(n) + 0.1)
+    y = rs.standard_normal(n)
+    y[rs.random_sample(n) < 0.3] = 0.5  # flat runs and sign changes of the secants
+    span = x[-1] - x[0]
+    q = np.linspace(x[0] - 0.2 * span, x[-1] + 0.2 * span, 1001)
+    np.testing.assert_allclose(nm.pchip(x, y, q), _pchip_reference(x, y, q), rtol=1e-12, atol=1e-12)
+
+
+def test_pchip_end_slope_limited() -> None:
+    # Secants 1 then -10: the three-point end slope ((2*1+1)*1 - 1*(-10))/2 = 6.5
+    # exceeds 3*delta0 while the secants change sign, so it is limited to 3.
+    x, y = np.array([0.0, 1.0, 2.0]), np.array([0.0, 1.0, -9.0])
+    eps = 1e-7
+    slope = (nm.pchip(x, y, [eps]) - nm.pchip(x, y, [0.0]))[0] / eps
+    assert slope == pytest.approx(3.0, rel=1e-5)
 
 
 def test_gridded_interpolant() -> None:
@@ -290,22 +327,65 @@ def test_randi_and_interleaving() -> None:
 
 
 def test_interp1_flat_and_nonfinite_neighbours() -> None:
-    # MATLAB R2025a: flat segments give v0 exactly; nodes give the node value.
     x = np.array([5.96, 9.08, 10.08, 10.58, 13.70])
     v = np.array([1.0, 2.0, 2.0, 3.0, 3.0])
     q = np.linspace(x[0], x[-1], 997)
     out = nm.interp1(x, v, q)
     flat = q >= x[3]
-    assert np.all(out[flat] == 3.0)
+    np.testing.assert_allclose(out[flat], 3.0, rtol=1e-15)  # plain blend: within an ulp
+    # Inside an interval with an Inf end: Inf; extrapolation keeps the sign rule.
     np.testing.assert_array_equal(
-        nm.interp1([0, 1, 2], [1, np.inf, 3], [0, 0.5, 1, 1.5, 2]), [1, np.inf, np.inf, np.inf, 3]
-    )
-    np.testing.assert_array_equal(
-        nm.interp1([0, 1, 2], [1, np.nan, 3], [0, 0.5, 2]), [1, np.nan, 3]
+        nm.interp1([0, 1, 2], [1, np.inf, 3], [0.5, 1.5]), [np.inf, np.inf]
     )
     np.testing.assert_array_equal(
         nm.interp1([0, 1, 2], [1, np.inf, 3], [-1, 3], extrap="extrap"), [-np.inf, -np.inf]
     )
+    # B-70 (D-14): a node whose interval has an Inf/NaN end gives NaN (0*Inf);
+    # MATLAB returns the node value there.
+    out = nm.interp1([0, 1, 2], [1, np.inf, 3], [0, 1, 2])
+    assert np.isnan(out[0]) and np.isnan(out[2]) and out[1] == np.inf
+    np.testing.assert_array_equal(nm.interp1([0, 1, 2], [1, np.nan, 3], [0, 0.5, 2]), np.nan)
+
+
+def test_infinite_queries() -> None:
+    inf = np.inf
+    # MATLAB R2025a values (checked in tests/oracle/test_numerics_interp.py)
+    np.testing.assert_array_equal(nm.interp1([0, 1], [2, 2], [inf, -inf], extrap="extrap"), 2)
+    np.testing.assert_array_equal(
+        nm.interp1([0, 1], [1, 2], [inf, -inf], extrap="extrap"), [inf, -inf]
+    )
+    np.testing.assert_array_equal(
+        nm.interp1([0, 2], [0, 5e-324], [inf, -inf], extrap="extrap"), [inf, -inf]
+    )
+    np.testing.assert_array_equal(nm.interp1([0, 1], [1, 2], [inf, -inf]), np.nan)
+    np.testing.assert_array_equal(nm.pchip([0, 1, 2], [0, 1, 3], [inf, -inf]), [-inf, inf])
+    assert np.isnan(nm.pchip([0, 1], [0, 0], [inf])).all()  # Horner: 0 * Inf
+
+
+def test_pchip_complex_and_nonfinite_values() -> None:
+    out = nm.interp1([0, 1, 2], [1 + 1j, 2, 3j], [0.5, 1.5], "pchip")
+    np.testing.assert_allclose(out, [1.8125 + 0.125j, 1.4375 + 0.875j], rtol=1e-12)  # MATLAB
+    out = nm.interp1([0, 1, 2, 3], [1, np.inf, 3, 4], [0.5, 2.5], "pchip")
+    assert np.isnan(out[0]) and out[1] == pytest.approx(3.125)  # MATLAB: [NaN 3.125]
+    vm = np.array([[1, 1], [np.nan, 2], [2, np.nan], [4, 5]])
+    np.testing.assert_allclose(  # NaN rows dropped column by column (MATLAB)
+        nm.interp1([0, 1, 2, 3], vm, [0.5, 2.5], "pchip"),
+        [[1.075892857142857, 1.457427536231884], [2.794642857142857, 4.125679347826087]],
+        rtol=1e-12,
+    )
+    q = np.array([0.5, 1.5, 2.5])
+    g = nm.gridded_interpolant([0, 1, 2, 3.5], [1, np.nan, 3, 4], "pchip")(q)
+    assert np.isnan(g).all()  # NaN end slopes propagate (MATLAB: all NaN)
+    # B-71: a NaN secant makes its node slopes NaN (MATLAB gives 2 at 1.5 here).
+    g = nm.gridded_interpolant([0, 1, 2, 3.5], [1, 2, 2, np.nan], "pchip")([0.5, 1.5, 2.5])
+    assert np.isfinite(g[0]) and np.isnan(g[1:]).all()
+    inf = np.inf
+    out = nm.interp1([0, 1, 2], [1 + 1j, 2 + 3j, 3], [inf, -inf], extrap="extrap")
+    np.testing.assert_array_equal(out.real, [inf, -inf])  # MATLAB: Inf-Infi, -Inf-Infi
+    np.testing.assert_array_equal(out.imag, [-inf, -inf])
+    out = nm.interp1([0, 1, 2], [1 + 1j, 2 + 1j, 3 + 2j], [inf, -inf], extrap="extrap")
+    np.testing.assert_array_equal(out.real, [inf, -inf])  # MATLAB: Inf+Infi, -Inf+1i
+    np.testing.assert_array_equal(out.imag, [inf, 1])
 
 
 def test_interp1_pchip_drops_nan_values() -> None:

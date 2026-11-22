@@ -1,4 +1,10 @@
-"""Oracle tests: round, sort, find, sub2ind, ind2sub (comparison class: exact)."""
+"""Oracle tests: round, sort, find, sub2ind, ind2sub.
+
+Comparison class: exact. These helpers return integers (rounded values,
+indices) or permutations of exact inputs, so equality is documented semantics,
+not float noise (D-13). Values compare with NaN == NaN; the sign of zero is not
+checked (D-12).
+"""
 
 from __future__ import annotations
 
@@ -9,9 +15,17 @@ from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 
 from pyproteus import numerics as nm
-from tests.oracle.helpers import ORACLE_SETTINGS, assert_same_float, batch, col, get, put, row, vec
+from tests.oracle.helpers import ORACLE_SETTINGS, batch, col, get, put, row, vec
 
 ORACLE = ORACLE_SETTINGS
+
+
+def assert_exact(actual, expected, err_msg: str = "") -> None:
+    """Same shape and values (NaN == NaN; -0 == +0)."""
+    a, e = np.asarray(actual), np.asarray(expected)
+    assert a.shape == e.shape, f"shape {a.shape} != {e.shape} {err_msg}"
+    np.testing.assert_array_equal(a, e, err_msg=err_msg)
+
 
 TIES = np.concatenate(
     [
@@ -29,15 +43,15 @@ def test_round_ties_and_specials(matlab_engine) -> None:
     put(matlab_engine, x=row(TIES))
     matlab_engine.eval("y = round(x); ys = double(round(single(x)));", nargout=0)
     y, ys = get(matlab_engine, "y", "ys")
-    assert_same_float(nm.matlab_round(TIES).reshape(1, -1), y)
-    assert_same_float(nm.matlab_round(TIES.astype(np.float32)).astype(np.float64), ys.ravel())
+    assert_exact(nm.matlab_round(TIES).reshape(1, -1), y)
+    assert_exact(nm.matlab_round(TIES.astype(np.float32)).astype(np.float64), ys.ravel())
 
 
 def test_round_nd_shape(matlab_engine) -> None:
     x = (np.arange(2 * 3 * 5).reshape(2, 3, 5) - 15) / 2.0
     put(matlab_engine, x=x)
     matlab_engine.eval("y = round(x);", nargout=0)
-    assert_same_float(nm.matlab_round(x), get(matlab_engine, "y"))
+    assert_exact(nm.matlab_round(x), get(matlab_engine, "y"))
 
 
 @ORACLE
@@ -58,7 +72,7 @@ def test_round_random(matlab_engine, xs) -> None:
     x = np.array(xs, dtype=np.float64)
     put(matlab_engine, x=row(x))
     matlab_engine.eval("y = round(x);", nargout=0)
-    assert_same_float(nm.matlab_round(x), vec(get(matlab_engine, "y")))
+    assert_exact(nm.matlab_round(x), vec(get(matlab_engine, "y")))
 
 
 # --- sort ----------------------------------------------------------------------
@@ -83,7 +97,7 @@ def test_sort_vectors(matlab_engine, direction, orient) -> None:
     )
     for c, s_m, i_m in zip(cases, S, I, strict=True):
         s, i = nm.sort(orient(c).a, direction=direction)
-        assert_same_float(s, s_m, err_msg=str(c))
+        assert_exact(s, s_m, err_msg=str(c))
         np.testing.assert_array_equal(i + 1, i_m, err_msg=str(c))
 
 
@@ -105,7 +119,7 @@ def test_sort_random_nd(matlab_engine, arrays, direction, dim) -> None:
     for a, s_m, i_m in zip(arrays, S, I, strict=True):
         axis = None if dim is None else dim - 1  # dim > ndim: trailing singleton
         s, i = nm.sort(a, axis=axis, direction=direction)
-        assert_same_float(s, s_m.reshape(s.shape), err_msg=f"{a} {dim}")
+        assert_exact(s, s_m.reshape(s.shape), err_msg=f"{a} {dim}")
         np.testing.assert_array_equal(i + 1, i_m.reshape(i.shape))
 
 

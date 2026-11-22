@@ -1,18 +1,30 @@
 """MATLAB ``interp1``, ``griddedInterpolant`` (1-D) and ``pchip``.
 
-Clean-room implementations from the MATLAB documentation (behaviour), the
-Fritsch–Carlson (1980) and Fritsch–Butland (1984) papers, and Moler's
-*Numerical Computing with MATLAB* (2004), ch. 3 (shape-preserving end slopes),
-and de Boor, *A Practical Guide to Splines* (Hermite data → piecewise polynomial).
-No MathWorks source was consulted. Where several algebraically equal forms
-exist, the one used here was chosen by black-box comparison with MATLAB outputs
-(``tests/oracle/test_numerics_interp.py``).
+Behaviour follows the MATLAB documentation (NaN outside the sample range by
+default, ``'extrap'`` and fill values, sorting of unsorted sample points in
+``interp1``, linear extrapolation by default in ``griddedInterpolant``). The
+numerics are standard and self-contained (D-12, D-14):
 
-Linear interpolation uses ``v0*(1-t) + v1*t`` with ``t = (xq-x0)/(x1-x0)``,
-with two corrections found by black-box comparison: flat segments
-(``v0 == v1``) return ``v0``, and on a node a NaN caused only by a zero weight
-times Inf/NaN is replaced by the node value. This matched MATLAB R2025a
-``interp1`` and ``griddedInterpolant`` on every tested query.
+- linear: the two-point Lagrange form ``v0*(1-t) + v1*t`` with
+  ``t = (xq-x0)/(x1-x0)``, with no special cases. A query on a node next to an
+  Inf or NaN value therefore gives NaN (``0*Inf``), where MATLAB returns the
+  node value (B-70).
+- pchip: the cubic Hermite interpolant in the textbook local power form, with node
+  slopes from Fritsch & Butland (1984) (weighted harmonic mean of the secants,
+  0 at a sign change) and the shape-preserving three-point end slopes of Moler,
+  *Numerical Computing with MATLAB*, 2004, §3.4. These are the same rules as
+  SciPy's ``PchipInterpolator``; the own implementation is kept because SciPy
+  rejects non-finite and complex sample values, which MATLAB accepts (NaN/Inf
+  propagate; real and imaginary parts are interpolated separately). A NaN
+  secant makes its node slopes NaN, so ``griddedInterpolant`` can give NaN
+  next to a NaN sample where MATLAB gives a number (B-71).
+- ±Inf queries with extrapolation: linear gives the limit of the end line
+  (its value if flat, else ±Inf by the sign of the slope); pchip evaluates the local power form by
+  Horner's rule, so a flat or cancelling cubic gives NaN, as in MATLAB.
+
+No MathWorks source was consulted and no formula was chosen by comparing
+MATLAB's bits. Agreement with MATLAB is checked at the D-13 float class
+(``tests/oracle/test_numerics_interp.py``).
 """
 
 from __future__ import annotations
@@ -28,7 +40,7 @@ Method = Literal["linear", "nearest", "pchip"]
 def _intervals(x: np.ndarray, xq: np.ndarray) -> np.ndarray:
     """Index k of the interval [x[k], x[k+1]] used for each query (clipped to the ends).
 
-    NaN queries map to 0; callers mask them afterwards.
+    NaN queries map to the last interval; callers mask them afterwards.
     """
     k = np.searchsorted(x, xq, side="right") - 1
     return np.clip(k, 0, x.size - 2)
@@ -36,26 +48,11 @@ def _intervals(x: np.ndarray, xq: np.ndarray) -> np.ndarray:
 
 def _linear(x: np.ndarray, v: np.ndarray, xq: np.ndarray) -> np.ndarray:
     k = _intervals(x, xq)
-    x0, x1 = x[k], x[k + 1]
-    v0, v1 = v[k], v[k + 1]
-    t = (xq - x0) / (x1 - x0)
-    at_left, at_right = xq == x0, xq == x1
+    t = (xq - x[k]) / (x[k + 1] - x[k])
     if v.ndim > 1:
-        expand = (1,) * (v.ndim - 1)
-        t = t.reshape(t.shape + expand)
-        at_left = at_left.reshape(at_left.shape + expand)
-        at_right = at_right.reshape(at_right.shape + expand)
+        t = t.reshape(t.shape + (1,) * (v.ndim - 1))
     with np.errstate(invalid="ignore"):
-        out = v0 * (1 - t) + v1 * t
-    # Matched MATLAB by black-box comparison (all {1, ±0, ±Inf, NaN, 2} triples):
-    # - on a node, a NaN produced only by the zero weight (0 * Inf, 0 * NaN) is
-    #   replaced by the node value; otherwise the blend stands (so the sign of a
-    #   zero follows the blend, e.g. v = [1, -0] at the right node gives +0);
-    # - flat segments (v0 == v1) return v0 exactly (the blend can be 1 ulp off).
-    blend_nan = np.isnan(out)
-    out = np.where(blend_nan & at_left, v0, out)
-    out = np.where(blend_nan & at_right, v1, out)
-    return np.where(v0 == v1, v0, out)
+        return v[k] * (1 - t) + v[k + 1] * t
 
 
 def _nearest(x: np.ndarray, v: np.ndarray, xq: np.ndarray) -> np.ndarray:
@@ -65,75 +62,96 @@ def _nearest(x: np.ndarray, v: np.ndarray, xq: np.ndarray) -> np.ndarray:
     return v[np.where(upper, k + 1, k)]
 
 
-def pchip_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Node derivatives of the shape-preserving piecewise cubic Hermite interpolant.
+def _trailing(a: np.ndarray, ndim: int) -> np.ndarray:
+    """Append singleton axes so a per-query/per-interval array broadcasts against v."""
+    return a.reshape(a.shape + (1,) * (ndim - 1))
 
-    Interior: weighted harmonic mean of the neighbouring secant slopes when they
-    have the same sign, else 0 (Fritsch & Butland 1984). Ends: three-point
-    non-centred formula, limited to preserve shape (Moler 2004, §3.4).
-    ``y`` may have trailing dimensions (interpolated independently).
+
+def pchip_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Node slopes of the shape-preserving piecewise cubic Hermite interpolant.
+
+    Interior: weighted harmonic mean of the neighbouring secants when they have
+    the same sign, else 0 (Fritsch & Butland 1984). Ends: three-point formula,
+    limited to preserve shape (Moler 2004, §3.4). ``y`` may have trailing axes.
+    A NaN secant makes the slopes at its nodes NaN (interior and end), so NaN
+    propagates to the neighbouring intervals (B-71).
     """
-    h = np.diff(x)
-    if y.ndim > 1:
-        h = h.reshape(h.shape + (1,) * (y.ndim - 1))
-    delta = np.diff(y, axis=0) / h
-    n = x.size
+    h = _trailing(np.diff(x), y.ndim)
+    with np.errstate(invalid="ignore", over="ignore"):
+        delta = np.diff(y, axis=0) / h
     d = np.zeros_like(delta, shape=y.shape)
-    if n == 2:
-        d[0] = delta[0]
-        d[1] = delta[0]
+    if x.size == 2:
+        d[:] = delta[0]
         return d
     h0, h1 = h[:-1], h[1:]
     d0, d1 = delta[:-1], delta[1:]
-    w1 = 2 * h1 + h0
-    w2 = h1 + 2 * h0
+    w1, w2 = 2 * h1 + h0, h1 + 2 * h0
     same = np.sign(d0) * np.sign(d1) > 0
-    # Tiny secants can overflow w/δ to inf; the harmonic mean is then 0 (MATLAB agrees).
+    # Tiny secants can overflow w/δ to Inf; the harmonic mean is then 0.
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
         interior = (w1 + w2) / (w1 / d0 + w2 / d1)
     d[1:-1] = np.where(same, interior, 0.0)
+    d[1:-1] = np.where(np.isnan(d0) | np.isnan(d1), np.nan, d[1:-1])  # NaN propagates (B-71)
     d[0] = _end_slope(h[0], h[1], delta[0], delta[1])
     d[-1] = _end_slope(h[-1], h[-2], delta[-1], delta[-2])
     return d
 
 
 def _end_slope(h0, h1, del0, del1):
-    """End derivative from the end interval (h0, del0) and its neighbour (h1, del1).
+    """End slope: derivative of the quadratic through the three end points,
+    ``((2 h0 + h1) del0 - h0 del1) / (h0 + h1)``, set to 0 if its sign differs
+    from ``del0`` and to ``3 del0`` if the secants change sign and it exceeds
+    ``3 |del0|`` in magnitude (Moler 2004, §3.4)."""
+    with np.errstate(invalid="ignore", over="ignore"):
+        e = ((2 * h0 + h1) * del0 - h0 * del1) / (h0 + h1)
+        wrong_sign = np.sign(e) != np.sign(del0)
+        too_steep = (np.sign(del0) != np.sign(del1)) & (np.abs(e) > np.abs(3 * del0))
+    out = np.where(wrong_sign, 0.0, np.where(too_steep, 3 * del0, e))
+    return np.where(np.isnan(e), np.nan, out)  # a NaN end slope propagates
 
-    Formula (Moler 2004, §3.4, text): the derivative at the end of the quadratic
-    through the first three points, d = ((2 h0 + h1) del0 - h0 del1) / (h0 + h1),
-    set to 0 if its sign differs from del0, and to 3 del0 if the secants change
-    sign and |d| > |3 del0| (keeps the end interval monotone).
+
+def _pchip_coefficients(x: np.ndarray, v: np.ndarray) -> list[np.ndarray]:
+    """Local power-form coefficients [c0, c1, c2, c3] per interval, in s = xq - x_k.
+
+    Textbook cubic Hermite (e.g. Moler 2004, §3.4):
+    c0 = y_k, c1 = d_k, c2 = (3δ - 2d_k - d_{k+1})/h, c3 = (d_k - 2δ + d_{k+1})/h².
     """
-    quadratic = ((2 * h0 + h1) * del0 - h0 * del1) / (h0 + h1)
-    wrong_sign = np.sign(quadratic) != np.sign(del0)
-    too_steep = (np.sign(del0) != np.sign(del1)) & (np.abs(quadratic) > np.abs(3 * del0))
-    return np.where(wrong_sign, 0.0, np.where(too_steep, 3 * del0, quadratic))
+    d = pchip_slopes(x, v)
+    h = _trailing(np.diff(x), v.ndim)
+    with np.errstate(invalid="ignore", over="ignore"):
+        delta = np.diff(v, axis=0) / h
+        c2 = (3 * delta - 2 * d[:-1] - d[1:]) / h
+        c3 = (d[:-1] - 2 * delta + d[1:]) / (h * h)
+    return [v[:-1], d[:-1], c2, c3]
 
 
-def _hermite(x: np.ndarray, y: np.ndarray, d: np.ndarray, xq: np.ndarray) -> np.ndarray:
-    """Evaluate the cubic Hermite interpolant (local power form, Horner)."""
+def _pchip(x: np.ndarray, v: np.ndarray, xq: np.ndarray) -> np.ndarray:
+    if np.iscomplexobj(v):  # MATLAB interpolates real and imaginary parts separately
+        return _pchip(x, v.real, xq) + 1j * _pchip(x, v.imag, xq)
     k = _intervals(x, xq)
-    h = np.diff(x)
-    if y.ndim > 1:
-        h = h.reshape(h.shape + (1,) * (y.ndim - 1))
-    delta = np.diff(y, axis=0) / h
-    # Newton form of the cubic with double nodes x_k, x_k, x_{k+1}, x_{k+1}
-    # (de Boor, A Practical Guide to Splines, ch. I):
-    #   p(s) = y_k + d_k s + [x_k,x_k,x_{k+1}] s^2 + [x_k,x_k,x_{k+1},x_{k+1}] s^2 (s - h)
-    # with second divided differences left = (δ - d_k)/h, right = (d_{k+1} - δ)/h
-    # and third divided difference (right - left)/h. Expanding gives the power-
-    # form coefficients below. Black-box comparison with MATLAB's unmkpp(pchip)
-    # showed this grouping is bit-identical, while the algebraically equal
-    # (3δ - 2d_k - d_{k+1})/h is not. Clean-room status: docs/dev/DECISIONS.md D-8.
-    dd2_left = (delta - d[:-1]) / h
-    dd2_right = (d[1:] - delta) / h
-    c = 2 * dd2_left - dd2_right
-    b = (dd2_right - dd2_left) / h
-    s = xq - x[k]
-    if y.ndim > 1:
-        s = s.reshape(s.shape + (1,) * (y.ndim - 1))
-    return y[k] + s * (d[k] + s * (c[k] + s * b[k]))
+    c0, c1, c2, c3 = (c[k] for c in _pchip_coefficients(x, v))
+    s = _trailing(xq - x[k], v.ndim)
+    with np.errstate(invalid="ignore", over="ignore"):
+        return c0 + s * (c1 + s * (c2 + s * c3))
+
+
+def _infinite_queries(x, v, xq, out) -> None:
+    """Linear extrapolation at ±Inf queries: the limit of the end line (its value
+    if flat, else ±Inf by the sign of the slope), where the blend gives Inf - Inf.
+    Complex values: real and imaginary parts separately."""
+    if np.iscomplexobj(v):
+        re, im = out.real.copy(), out.imag.copy()
+        _infinite_queries(x, v.real, xq, re)
+        _infinite_queries(x, v.imag, xq, im)
+        out.real[...], out.imag[...] = re, im  # re + 1j*im would turn 0*Inf into NaN
+        return
+    for sign, k in ((1.0, x.size - 2), (-1.0, 0)):
+        mask = xq == sign * np.inf
+        if mask.any():
+            with np.errstate(invalid="ignore", over="ignore"):
+                rise = v[k + 1] - v[k]  # same sign as the slope (h > 0), cannot underflow
+                limit = np.where(rise != 0, np.sign(rise) * sign * np.inf, v[k])  # NaN stays NaN
+            out[mask] = limit
 
 
 def _prepare(x: ArrayLike, v: ArrayLike, sort: bool) -> tuple[np.ndarray, np.ndarray]:
@@ -170,10 +188,11 @@ def _evaluate(
     xq_flat = np.asarray(xq, dtype=np.float64).reshape(-1)
     if method == "linear":
         out = _linear(xa, va, xq_flat)
+        _infinite_queries(xa, va, xq_flat, out)
     elif method == "nearest":
         out = _nearest(xa, va, xq_flat)
     elif method == "pchip":
-        out = _hermite(xa, va, pchip_slopes(xa, va), xq_flat)
+        out = _pchip(xa, va, xq_flat)
     else:
         raise ValueError(f"unsupported method {method!r}")
     outside = (xq_flat < xa[0]) | (xq_flat > xa[-1])
@@ -208,16 +227,20 @@ def interp1(
     if extrap is None and method == "pchip":
         extrap = "extrap"
     xa, va = _prepare(x, v, sort=True)
-    if method == "pchip" and va.ndim == 1 and np.isnan(va).any():
-        # MATLAB interp1 drops NaN sample values for 'pchip' (with a warning);
-        # 'linear' and 'nearest' keep them.
-        keep = ~np.isnan(va)
-        if keep.sum() < 2:
-            raise ValueError("fewer than two non-NaN sample values")
-        xa, va = xa[keep], va[keep]
     xq_arr = np.asarray(xq, dtype=np.float64)
     if va.ndim > 1 and xq_arr.ndim == 2 and 1 in xq_arr.shape:
         xq_arr = xq_arr.reshape(-1)  # MATLAB: vector xq with matrix v gives numel(xq)×m
+    if method == "pchip" and np.isnan(va).any():
+        # MATLAB interp1 drops NaN sample values for 'pchip' (with a warning),
+        # column by column for matrix v; 'linear' and 'nearest' keep them.
+        cols = va.reshape(va.shape[0], -1)
+        out = np.empty((xq_arr.size, cols.shape[1]), dtype=np.result_type(va, np.float64))
+        for j in range(cols.shape[1]):
+            keep = ~np.isnan(cols[:, j])
+            if keep.sum() < 2:
+                raise ValueError("fewer than two non-NaN sample values")
+            out[:, j] = _evaluate(xa[keep], cols[keep, j], xq_arr, method, extrap)
+        return out.reshape(xq_arr.shape + va.shape[1:])
     out = _evaluate(xa, va, xq_arr, method, extrap)
     return out.reshape(xq_arr.shape + va.shape[1:])
 
@@ -234,6 +257,8 @@ class GriddedInterpolant:
     - Default extrapolation is the interpolation method itself: linear
       extrapolation for ``'linear'``, pchip for ``'pchip'``. ``extrap='none'``
       gives NaN outside the grid; a number fills.
+    - ``'pchip'`` keeps NaN sample values (they propagate); ``interp1``/``pchip``
+      drop them instead.
     - Call the object with query points: ``F(xq)``.
     """
 
