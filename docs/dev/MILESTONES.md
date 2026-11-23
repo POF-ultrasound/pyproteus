@@ -58,7 +58,7 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 ### GUIfunctions leaves
 - [x] `get_voltage_signal`, `get_pressure_signal` (2026-11-23, `pyproteus.transmit`)
 - [ ] `compute_gaussian_distribution`, `compute_polydisperse_distribution`
-- [ ] `estimate_impulse_response` (ported 2026-11-23, `pyproteus.transducer.impulse_response`; tolerance class pending, B-80)
+- [x] `estimate_impulse_response` (2026-11-23, `pyproteus.transducer.impulse_response`; SciPy SOS, D-17/B-80)
 - [x] `load_transducer_model`, `get_transducer_properties` (2026-11-22, `pyproteus.transducer`, settings PR)
 - [x] `get_element_geometry` (linear and curved) (2026-11-23, `pyproteus.transducer.geometry`)
 - [x] `compute_simulation_domain`, `compute_sound_speed_extrema` (2026-11-23, `pyproteus.transducer.domain`; extrema in the settings PR)

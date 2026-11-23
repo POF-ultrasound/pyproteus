@@ -4,9 +4,8 @@ Newest first. One entry per working session or milestone step: what was done, wh
 
 ## 2026-11-23 — M1 signal leaves (m1-leaves)
 - `transmit/signals.py` (`get_voltage_signal`, `get_pressure_signal`, `compute_mechanical_index`, pulse helpers), `transducer/impulse_response.py` (`estimate_impulse_response`, `butterworth_impulse_response`, SciPy second-order sections). `reset_transducer`/`reset_transmit` now fill the 5 signal fields; `PENDING_FIELDS` is empty. `tests/unit/test_config_models.py::test_reset_transmit_delay_type` gives its bare transducer an impulse response (reset_transmit now needs one, as in MATLAB).
-- Found B-80: MATLAB's butter (b, a) + impz impulse response is off by 1e-8 (P4-1) and up to 2 % (narrow bands) from the exact response; SciPy sos is within 5e-14. Reported to the main session with a proposal; provisional class 1e-7 rel. to max in the oracle tests.
+- Found B-80: MATLAB's butter (b, a) + impz impulse response is off by 1e-8 (P4-1) and up to 2 % (narrow bands) from the exact response; SciPy sos is within 5e-14. Reported to the main session; the developer approved the proposal (D-17): SOS design, 1e-12 vs the zpk reference, 1e-7 rel. to max vs MATLAB on catalogue-like bands, narrow bands reported only (Q-83).
 - Oracle test `tests/oracle/test_transmit_signals.py` (14 tests) and the reset_* oracle tests extended to all fields. Q-81 (sampling rates not checked), Q-82 (zero pulse → NaN).
-- Open: IR tolerance class (main session decision).
 
 ## 2026-11-23 — M1 compute_simulation_domain, compute_delays (m1-leaves)
 - #15 (get_element_geometry) merged after CI green + reviewer APPROVE; main session told.

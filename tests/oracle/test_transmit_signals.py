@@ -26,12 +26,13 @@ from tests.oracle.helpers import ORACLE_SETTINGS, from_matlab, to_matlab
 
 REL = 1e-9
 ATOL_FRACTION = 1e-14
-#: Impulse response vs MATLAB, relative to max|IR| (B-80). Provisional class, pending the
-#: main session's decision; MATLAB is off by up to 1.0e-8 from the exact response for the
-#: catalogue bands.
+#: Impulse response vs MATLAB, relative to max|IR| (D-17, B-80): MATLAB's butter (b, a)
+#: + impz result is off by up to 1.5e-8 from the exact response for catalogue-like bands.
 IR_VS_MATLAB = 1e-7
 #: Impulse response vs the partial-fraction reference, relative to max|IR|.
-IR_VS_REFERENCE = 1e-11  # measured <= 2.7e-12 (narrow bands), <= 5e-14 (catalogue)
+IR_VS_REFERENCE = 1e-12  # D-17; measured <= 5e-14 for catalogue-like bands
+#: Narrow bands (high Q at high sampling rates): the reference itself loses digits.
+IR_VS_REFERENCE_NARROW = 1e-11  # measured <= 2.7e-12
 
 
 def assert_float(
@@ -313,7 +314,8 @@ def test_impulse_response_vs_reference(low: float, high: float, fs: float) -> No
     a = ptr.butterworth_impulse_response(low, high, fs)
     h = reference_ir(low, high, fs)
     assert a.shape == h.shape
-    assert np.max(np.abs(a - h)) <= IR_VS_REFERENCE * np.max(np.abs(h))
+    bound = IR_VS_REFERENCE_NARROW if (low, high, fs) in NARROW else IR_VS_REFERENCE
+    assert np.max(np.abs(a - h)) <= bound * np.max(np.abs(h))
 
 
 def test_impulse_response_vs_matlab(matlab_engine: Any) -> None:

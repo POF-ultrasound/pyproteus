@@ -247,7 +247,7 @@ def test_reset_medium(meng: Any) -> None:
 
 #: Estimated impulse responses and the pressure pulses convolved with them: MATLAB's
 #: butter (b, a) + impz result is off by up to 1.0e-8 of max|IR| for the catalogue bands
-#: (B-80); compared relative to the maximum at this provisional class.
+#: (B-80); compared relative to the maximum at the D-17 class.
 IR_REL = 1e-7
 IR_PATHS = {".TransmitImpulseResponse": IR_REL, ".ReceiveImpulseResponse": IR_REL}
 SIGNAL_REL = {".PressureSignal": IR_REL, ".MechanicalIndex": 1e-12}
