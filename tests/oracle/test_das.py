@@ -456,12 +456,13 @@ SimulationParameters.GridSize = 1e-4;
 SimulationParameters.HybridSimulation = {hybrid};
 Transmit.LateralFocus = {focus};
 Transmit.CenterFrequency = 2.5e6;
-Transmit.SamplingRate = 40e6;
-tt = (0:79)/40e6;
+Transmit.SamplingRate = {fs_tx};
+tt = (0:round(2e-6*{fs_tx})-1)/{fs_tx};
 Transmit.PressureSignal = sin(2*pi*2.5e6*tt).*exp(-((tt-1e-6)/0.4e-6).^2);
 Transducer.Pitch = 0.3e-3;
-Transducer.SamplingRate = 40e6;
-Transducer.ReceiveImpulseResponse = exp(-((0:39)/40e6 - 0.4e-6).^2/(0.2e-6)^2);
+Transducer.SamplingRate = {fs_tr};
+tir = (0:round(1e-6*{fs_tr})-1)/{fs_tr};
+Transducer.ReceiveImpulseResponse = exp(-(tir - 0.4e-6).^2/(0.2e-6)^2);
 Transducer.ElementHeight = 5e-3;
 Transducer.ElevationFocus = {efocus};
 Geometry.Domain.Xmin = 0; Geometry.Domain.Xmax = 8e-3;
@@ -469,8 +470,14 @@ Geometry.Domain.Ymin = -2.4e-3; Geometry.Domain.Ymax = 2.4e-3;
 Medium.SpeedOfSound = 1540; Medium.AttenuationA = 0.5; Medium.AttenuationB = 1.1;
 save('{path}', 'Acquisition', 'SimulationParameters', 'Transmit', 'Transducer', ...
     'Geometry', 'Medium');
-clear Acquisition SimulationParameters Transmit Transducer Geometry Medium tt
+clear Acquisition SimulationParameters Transmit Transducer Geometry Medium tt tir
 """
+
+
+def settings_script(template: str, fs_tx: str = "40e6", fs_tr: str = "40e6", **kw) -> str:
+    """Fill a settings script; sampling rates of Transmit and Transducer default to 40 MHz
+    (the simulation runs at 40 MHz in every case)."""
+    return template.format(fs_tx=fs_tx, fs_tr=fs_tr, **kw)
 
 
 def scatterer_rf(nelem: int, nt: int, scatterers, rng) -> np.ndarray:
@@ -494,21 +501,37 @@ DAS_CASES = [
     (np.float32, "v7", "Standard", "true", "Inf", "20e-3", 3, 520),
     # Short record: the deepest pixels need samples past the end.
     (np.float64, "v7", "Standard", "true", "Inf", "20e-3", 1, 330),
+    # PROTEUS defaults: Transmit and Transducer at 250 MHz, simulation at 40 MHz.
+    (np.float64, "v7", "Standard", "true", "Inf", "20e-3", 1, 520, "250e6", "250e6"),
+    # Transducer model at its own rate (100 MHz), Transmit at 250 MHz.
+    (np.float64, "v7", "Standard", "false", "Inf", "20e-3", 1, 520, "250e6", "100e6"),
 ]
 
 
 @pytest.mark.parametrize(
-    "case", DAS_CASES, ids=lambda c: f"{np.dtype(c[0]).name}-{c[1]}-{c[2]}-{c[7]}"
+    "case",
+    DAS_CASES,
+    ids=lambda c: f"{np.dtype(c[0]).name}-{c[1]}-{c[2]}-{c[7]}-" + "-".join(c[8:]),
 )
 def test_das_reconstruction(matlab_engine, tmp_path, case) -> None:
-    dtype, version, scheme, hybrid, focus, efocus, nframes, nt = case
+    dtype, version, scheme, hybrid, focus, efocus, nframes, nt = case[:8]
+    fs_tx, fs_tr = case[8:] if len(case) > 8 else ("40e6", "40e6")
     eng = matlab_engine
     rng = np.random.default_rng(7)
     data = tmp_path / "rf"
     data.mkdir()
     settings = tmp_path / "settings.mat"
     eng.eval(
-        SETTINGS_M.format(scheme=scheme, hybrid=hybrid, focus=focus, efocus=efocus, path=settings),
+        settings_script(
+            SETTINGS_M,
+            fs_tx=fs_tx,
+            fs_tr=fs_tr,
+            scheme=scheme,
+            hybrid=hybrid,
+            focus=focus,
+            efocus=efocus,
+            path=settings,
+        ),
         nargout=0,
     )
     nelem = 16
@@ -553,8 +576,8 @@ def test_das_reconstruction_q101_regime(matlab_engine, tmp_path) -> None:
     data.mkdir()
     settings = tmp_path / "settings.mat"
     eng.eval(
-        SETTINGS_M.format(
-            scheme="Standard", hybrid="true", focus="Inf", efocus="1e-3", path=settings
+        settings_script(
+            SETTINGS_M, scheme="Standard", hybrid="true", focus="Inf", efocus="1e-3", path=settings
         ),
         nargout=0,
     )
@@ -639,8 +662,8 @@ SimulationParameters.HybridSimulation = {hybrid};
 Transmit.LateralFocus = {focus};
 Transmit.Angle = {angle};
 Transmit.CenterFrequency = 2.5e6;
-Transmit.SamplingRate = 40e6;
-tt = (0:79)/40e6;
+Transmit.SamplingRate = {fs_tx};
+tt = (0:round(2e-6*{fs_tx})-1)/{fs_tx};
 Transmit.PressureSignal = sin(2*pi*2.5e6*tt).*exp(-((tt-1e-6)/0.4e-6).^2);
 Transducer.Type = 'test';
 Transducer.Configuration = '{config}';
@@ -648,8 +671,9 @@ Transducer.NumberOfElements = {nelem};
 Transducer.Pitch = 0.3e-3;
 Transducer.ElementWidth = 0.27e-3;
 Transducer.Radius = {radius};
-Transducer.SamplingRate = 40e6;
-Transducer.ReceiveImpulseResponse = exp(-((0:39)/40e6 - 0.4e-6).^2/(0.2e-6)^2);
+Transducer.SamplingRate = {fs_tr};
+tir = (0:round(1e-6*{fs_tr})-1)/{fs_tr};
+Transducer.ReceiveImpulseResponse = exp(-(tir - 0.4e-6).^2/(0.2e-6)^2);
 Transducer.ElementHeight = 5e-3;
 Transducer.ElevationFocus = {efocus};
 Geometry.Domain.Xmin = {xmin}; Geometry.Domain.Xmax = 9e-3;
@@ -664,13 +688,21 @@ INIT_CASES = [
     ("Linear", 15, "Inf", "-8e-3", "7", "false", "Inf", "0.5e-3", ""),
     ("Curved", 17, "15e-3", "Inf", "0", "true", "20e-3", "-1e-3", ""),
     ("Curved", 16, "12e-3", "6e-3", "-5", "true", "Inf", "0", "Transmit.Apodization = rand(1,16);"),
+    # PROTEUS default rates (Transmit, Transducer 250 MHz; simulation 40 MHz):
+    ("Linear", 16, "Inf", "Inf", "3", "true", "20e-3", "0", "", "250e6", "250e6"),
+    # Transducer model at its own rate:
+    ("Curved", 17, "15e-3", "Inf", "0", "false", "20e-3", "0", "", "250e6", "100e6"),
 ]
 
 
 def make_general_settings(eng, case) -> None:
-    config, nelem, radius, focus, angle, hybrid, efocus, xmin, extra = case
+    config, nelem, radius, focus, angle, hybrid, efocus, xmin, extra = case[:9]
+    fs_tx, fs_tr = case[9:] if len(case) > 9 else ("40e6", "40e6")
     eng.eval(
-        GENERAL_SETTINGS_M.format(
+        settings_script(
+            GENERAL_SETTINGS_M,
+            fs_tx=fs_tx,
+            fs_tr=fs_tr,
             config=config,
             nelem=nelem,
             radius=radius,
@@ -701,7 +733,9 @@ def python_settings(eng) -> Any:
         path.unlink()
 
 
-@pytest.mark.parametrize("case", INIT_CASES, ids=lambda c: f"{c[0]}{c[1]}-{c[3]}-{c[4]}")
+@pytest.mark.parametrize(
+    "case", INIT_CASES, ids=lambda c: f"{c[0]}{c[1]}-{c[3]}-{c[4]}-" + "-".join(c[9:])
+)
 def test_initialize_das_parameters(matlab_engine, case) -> None:
     eng = matlab_engine
     eng.eval("rng(0, 'twister');", nargout=0)

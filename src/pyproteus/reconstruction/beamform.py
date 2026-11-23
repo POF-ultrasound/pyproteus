@@ -105,7 +105,7 @@ def time_gain_compensation(t: np.ndarray, medium: Any, f0: float, c: float) -> n
     t = np.asarray(t, dtype=np.float64).reshape(-1)
     a, b = float(_field(medium, "AttenuationA")), float(_field(medium, "AttenuationB"))
     att = a * (float(f0) * 1e-6) ** b
-    tmax = np.max(t) if t.size else 0.0
+    tmax = np.nanmax(t) if np.any(~np.isnan(t)) else 0.0  # MATLAB max ignores NaN
     if not tmax > 0:
         return np.zeros_like(t)
     gain = 10.0 ** (att * t * c * 1e2 / 20 / 2)
