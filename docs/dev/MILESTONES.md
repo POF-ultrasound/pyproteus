@@ -66,12 +66,12 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 - [x] medium/liquid property helpers (`assign_medium_properties`, `assign_liquid_properties`, `get_gas_properties`) (2026-11-22, `pyproteus.medium`, `pyproteus.microbubble`; also `compute_sound_speed_extrema`, `compute_polydisperse_distribution`)
 
 ### Grid, medium, transducer
-- [ ] `define_grid`, `optimize_grid_size`
-- [ ] `random_truncated_normal` (float class ≤ 1e-9, `erfcinv` via SciPy)
+- [x] `define_grid`, `optimize_grid_size` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
+- [x] `random_truncated_normal` (float class ≤ 1e-9, `erfcinv` via SciPy) (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 - [ ] `define_medium`, `voxelize_media_points`
 - [ ] `get_transducer_integration_points`, `get_transducer_integration_delays`
-- [ ] `compute_travel_times`, `evaluate_delta_function`
-- [ ] `sinc_interpolation`, `resample_signal`
+- [x] `compute_travel_times`, `evaluate_delta_function` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
+- [x] `sinc_interpolation`, `resample_signal` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 
 ### Delay-and-sum
 - [ ] `das_transmit_distance`, `initialize_das_parameters`

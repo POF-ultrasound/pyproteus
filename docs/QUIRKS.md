@@ -48,3 +48,10 @@ Format:
 - Ported in: `pyproteus.numerics.ode45` (one state vector, shared steps; batching itself comes with `compute_bubble_mass_source`).
 - Test: `tests/oracle/test_ode45.py::test_batch_dependence_similar`, `tests/unit/test_ode45.py::test_stacked_batch_shares_steps`.
 - Planned fix: after parity, per-bubble step control (vectorised solver with per-bubble steps, or one solve per bubble), so results no longer depend on batching.
+
+## Q-90 — `define_grid` drops the last grid point when the PML padding is odd
+- MATLAB: `acoustic-module/define_grid.m:80-93` (oracle commit 8d37938).
+- Behaviour: the full size `M = optimize_grid_size(N, 2*PMLmin, MaxPrime)` searches the single candidate `N + 2*PMLmin` and grows from there; the PML is `ceil((M - N)/2)` per side and the core grid becomes `M - 2*PML`. When `M - N` is odd the core grid has `N - 1` points, so the last grid point inside the domain is lost (e.g. `N = 100` → `M = 135`, PML 18, core 99). A domain one grid point thick gives an **empty** axis (`N = 1` → `M = 32`, PML 16, core 0).
+- Ported in: `pyproteus.acoustic.define_grid`.
+- Test: `tests/unit/test_acoustic.py::test_define_grid_q90_odd_padding_drops_a_point`; `tests/oracle/test_acoustic_grid.py::test_define_grid_domains` (single-point z domain).
+- Planned fix: k-Wave's PML is symmetric per axis, so keep the odd point in the core instead (`PML = floor((M - N)/2)`, core `N` or `N + 1` points, the extra one just outside the domain), or accept only full sizes with `M - N` even. Either keeps the whole domain on the grid; it changes grid sizes, hence every downstream index, for about half the settings.
