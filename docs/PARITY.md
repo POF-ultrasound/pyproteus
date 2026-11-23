@@ -124,6 +124,28 @@ Notes:
 - `linspace` is the textbook formula (`d1 + k*(d2-d1)/(n-1)`, last element `d2`), compared at 1e-12 rel. Per the developer's policy (2026-11-22) no code matches MATLAB's ulps or summation order; computed values are compared within tolerance, loaded data and constants exactly.
 - Settings JSON (`config.save_settings_json`) is lossless for every value tree (round trip tested on real settings files).
 
+## Transducer geometry and transmit (`pyproteus.transducer`, M1)
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `El = get_element_geometry(Transducer)` (linear, curved, `RCA`/other → linear; catalogue incl. C1-6D model file; `reset_transducer`; errors) | `transducer.get_element_geometry` → `ElementGeometry` | float (1e-9 rel; positions atol 1e-12·max(N·Pitch, R)); measured ≤ 2.2e-16·L on 500 random curved arrays | `tests/oracle/test_transducer_geometry.py` | ✅ |
+
+Notes:
+
+- Divergence (D-15): MATLAB returns a struct `El` with N×1 fields; pyproteus returns a frozen
+  `ElementGeometry` dataclass with 1-D arrays and snake_case names (`radius`, `apex`, `center`,
+  `theta_max`, plus `curved`, `n_elements`). `ElementGeometry.to_struct()` gives the MATLAB
+  struct (field names, N×1 columns); the oracle test compares through it.
+- Divergence (input validation): `NumberOfElements` must be a non-negative integer, else
+  `ValueError`. MATLAB errors for a fractional N on linear arrays (`zeros(2.5,1)`) but on
+  curved arrays silently uses `1:floor(N)` with `(N+1)/2` from the fractional N; a negative N
+  gives empty arrays in MATLAB. PROTEUS never passes such values (catalogue/GUI integers).
+- Errors are `ValueError` where MATLAB raises (`get_element_geometry:invalidRadius`, missing
+  fields); the oracle test checks MATLAB raises in the same cases.
+- Positions are differences of `R·cos` terms of the size of the array, so their absolute floor
+  scales with `max(N·Pitch, R)`, not with the (possibly tiny) value: for a nearly flat array
+  the apex `R(1 - cos θmax)` carries an absolute error of order eps·R on both sides.
+
 ## ODE solvers (`pyproteus.numerics`)
 
 Class D-13 (PR #10; replaces the old 1e-8 bubble class): per component `max|y_py - y_matlab| ≤ 10·RelTol·max|y_matlab| + AbsTol`, at `tspan` points (or the final value for a 2-point `tspan`). Step sequences are not compared.
