@@ -8,6 +8,7 @@ port, so the vessel property assignment is checked against MATLAB too.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -151,34 +152,97 @@ def _write_box_stl(path: Path, lo: np.ndarray, hi: np.ndarray) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+def _voxelise_in_matlab(eng: Any, var: str, tmp: Path, seed: int):
+    """Run MATLAB ``define_medium`` with ``EmbedVessel`` (``READ_stl`` + ``VOXELISE``)."""
+    eng.eval(
+        f"pyp_G__ = define_grid({var}.SimulationParameters, {var}.Geometry);"
+        f"rng({seed},'twister');"
+        f"[pyp_m__, pyp_v__] = define_medium(pyp_G__, {var}.Medium, {var}.Geometry);",
+        nargout=0,
+    )
+    ref = matlab_value(eng, "pyp_m__", tmp)
+    ref_v = matlab_value(eng, "pyp_v__", tmp)
+    s = load_settings(eng, tmp, var=var)
+    eng.eval("clear pyp_m__ pyp_v__ pyp_G__; rng(0,'twister');", nargout=0)
+    grid = acoustic.define_grid(s.SimulationParameters, s.Geometry)
+    # The mask contract M4's voxeliser must meet: bool, (Nx, Ny, Nz), index [ix, iy, iz]
+    # (MATLAB's own subscripts; the .mat reader keeps them, no C/Fortran reshuffle).
+    assert ref_v.dtype == bool, ref_v.dtype
+    assert ref_v.shape == grid.shape, (ref_v.shape, grid.shape)
+    return ref, ref_v, s, grid
+
+
 def test_define_medium_vessel_from_matlab_voxelise(
     matlab_engine: Any, oracle: Any, tmp_path: Path
 ) -> None:
+    """Asymmetric box STL: MATLAB's mask, its orientation, and the Python vessel path."""
     eng = matlab_engine
     _small_settings(eng, oracle.path, "pyp_S6__")
+    grid0 = acoustic.define_grid(*_grid_inputs(eng, tmp_path, "pyp_S6__"))
+    center = np.asarray(eng.eval("pyp_S6__.Geometry.Center")).reshape(-1)
+    # Box faces 0.3 dx past a grid node (not half-way: VOXELISE errors when a face is
+    # equidistant from two grid lines), a different extent along each axis,
+    # placed off-centre so a transposed or mirrored mask cannot match.
+    axes = (grid0.x, grid0.y, grid0.z)
+    lo_idx, hi_idx = (2, 1, 1), (len(grid0.x) // 2, len(grid0.y) - 3, len(grid0.z) // 3 + 1)
+    lo = np.array([a[i] + 0.3 * grid0.dx for a, i in zip(axes, lo_idx, strict=True)])
+    hi = np.array([a[i] + 0.3 * grid0.dx for a, i in zip(axes, hi_idx, strict=True)])
     folder = tmp_path / "geo" / "box"
     folder.mkdir(parents=True)
-    _write_box_stl(
-        folder / "box.stl", np.array([-1500.0, -1000.0, -800.0]), np.array([1500.0, 1200.0, 900.0])
-    )
+    _write_box_stl(folder / "box.stl", (lo - center) / 1e-6, (hi - center) / 1e-6)
     eng.eval(
         f"pyp_S6__.Geometry.GeometriesPath = '{tmp_path / 'geo'}';"
         "pyp_S6__.Geometry.Folder = 'box'; pyp_S6__.Geometry.STLfile = 'box.stl';"
         "pyp_S6__.Geometry.STLunit = 1e-6; pyp_S6__.Geometry.EmbedVessel = true;"
-        "pyp_S6__.Geometry.BoundingBox.Center = [0; 0; 0]; pyp_S6__.Geometry.Rotation = eye(3);"
-        "pyp_G__ = define_grid(pyp_S6__.SimulationParameters, pyp_S6__.Geometry);"
-        "rng(5,'twister');"
-        "[pyp_m__, pyp_v__] = define_medium(pyp_G__, pyp_S6__.Medium, pyp_S6__.Geometry);",
+        "pyp_S6__.Geometry.BoundingBox.Center = [0; 0; 0]; pyp_S6__.Geometry.Rotation = eye(3);",
         nargout=0,
     )
-    ref = matlab_value(eng, "pyp_m__", tmp_path)
-    ref_v = np.asarray(matlab_value(eng, "pyp_v__", tmp_path), dtype=bool)
-    s = load_settings(eng, tmp_path, var="pyp_S6__")
-    eng.eval("clear pyp_m__ pyp_v__ pyp_G__; rng(0,'twister');", nargout=0)
-    grid = acoustic.define_grid(s.SimulationParameters, s.Geometry)
-    ref_v = ref_v.reshape(grid.shape)
-    assert ref_v.any() and not ref_v.all(), "the box must cover part of the grid"
+    ref, ref_v, s, grid = _voxelise_in_matlab(eng, "pyp_S6__", tmp_path, seed=5)
+    expected = (
+        ((grid.x > lo[0]) & (grid.x < hi[0]))[:, None, None]
+        & ((grid.y > lo[1]) & (grid.y < hi[1]))[None, :, None]
+        & ((grid.z > lo[2]) & (grid.z < hi[2]))[None, None, :]
+    )
+    assert len(set(expected.shape)) == 3 and expected.any() and not expected.all()
+    np.testing.assert_array_equal(ref_v, expected)  # orientation: [ix, iy, iz]
     with pytest.raises(NotImplementedError, match="M4"):
         medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(5))
     kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(5), vessel=ref_v)
-    _compare(ref, kw, vessel, ref_v, "vessel")
+    _compare(ref, kw, vessel, ref_v, "box vessel")
+
+
+def _grid_inputs(eng: Any, tmp: Path, var: str):
+    s = load_settings(eng, tmp, var=var)
+    return s.SimulationParameters, s.Geometry
+
+
+SHIPPED = {"renal_tree": "maa.stl", "mouse_brain": "lpa_mouse_t10.stl"}
+
+
+@pytest.mark.parametrize("folder", sorted(SHIPPED))
+def test_define_medium_shipped_geometries(
+    matlab_engine: Any, oracle: Any, tmp_path: Path, folder: str
+) -> None:
+    """Default settings of both shipped geometries with MATLAB's VOXELISE mask.
+
+    The STL files are not in the oracle checkout (Zenodo 10573662); set
+    ``PYPROTEUS_GEOMETRIES_PATH`` to a folder with ``renal_tree/maa.stl`` and
+    ``mouse_brain/lpa_mouse_t10.stl``.
+    """
+    root = os.environ.get("PYPROTEUS_GEOMETRIES_PATH")
+    if not root or not (Path(root) / folder / SHIPPED[folder]).is_file():
+        pytest.skip(f"{folder}/{SHIPPED[folder]} not found (set PYPROTEUS_GEOMETRIES_PATH)")
+    eng = matlab_engine
+    build_settings(eng, oracle.path, var="pyp_S7__", folder=folder)
+    eng.eval(
+        "pyp_S7__.SimulationParameters.PointsPerWavelength = 2;"
+        f"pyp_S7__.Geometry.GeometriesPath = '{root}';",
+        nargout=0,
+    )
+    update_settings(eng, "pyp_S7__")
+    ref, ref_v, s, grid = _voxelise_in_matlab(eng, "pyp_S7__", tmp_path, seed=2)
+    assert ref_v.any(), "the vessel must cover part of the grid"
+    with pytest.raises(NotImplementedError, match="M4"):
+        medium.define_medium(grid, s.Medium, s.Geometry, s.Transducer, rng=nm.rng(2))
+    kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(2), vessel=ref_v)
+    _compare(ref, kw, vessel, ref_v, folder)
