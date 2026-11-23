@@ -211,3 +211,24 @@ def test_define_medium_broadcast_views_work_with_kwave_adapter() -> None:
             kg, dense, source, {"mask": sen_mask}, pml_size=pml, backend="python"
         )
     np.testing.assert_array_equal(a["p"], b["p"])
+
+
+def geometry_registry() -> dict[str, str]:
+    """``{path: "sha256:<hex>"}`` from ``pyproteus/io/geometry_registry.txt`` (pooch format)."""
+    from pathlib import Path
+
+    import pyproteus.io
+
+    text = (Path(pyproteus.io.__file__).parent / "geometry_registry.txt").read_text()
+    entries = {}
+    for line in text.splitlines():
+        if line.strip() and not line.startswith("#"):
+            name, digest = line.split()
+            entries[name] = digest
+    return entries
+
+
+def test_geometry_registry_lists_the_shipped_stls() -> None:
+    entries = geometry_registry()
+    assert set(entries) == {"renal_tree/maa.stl", "mouse_brain/lpa_mouse_t10.stl"}
+    assert all(v.startswith("sha256:") and len(v) == 7 + 64 for v in entries.values())

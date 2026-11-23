@@ -213,6 +213,17 @@ def test_define_medium_vessel_from_matlab_voxelise(
     _compare(ref, kw, vessel, ref_v, "box vessel")
 
 
+def assert_registry_hash(path: Path, name: str) -> None:
+    """The STL is the one recorded in ``pyproteus/io/geometry_registry.txt``."""
+    import hashlib
+
+    from tests.unit.test_medium import geometry_registry
+
+    entries = geometry_registry()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert entries[name] == f"sha256:{digest}", f"{name}: hash differs from the registry"
+
+
 SHIPPED = {"renal_tree": "maa.stl", "mouse_brain": "lpa_mouse_t10.stl"}
 
 
@@ -227,8 +238,10 @@ def test_define_medium_shipped_geometries(
     ``mouse_brain/lpa_mouse_t10.stl``.
     """
     root = os.environ.get("PYPROTEUS_GEOMETRIES_PATH")
-    if not root or not (Path(root) / folder / SHIPPED[folder]).is_file():
+    stl = Path(root or ".") / folder / SHIPPED[folder]
+    if not root or not stl.is_file():
         pytest.skip(f"{folder}/{SHIPPED[folder]} not found (set PYPROTEUS_GEOMETRIES_PATH)")
+    assert_registry_hash(stl, f"{folder}/{SHIPPED[folder]}")
     eng = matlab_engine
     build_settings(eng, oracle.path, var="pyp_S7__", folder=folder)
     eng.eval(
@@ -237,6 +250,21 @@ def test_define_medium_shipped_geometries(
         nargout=0,
     )
     update_settings(eng, "pyp_S7__")
+    if folder == "mouse_brain":
+        # Vessels ~15 µm wide: no voxel centre falls inside on an ultrasound grid, so
+        # use a 10 µm grid over the vessel bounding box (MATLAB and Python alike).
+        eng.eval(
+            "pyp_c__ = pyp_S7__.Geometry.Center;"
+            "pyp_h__ = pyp_S7__.Geometry.BoundingBox.Diagonal/2;"
+            "pyp_S7__.Geometry.Domain.Xmin = pyp_c__(1) - pyp_h__(1);"
+            "pyp_S7__.Geometry.Domain.Xmax = pyp_c__(1) + pyp_h__(1);"
+            "pyp_S7__.Geometry.Domain.Ymin = pyp_c__(2) - pyp_h__(2);"
+            "pyp_S7__.Geometry.Domain.Ymax = pyp_c__(2) + pyp_h__(2);"
+            "pyp_S7__.Geometry.Domain.Zmin = pyp_c__(3) - pyp_h__(3);"
+            "pyp_S7__.Geometry.Domain.Zmax = pyp_c__(3) + pyp_h__(3);"
+            "pyp_S7__.SimulationParameters.GridSize = 10e-6; clear pyp_c__ pyp_h__",
+            nargout=0,
+        )
     ref, ref_v, s, grid = _voxelise_in_matlab(eng, "pyp_S7__", tmp_path, seed=2)
     assert ref_v.any(), "the vessel must cover part of the grid"
     with pytest.raises(NotImplementedError, match="M4"):
