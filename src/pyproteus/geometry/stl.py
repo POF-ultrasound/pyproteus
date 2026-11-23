@@ -3,9 +3,9 @@
 Ported from the MATLAB "Mesh voxelisation" toolbox by Adam H. Aitkenhead
 (The Christie NHS Foundation Trust), shipped with PROTEUS in
 ``mesh-voxelisation/``. Copyright (c) 2013, Adam H. Aitkenhead. All rights
-reserved. Redistributed under the original BSD licence (two redistribution
-clauses plus non-endorsement; PROTEUS calls it BSD-2), full text and
-disclaimer in ``LICENSES/mesh-voxelisation-BSD.txt``.
+reserved. Redistributed under the BSD-3-Clause licence (non-endorsement
+clause naming The Christie NHS Foundation Trust); full text and disclaimer
+in ``LICENSES/mesh-voxelisation-BSD.txt``.
 
 The STL format itself is public: binary files are an 80-byte header, an int32
 facet count and 50-byte records (normal and three vertices as float32, two
@@ -34,9 +34,11 @@ def identify_stl_format(path: str | PathLike[str]) -> str:
     80 bytes contain ``endsolid``.
     """
     raw = Path(path).read_bytes()
-    if (len(raw) - 84) % 50 != 0:
+    # MATLAB rem() keeps the sign: files shorter than 84 bytes go on to the
+    # 'solid' check like MATLAB; strtrim also strips NUL characters.
+    if len(raw) >= 84 and (len(raw) - 84) % 50 != 0:
         return "ascii"
-    if raw[:80].strip()[:5] != b"solid":
+    if raw[:80].strip(b" \t\n\r\x0b\x0c\x00")[:5] != b"solid":
         return "binary"
     return "ascii" if b"endsolid" in raw[-80:] else "binary"
 
@@ -76,7 +78,7 @@ def _read_binary(path: str | PathLike[str]) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _read_ascii(path: str | PathLike[str]) -> tuple[np.ndarray, np.ndarray]:
-    lines = [ln.strip() for ln in Path(path).read_text().splitlines()]
+    lines = [ln.strip() for ln in Path(path).read_text(encoding="latin-1").splitlines()]
     lines = [ln for ln in lines if ln]
     normals = [ln[12:].split() for ln in lines if ln.startswith("facet normal")]
     verts = [ln[6:].split() for ln in lines if ln.startswith("vertex")]

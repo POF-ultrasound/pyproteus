@@ -1,6 +1,6 @@
 mesh-voxelisation (READ_stl.m, VOXELISE.m), ported in src/pyproteus/geometry/
 Source: PROTEUS mesh-voxelisation/license.txt (MATLAB File Exchange 27390, "Mesh voxelisation").
-The licence has three clauses (BSD-3-Clause style, incl. non-endorsement); PROTEUS docs call it BSD-2.
+SPDX: BSD-3-Clause (third clause: non-endorsement, naming The Christie NHS Foundation Trust).
 
 Copyright (c) 2013, Adam H. Aitkenhead
 All rights reserved.

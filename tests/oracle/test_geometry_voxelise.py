@@ -1,8 +1,11 @@
 """Oracle tests: ``pyproteus.geometry`` vs ``READ_stl``/``VOXELISE``/``define_medium``.
 
-Class D-13 "integers after rounding" for masks: at least 99.9 % of voxels
-equal, every difference reported and required to sit on the surface (a
-differing voxel touches both inside and outside voxels of MATLAB's mask).
+Class D-13 "integers after rounding" for masks, with the 99.9 % measured
+against the voxels inside either mask rather than the whole grid (a vessel is
+< 0.1 % of the grid, so a whole-grid rate would accept any vessel): at most
+0.1 % of them differ, every difference reported and required to sit on the
+surface (a differing voxel touches both inside and outside voxels of MATLAB's
+mask). Measured: 100 % on every case.
 The port uses the same ray/facet formulas as ``VOXELISE.m``, so the synthetic
 cases are expected to agree exactly and are asserted exactly. ``READ_stl`` is
 exact (data read from files).
@@ -101,7 +104,10 @@ def compare_masks(
     if exact:
         assert n == 0, f"{label}: {n} voxels differ"
         return
-    assert frac >= MIN_EQUAL, label
+    # D-13 integer class, measured against the voxels inside either mask (not the
+    # whole grid: thin vessels are a tiny fraction of it and entirely surface).
+    union = int((actual | expected).sum())
+    assert n <= (1 - MIN_EQUAL) * union, f"{label}: {n} of {union} inside voxels differ"
     if n:
         k = np.ones((3, 3, 3), bool)
         near_in = ndimage.binary_dilation(expected, k)
@@ -151,6 +157,54 @@ def pyramid_apex_on_ray() -> np.ndarray:
     a = np.array([5.0, 5.0, 7.7])
     tris = [(b[0], b[2], b[1]), (b[0], b[3], b[2])] + [(b[i], b[(i + 1) % 4], a) for i in range(4)]
     return np.stack([np.array(t).T for t in tris])
+
+
+def _quad(p0: Any, p1: Any, p2: Any, p3: Any) -> list[np.ndarray]:
+    return [np.array([p0, p1, p2], float).T, np.array([p0, p2, p3], float).T]
+
+
+def box_with_holed_top(
+    lo: np.ndarray, hi: np.ndarray, xs: list[float], ys: list[float], hole: tuple[int, int]
+) -> np.ndarray:
+    """Box without its top face, the top tessellated on the ``xs`` x ``ys`` cells minus
+    ``hole``: rays through the hole cross once (odd) and are filled from neighbours."""
+    c = np.array(
+        [
+            [lo[0], lo[1], lo[2]],
+            [hi[0], lo[1], lo[2]],
+            [hi[0], hi[1], lo[2]],
+            [lo[0], hi[1], lo[2]],
+            [lo[0], lo[1], hi[2]],
+            [hi[0], lo[1], hi[2]],
+            [hi[0], hi[1], hi[2]],
+            [lo[0], hi[1], hi[2]],
+        ]
+    )
+    tris = []
+    for a, b, cc, d in [(0, 3, 2, 1), (0, 1, 5, 4), (2, 3, 7, 6), (1, 2, 6, 5), (0, 4, 7, 3)]:
+        tris += _quad(c[a], c[b], c[cc], c[d])
+    z = hi[2]
+    for i in range(len(xs) - 1):
+        for j in range(len(ys) - 1):
+            if (i, j) != hole:
+                tris += _quad(
+                    [xs[i], ys[j], z],
+                    [xs[i + 1], ys[j], z],
+                    [xs[i + 1], ys[j + 1], z],
+                    [xs[i], ys[j + 1], z],
+                )
+    return np.stack(tris)
+
+
+def octahedron(center: Any, r: float, h: float) -> list[np.ndarray]:
+    cx, cy, cz = center
+    eq = [(cx - r, cy, cz), (cx, cy - r, cz), (cx + r, cy, cz), (cx, cy + r, cz)]
+    top, bottom = (cx, cy, cz + h), (cx, cy, cz - h)
+    tris = []
+    for k in range(4):
+        a, b = eq[k], eq[(k + 1) % 4]
+        tris += [np.array([a, b, top], float).T, np.array([b, a, bottom], float).T]
+    return tris
 
 
 def _matlab_geometry(eng: Any, folder: str, geometries_path: Path) -> dict[str, Any]:
@@ -274,6 +328,57 @@ def test_vertices_on_rays_and_open_mesh(eng: Any) -> None:
             )
 
 
+def test_correction_order_border_and_vertex_groups(eng: Any) -> None:
+    """Cases where the correction order (sequential, y outer / x inner), the zero
+    padding at the grid border and the vertex grouping change the result."""
+    g = np.arange(11, dtype=float)
+    lo, hi = np.array([1.3, 1.4, 1.2]), np.array([8.7, 8.6, 6.8])
+    cases = {
+        # hole in the middle of the top: corrected rays feed later corrections
+        "holed top": box_with_holed_top(
+            lo, hi, [1.3, 3.45, 6.55, 8.7], [1.4, 3.35, 6.6, 8.6], (1, 1)
+        ),
+        # box beyond the grid in y, hole at the y = 0 edge: corrections use padding
+        "holed top at the border": box_with_holed_top(
+            np.array([1.3, -0.6, 1.2]),
+            np.array([8.7, 8.6, 6.8]),
+            [1.3, 3.45, 6.55, 8.7],
+            [-0.6, 3.35, 6.6, 8.6],
+            (1, 0),
+        ),
+        # one-ray hole at the grid corner: 3 in-grid neighbours inside, the 5 outside
+        # the grid count as empty (MATLAB's zero border), so the ray stays empty
+        "holed top at the corner": box_with_holed_top(
+            np.array([-0.6, -0.6, 1.2]),
+            np.array([8.7, 8.6, 6.8]),
+            [-0.6, 0.5, 4.45, 8.7],
+            [-0.6, 0.5, 4.35, 8.6],
+            (0, 0),
+        ),
+        # ray (5, 5) touches two octahedra at an equator vertex: facets around each
+        # vertex face +z and -z, so the ray must be corrected, not counted twice
+        "vertex on silhouettes": np.stack(
+            octahedron((7.2, 5.0, 2.3), 2.2, 1.7) + octahedron((7.2, 5.0, 6.4), 2.2, 1.7)
+        ),
+        # degenerate (zero-area, NaN normal) facet at a vertex on a ray
+        "degenerate facet at a vertex": np.concatenate(
+            [
+                pyramid_apex_on_ray(),
+                np.array([[5.0, 5.0, 7.7], [5.0, 5.0, 7.7], [2.3, 2.6, 1.4]]).T[None],
+            ]
+        ),
+    }
+    for label, mesh in cases.items():
+        put(eng, pyp_M=mesh)
+        for ray in ("z", "xyz"):
+            compare_masks(
+                voxelise(g, g, g, mesh, ray),
+                matlab_voxelise(eng, g, g, g, "pyp_M", ray),
+                f"{label} {ray}",
+                exact=True,
+            )
+
+
 def test_mesh_larger_than_grid(eng: Any) -> None:
     """The grid is extended along the first traced axis needing it, then cropped (B-110)."""
     mesh = box_mesh(np.array([-1.3, 1.2, 2.1]), np.array([12.4, 7.7, 13.9]))
@@ -376,6 +481,8 @@ def test_define_medium_downstream(eng: Any, geometries_path: Path) -> None:
         f"define_medium renal_tree default grid: {int(eng.workspace['pyp_nv'])} vessel voxels, "
         f"{vdiff} differ; max rel err c, rho, BonA = {err}"
     )
-    # integer class on the mask, float class on every voxel where the masks agree
-    assert vdiff <= (1 - MIN_EQUAL) * mask.size
+    # integer class on the mask (relative to the vessel), float class elsewhere
+    nv = int(eng.workspace["pyp_nv"])
+    assert nv > 1000 and mask.sum() > 1000
+    assert vdiff <= (1 - MIN_EQUAL) * nv
     assert np.all(err <= 1e-9), err

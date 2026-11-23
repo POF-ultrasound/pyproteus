@@ -7,7 +7,7 @@ name = "pyproteus"
 dynamic = ["version"]
 description = "Python port of PROTEUS, the contrast-enhanced ultrasound simulator"
 readme = "README.md"
-license = "MIT"
+license = "MIT AND BSD-3-Clause"
 license-files = ["LICENSE", "LICENSES/*"]
 requires-python = ">=3.11"
 authors = [{ name = "PROTEUS developers" }]

@@ -3,9 +3,9 @@
 Ported from the MATLAB "Mesh voxelisation" toolbox by Adam H. Aitkenhead
 (The Christie NHS Foundation Trust), shipped with PROTEUS in
 ``mesh-voxelisation/``. Copyright (c) 2013, Adam H. Aitkenhead. All rights
-reserved. Redistributed under the original BSD licence (two redistribution
-clauses plus non-endorsement; PROTEUS calls it BSD-2), full text and
-disclaimer in ``LICENSES/mesh-voxelisation-BSD.txt``.
+reserved. Redistributed under the BSD-3-Clause licence (non-endorsement
+clause naming The Christie NHS Foundation Trust); full text and disclaimer
+in ``LICENSES/mesh-voxelisation-BSD.txt``.
 
 Method (Patil S and Ravi B, "Voxel-based representation, display and
 thickness analysis of intricate shapes", CAD/CG 2005): rays through the grid
@@ -48,9 +48,9 @@ def voxelise(
     Parameters
     ----------
     grid_x, grid_y, grid_z
-        Grid coordinates along x, y, z (non-decreasing, at least two values
-        each). MATLAB's alternative of passing a voxel count is not supported:
-        PROTEUS always passes coordinates.
+        Grid coordinates along x, y, z (non-decreasing). A single value is a
+        one-point axis; MATLAB would read a scalar as a voxel count (PROTEUS
+        always passes coordinates, PARITY.md).
     mesh_xyz
         ``(N, 3, 3)`` facet vertices, ``mesh_xyz[facet, coord, vertex]`` (the
         output of :func:`pyproteus.geometry.read_stl`).
@@ -116,8 +116,8 @@ def _grid_vector(g: ArrayLike, name: str) -> np.ndarray:
     if arr.ndim > 1 and sum(s > 1 for s in arr.shape) > 1:
         raise ValueError(f"grid_{name} must be a vector, got shape {arr.shape}")
     arr = arr.reshape(-1)
-    if arr.size < 2:
-        raise ValueError(f"grid_{name} needs at least two coordinates (voxel counts unsupported)")
+    if arr.size < 1:
+        raise ValueError(f"grid_{name} is empty")
     return arr
 
 

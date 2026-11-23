@@ -152,7 +152,7 @@ Plan: port order steps 10-11. Streamlines use nearest-voxel velocity: compare st
 
 ### Geometry
 - [ ] Reference geometries (renal tree, mouse brain) from Zenodo via pooch (m1-grid-medium, PR #18)
-- [x] Port `VOXELISE` (keep BSD-2 notice) (2026-11-23, moved into M1: `pyproteus.geometry`, also `READ_stl` and the `define_medium` vessel block; 100 % voxel parity)
+- [x] Port `VOXELISE` (keep the notice; the licence is BSD-3-Clause) (2026-11-23, moved into M1: `pyproteus.geometry`, also `READ_stl` and the `define_medium` vessel block; 100 % voxel parity)
 
 ### Done when
 - [ ] Streamlines: paths agree until the first voxel flip, and the distributions match (D-13)

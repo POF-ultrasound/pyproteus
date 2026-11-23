@@ -198,8 +198,8 @@ def test_input_validation() -> None:
     mesh = box_mesh([1, 1, 1], [3, 3, 3])
     with pytest.raises(ValueError, match="ray_direction"):
         voxelise(g, g, g, mesh, "xx")
-    with pytest.raises(ValueError, match="at least two"):
-        voxelise(np.array([3.0]), g, g, mesh)
+    with pytest.raises(ValueError, match="empty"):
+        voxelise(np.zeros(0), g, g, mesh)
     with pytest.raises(ValueError, match="non-decreasing"):
         voxelise(g[::-1], g, g, mesh)
     with pytest.raises(ValueError, match="shape"):
@@ -278,3 +278,13 @@ def test_vertex_on_ray_with_mixed_normals_is_corrected() -> None:
     mesh = box_mesh([2, 3, 1], [7, 8, 6])
     assert voxelise(g, g, g, mesh, "z").sum() == 48
     assert voxelise(g, g, g, mesh).sum() == 56
+
+
+def test_one_point_axis_is_a_coordinate() -> None:
+    """A size-1 axis (e.g. Nz = 1) is one plane of coordinates (MATLAB would read a
+    scalar as a voxel count; PARITY.md)."""
+    g = np.arange(9.0)
+    mesh = box_mesh([1.5, 2.5, 0.5], [6.5, 5.5, 3.5])
+    full = voxelise(g, g, g, mesh)
+    np.testing.assert_array_equal(voxelise(g, g, np.array([2.0]), mesh), full[:, :, 2:3])
+    np.testing.assert_array_equal(voxelise(np.array([3.0]), g, g, mesh), full[3:4])

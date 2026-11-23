@@ -8,6 +8,7 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - Oracle tests (`tests/oracle/test_geometry_voxelise.py`, 13): all masks 100 % equal to MATLAB (renal tree/mouse brain default and fine odd grids, sample.stl × 7 ray directions, vertex/edge/open-mesh/border/tilted/oversized/tie synthetic cases); `READ_stl` exact; `define_medium` downstream 0 rel. error. Unit tests `tests/unit/test_geometry.py` (15).
 - D-15 library check: trimesh `contains` matches on watertight meshes but is 150× slower and runs out of time/memory on the renal tree; the mouse brain mesh is not watertight. Direct port kept, no new dependency (PARITY.md).
 - Found: B-110 (grid extension on one axis), B-111 (absolute 1e-14 area threshold), B-112 (default mouse brain mask is empty). B-90 (tie error) handled robustly, divergence in PARITY.md.
+- Review (fresh agent): no behavioural divergence found; tests strengthened after its mutation run (mask tolerance over inside voxels, correction order, border/corner padding, silhouette vertices, degenerate facet), licence relabelled BSD-3-Clause with `license = "MIT AND BSD-3-Clause"`, one-point grid axes accepted, STL format detection for < 84-byte files and NUL padding, latin-1 ASCII reading.
 - Next: `define_medium` can call `vessel_mask` once PR #18 and this PR are both on main (m1-grid-medium or main session).
 
 ## 2026-11-22 — M2 ode45 (m2-ode45)
