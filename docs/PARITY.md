@@ -135,3 +135,34 @@ Class D-13 (PR #10; replaces the old 1e-8 bubble class): per component `max|y_py
 | `ode23` + events | — | — | — | ⬜ (M4) |
 
 Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxStep`, `InitialStep`, `Refine`, `OutputFcn`; `BDF`/`MaxOrder`/`Stats` accepted and ignored; other options raise. Forward and backward; 2-point and many-point `tspan`.
+
+## Delay-and-sum (`pyproteus.reconstruction`, M1)
+
+Classes per D-13. Sample indices are compared per (pixel, element) entry of the
+DAS matrix (MATLAB returns `find(M)`); weights where both sides keep the same
+sample at the float class. Tie cases use dyadic coordinates with `c = Fs = 1`,
+so `(t_del - t(1))*Fs` hits exact .5 values on both sides (half away from zero).
+
+| MATLAB | Python | Class | Oracle test (`tests/oracle/test_das.py`) | Status |
+|---|---|---|---|---|
+| `das_transmit_distance` (linear, curved; plane, diverging, focused, focus 0; steered) | `das_transmit_distance` | float | `test_das_transmit_distance` | ✅ |
+| `compute_das_matrix` (plane, diverging; even/odd elements; `X ≤ 0`; out-of-range samples) | `compute_das_matrix` | statistical (measured 100 %: 5.28 M entries on a λ/5, 64-element image; all tie cases exact) | `test_compute_das_matrix_*` | ✅ |
+| `compute_das_matrix_general` (linear, curved; plane, steered, diverging, focused, curved diverging; cosine/binary; `axis_delay`; defaults) | `compute_das_matrix_general` | statistical (measured 100 % incl. 500 Hypothesis cases); weights float | `test_compute_das_matrix_general*` | ✅ (B-100: `-0` pixel) |
+| `load_RF_data` (v7 and v7.3, single and double, all pulsing schemes, frame order) | `load_rf_data`, `iter_rf_frames` | exact | `test_load_rf_data*` | ✅ |
+| TGC expression of `DAS_reconstruction` (incl. Q-101) | `time_gain_compensation` | float | `test_time_gain_compensation` | ✅ |
+| colon `a:d:b` (pixel axes) | `reconstruction.colon` | float values, exact length on tested cases | `test_colon` | ✅ |
+| `DAS_reconstruction` (double RF; v7.3 + pulse inversion + diverging + full-simulation k-Wave correction; single RF) | `das_reconstruction` | float on the linear image `10^(IMG/20)` for double RF (measured 4.4e-16); single RF ≤ 1e-6 abs (measured 5.5e-8) | `test_das_reconstruction` | ✅ |
+| `initialize_das_parameters`, `DAS_reconstruction_general` | — | — | — | ⬜ (wait for `get_element_geometry`) |
+
+Design differences with MATLAB (D-15; results within the classes above):
+
+- **DAS matrix built in pixel blocks.** MATLAB forms dense `Npixels`-by-`Nelem` delays, indices, angles and weights for the whole image before `sparse`. pyproteus builds the matrix in blocks of pixels (`block_size`, default 16384), so peak memory is the sparse matrix plus a few `block_size*Nelem` arrays. Output is a `scipy.sparse.csr_array` (`cupyx.scipy.sparse` has the same type for a later GPU path). Each (pixel, element) pair maps to one column, so the duplicate accumulation of MATLAB `sparse` cannot occur (asserted in the oracle test), and zero weights are not stored (MATLAB drops them too).
+- **Frames streamed.** `iter_rf_frames` reads each `Frame*.mat` once, only the `RF` variable; `das_reconstruction` beamforms blocks of frames as they are read. MATLAB reads the first file twice and holds all frames plus the complex `Nt*Nelem`-by-`Nframes` matrix. `load_rf_data` still returns the stacked array for callers that want it.
+- **No transpose.** The column order of the DAS matrix (`sample + Nt*element`) is the C-order flattening of an `Nelem`-by-`Nt` frame, so RF goes into `M @ ...` without MATLAB's `permute`.
+- **Double precision throughout.** MATLAB keeps `single` RF (the PROTEUS default) in `single` through the TGC and `hilbert`; pyproteus computes in double. Effect: single-precision rounding of the input chain (5.5e-8 of the image peak on the test case).
+- **Settings object accepted.** `das_reconstruction(folder, settings)` takes a settings `.mat` path (as MATLAB) or a `Settings` object.
+
+Notes:
+
+- `colon` counts `(b-a)/d` within 1e-10 (relative) below an integer as that integer, so a range meant to end on `b` keeps its last element; values are `a + k*d` (MATLAB may differ in the last bits). Used for the pixel axes; a shared `numerics.colon` would serve `define_grid` too (proposed to the main session).
+- The randomised general-matrix test excludes `-0.0` coordinates (B-100).

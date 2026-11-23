@@ -109,3 +109,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Observation: their last bit can differ between the two environments, so ported formulas are not expected to be bit-identical to MATLAB.
 - Impact: ~1 ulp per operation, far inside the tolerance classes (D-12/D-13/D-14).
 - Action: none; no code acts on this.
+
+## B-100 — General DAS matrix: pixel at axial coordinate −0 (observation, outside the classes)
+- Where: `compute_das_matrix_general` with a pixel at `x = -0.0` exactly above an element at `x_el = 0`, `y = y_el`.
+- Symptom: found by the randomised oracle test: MATLAB keeps that (pixel, element) entry, pyproteus drops it.
+- Cause: `atan2(0, -0) = pi` in IEEE 754 / NumPy, so the angle exceeds the threshold. The sign of zero is not part of the D-13 classes (as B-20); not investigated further in MATLAB (D-12).
+- Workaround: none needed; the randomised test normalises `-0.0` to `+0.0` (`tests/oracle/test_das.py::general_case`). A pixel exactly on an element is degenerate anyway.
