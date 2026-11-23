@@ -132,7 +132,7 @@ def get_transducer_integration_points(transducer: Any, grid: Any) -> Any:
             )
         area = np.asarray(_get(T, "integration_area"), dtype=float)
         weights = area / (grid.dy * grid.dz)
-        _set(T, "integration_weights", float(weights) if weights.size == 1 else weights)
+        _set(T, "integration_weights", weights.item() if weights.size == 1 else weights)
         apod = np.ones(pts.shape[:2])
         for k in ("integration_transmit_apodization", "integration_receive_apodization"):
             if not _isfield(T, k):
