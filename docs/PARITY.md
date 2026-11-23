@@ -128,7 +128,7 @@ Notes:
 
 | MATLAB | Python | Class | Oracle test | Status |
 |---|---|---|---|---|
-| `El = get_element_geometry(Transducer)` (linear, curved, `RCA`/other → linear; catalogue incl. C1-6D model file; `reset_transducer`; errors) | `transducer.get_element_geometry` → `ElementGeometry` | float (1e-9 rel; positions atol 1e-12·max(N·Pitch, R)); measured ≤ 2.2e-16·L on 500 random curved arrays | `tests/oracle/test_transducer_geometry.py` | ✅ |
+| `El = get_element_geometry(Transducer)` (linear, curved, `RCA`/other → linear; catalogue incl. C1-6D model file; `reset_transducer`; errors) | `transducer.get_element_geometry` → `ElementGeometry` | float (1e-9 rel; positions atol 1e-14·L, L = max(N·Pitch, R)); measured ≤ 2.2e-16·L on 500 random curved arrays (one-off script) | `tests/oracle/test_transducer_geometry.py` | ✅ |
 
 Notes:
 
@@ -142,6 +142,10 @@ Notes:
   gives empty arrays in MATLAB. PROTEUS never passes such values (catalogue/GUI integers).
 - Errors are `ValueError` where MATLAB raises (`get_element_geometry:invalidRadius`, missing
   fields); the oracle test checks MATLAB raises in the same cases.
+- The Hypothesis test runs `PYPROTEUS_ORACLE_EXAMPLES` batches (default 25) of up to 20 arrays;
+  a 300-batch sweep passed.
+- `is_curved(transducer)` is the one exact-match test for `'Curved'` (Q-80), shared by the ports
+  of `compute_delays`, `compute_simulation_domain` and the acoustic module.
 - Positions are differences of `R·cos` terms of the size of the array, so their absolute floor
   scales with `max(N·Pitch, R)`, not with the (possibly tiny) value: for a nearly flat array
   the apex `R(1 - cos θmax)` carries an absolute error of order eps·R on both sides.

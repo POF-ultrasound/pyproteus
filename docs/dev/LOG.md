@@ -4,7 +4,8 @@ Newest first. One entry per working session or milestone step: what was done, wh
 
 ## 2026-11-23 — M1 get_element_geometry (m1-leaves)
 - `src/pyproteus/transducer/geometry.py`: `get_element_geometry` → frozen `ElementGeometry` (1-D arrays, snake_case; `to_struct()` gives MATLAB's `El`). Accepts a `Transducer` model or a mapping with MATLAB field names.
-- Oracle test `tests/oracle/test_transducer_geometry.py` (19 tests): linear N ∈ {1,2,3,7,96,127,128,255}, curved N ∈ {1,…,192} × 5 radii incl. θmax = π/3, half-circle limit (1+1e-9), `'curved'`/`RCA`/no Configuration, N = 0, negative pitch, the 5 catalogue transducers (C1-6D with its model file), `reset_transducer`, all MATLAB error cases, Hypothesis (300-example sweep passed). Measured ≤ 2.2e-16·L.
+- Oracle test `tests/oracle/test_transducer_geometry.py` (19 tests): linear N ∈ {1,2,3,7,96,127,128,255}, curved N ∈ {1,…,192} × 5 radii incl. θmax = π/3, half-circle limit (1+1e-9), `'curved'`/`RCA`/no Configuration, N = 0, negative pitch, the 5 catalogue transducers (C1-6D with its model file), `reset_transducer`, all MATLAB error cases, Hypothesis (default 25 batches; a 300-batch sweep passed). Measured ≤ 2.2e-16·L (one-off script, 500 curved arrays); atol 1e-14·L.
+- Reviewer (fresh agent): APPROVE; minor fixes applied (atol 1e-12·L → 1e-14·L, θmax ≥ 1e-5 in Hypothesis, `N = inf` → ValueError, public `is_curved`, read-only arrays, Q-80 placement).
 - Q-80 (Configuration exact match). Divergences in PARITY.md: dataclass API, non-integer/negative N raises.
 - Next: `compute_simulation_domain`, `compute_delays`.
 

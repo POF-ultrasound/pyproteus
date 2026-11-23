@@ -76,6 +76,15 @@ def test_configuration_must_be_exactly_curved() -> None:
         assert not el.curved
 
 
+def test_is_curved_and_read_only_arrays() -> None:
+    assert ptr.is_curved({"Configuration": "Curved"})
+    assert not ptr.is_curved({"Configuration": "curved"}) and not ptr.is_curved({})
+    assert not ptr.is_curved({"Configuration": ["Curved"]})
+    el = ptr.get_element_geometry({"NumberOfElements": 3.0, "Pitch": 1e-3, "ElementWidth": 1e-3})
+    with pytest.raises(ValueError, match="read-only"):
+        el.x[0] = 1.0
+
+
 def test_to_struct_shapes() -> None:
     s = ptr.get_element_geometry(
         Transducer(Configuration="Curved", NumberOfElements=5, Pitch=1e-3, Radius=0.05)

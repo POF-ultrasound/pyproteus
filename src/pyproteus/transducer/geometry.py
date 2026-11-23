@@ -23,13 +23,14 @@ geometry, as in MATLAB (exact, case-sensitive ``strcmp`` with ``'Curved'``).
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-__all__ = ["ElementGeometry", "get_element_geometry"]
+from ._fields import configuration_is, element_count, field, scalar
+
+__all__ = ["ElementGeometry", "get_element_geometry", "is_curved"]
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,10 @@ class ElementGeometry:
     center: float
     theta_max: float
 
+    def __post_init__(self) -> None:
+        for name in ("x", "y", "theta"):
+            getattr(self, name).flags.writeable = False
+
     @property
     def curved(self) -> bool:
         """True for a curved array (finite radius)."""
@@ -88,25 +93,13 @@ class ElementGeometry:
         }
 
 
-def _field(transducer: Any, name: str) -> Any:
-    """``Transducer.(name)``, or None if the field is absent."""
-    if isinstance(transducer, Mapping):
-        return transducer.get(name)
-    return getattr(transducer, name, None)
+def is_curved(transducer: Any) -> bool:
+    """True if ``Transducer.Configuration`` is exactly ``'Curved'`` (Q-80).
 
-
-def _required_scalar(transducer: Any, name: str) -> float:
-    value = _field(transducer, name)
-    if value is None:
-        raise ValueError(f"Transducer has no field {name}")  # MATLAB: reference error
-    arr = np.asarray(value, dtype=np.float64)
-    if arr.size != 1:
-        raise ValueError(f"Transducer.{name} must be a scalar, got size {arr.shape}")
-    return float(arr.reshape(()))
-
-
-def _is_curved(transducer: Any) -> bool:
-    return _field(transducer, "Configuration") == "Curved"
+    The single test for a curved array used by every PROTEUS function
+    (``strcmp(Transducer.Configuration,'Curved')``); anything else is linear.
+    """
+    return configuration_is(transducer, "Curved")
 
 
 def get_element_geometry(transducer: Any) -> ElementGeometry:
@@ -121,18 +114,13 @@ def get_element_geometry(transducer: Any) -> ElementGeometry:
     an arc ``N*Pitch`` not shorter than ``pi*Radius``, or a missing field.
     ``NumberOfElements`` must be a non-negative integer (see docs/PARITY.md).
     """
-    n_value = _required_scalar(transducer, "NumberOfElements")
-    if not (n_value >= 0 and n_value == math.floor(n_value)):
-        raise ValueError(
-            f"Transducer.NumberOfElements must be a non-negative integer, got {n_value!r}"
-        )
-    n = int(n_value)
-    p = _required_scalar(transducer, "Pitch")
+    n = element_count(transducer)
+    p = scalar(transducer, "Pitch")
     i = np.arange(1, n + 1, dtype=np.float64)
     offset = i - (n + 1) / 2  # element index relative to the array centre
 
-    if _is_curved(transducer):
-        r_value = _field(transducer, "Radius")
+    if is_curved(transducer):
+        r_value = field(transducer, "Radius")
         if r_value is None:
             raise ValueError("Transducer has no field Radius")  # MATLAB: reference error
         r_arr = np.asarray(r_value, dtype=np.float64)
@@ -161,7 +149,7 @@ def get_element_geometry(transducer: Any) -> ElementGeometry:
         x=np.zeros(n),
         y=offset * p,
         theta=np.zeros(n),
-        width=_required_scalar(transducer, "ElementWidth"),
+        width=scalar(transducer, "ElementWidth"),
         radius=math.inf,
         apex=0.0,
         center=-math.inf,

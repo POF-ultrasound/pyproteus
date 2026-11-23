@@ -3,7 +3,8 @@
 Class D-13 float: ``|a - e| <= 1e-9*|e| + atol``. Positions (``x``, ``y``,
 ``Apex``, ``Center``) are differences of quantities of the size of the array
 (``R*cos`` terms), so their absolute floor is relative to the array's length
-scale ``L = max(N*Pitch, R)``: ``atol = 1e-12*L``. Angles use ``1e-12*max|e|``.
+scale ``L = max(N*Pitch, R)``: ``atol = 1e-14*L``
+(measured: <= 2.2e-16*L). Angles use ``1e-14*max|e|``.
 ±Inf (linear ``Radius``/``Center``) must match exactly.
 """
 
@@ -23,7 +24,7 @@ from pyproteus.config.models import Transducer
 from tests.oracle.helpers import ORACLE_SETTINGS, from_matlab
 
 REL = 1e-9  # D-13 float class
-ATOL_FRACTION = 1e-12
+ATOL_FRACTION = 1e-14  # measured error <= 2.2e-16*L
 
 FIELDS = ("theta", "x", "y", "width", "Radius", "Apex", "Center", "ThetaMax")
 LENGTHS = {"x", "y", "width", "Radius", "Apex", "Center"}
@@ -251,8 +252,8 @@ def transducers(draw: st.DrawFn) -> dict[str, Any]:
             Pitch=p,
             ElementWidth=draw(st.floats(1e-6, 2e-3)),
         )
-    # theta_max = n*p/(2R) in (1e-6, 0.999*pi/2)
-    theta_max = draw(st.floats(1e-6, 0.999 * math.pi / 2))
+    # theta_max = n*p/(2R) in (1e-5, 0.999*pi/2): apex >= 5e-11*R, above the atol
+    theta_max = draw(st.floats(1e-5, 0.999 * math.pi / 2))
     return struct(
         Configuration="Curved", NumberOfElements=n, Pitch=p, Radius=n * p / (2 * theta_max)
     )
