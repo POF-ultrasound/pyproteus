@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 from pyproteus.config.models import Settings
-from pyproteus.transducer import get_element_geometry
+from pyproteus.transducer import get_element_geometry, is_curved
 
 from .beamform import (
     _peek,
@@ -87,7 +87,7 @@ def initialize_das_parameters(
     El = get_element_geometry(transducer)
     if El.y.size != Nelem:
         raise ValueError(f"The RF data has {Nelem} elements, the transducer {El.y.size}.")
-    alpha_th = np.pi / 6 if configuration == "Curved" else np.pi / 3
+    alpha_th = np.pi / 6 if is_curved(transducer) else np.pi / 3
 
     t = das_time_axis(Nt, simulation_parameters, transducer, transmit, c)
 
