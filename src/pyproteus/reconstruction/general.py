@@ -14,13 +14,13 @@ from typing import Any
 import numpy as np
 
 from pyproteus.config.models import Settings
+from pyproteus.numerics import colon
 from pyproteus.transducer import get_element_geometry, is_curved
 
 from .beamform import (
     _peek,
     _settings,
     beamform_frames,
-    colon,
     das_time_axis,
     log_compress,
     time_gain_compensation,

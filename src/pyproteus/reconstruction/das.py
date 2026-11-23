@@ -59,6 +59,14 @@ def _field(obj: Any, name: str, default: Any = None) -> Any:
     return default if value is None else value
 
 
+def _required(obj: Any, name: str, owner: str) -> Any:
+    """A field MATLAB reads unconditionally: ``ValueError`` if absent (MATLAB errors)."""
+    value = _field(obj, name)
+    if value is None:
+        raise ValueError(f"{owner} has no field {name}")
+    return value
+
+
 def _row(a: ArrayLike) -> np.ndarray:
     """MATLAB ``a(:)'`` as a 1-D float array."""
     return np.asarray(a, dtype=np.float64).reshape(-1, order="F")
@@ -263,7 +271,7 @@ def compute_das_matrix_general(
     tr = {"x_el": _field(transducer, "x_el"), "y_el": _field(transducer, "y_el"), "center": center}
     x_el = _row(tr["x_el"])
     y_el = _row(tr["y_el"])
-    azimuth = _row(_field(transducer, "azimuth"))
+    azimuth = _row(_required(transducer, "azimuth", "transducer"))
     tx = {
         "focus": float(_field(transmit, "focus", np.inf)),
         "steer": float(_field(transmit, "steer", 0.0)),

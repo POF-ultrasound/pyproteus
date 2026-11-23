@@ -49,26 +49,35 @@ Format:
 - Test: `tests/oracle/test_ode45.py::test_batch_dependence_similar`, `tests/unit/test_ode45.py::test_stacked_batch_shares_steps`.
 - Planned fix: after parity, per-bubble step control (vectorised solver with per-bubble steps, or one solve per bubble), so results no longer depend on batching.
 
-## Q-100 — DAS time to peak is one sample late
+## Q-100 — DAS time to peak uses the 1-based index (unresolved: may be compensated)
 - MATLAB: `delay-and-sum/DAS_reconstruction.m:51-54`, `initialize_das_parameters.m:62-65`.
-- Behaviour: `timeToPeak = I/Transmit.SamplingRate` with `I` the 1-based index of the envelope maximum of the two-way pulse, so the time axis is shifted by one sample (`(I-1)/Fs` is the peak time). The envelope is computed at `Transducer.SamplingRate` but converted with `Transmit.SamplingRate` (equal in PROTEUS settings).
-- Ported in: `pyproteus.reconstruction.time_to_peak`.
-- Test: `tests/oracle/test_das.py::test_das_reconstruction` (image at the float class, so a one-sample shift would fail).
-- Planned fix: `(I-1)/Fs` after parity; moves the image by `c/(2Fs)` in depth (≈ 19 µm at 40 MHz).
-
-## Q-101 — DAS TGC normalised by an imaginary maximum when the time axis starts far before 0
-- MATLAB: `delay-and-sum/DAS_reconstruction.m:82-84`, `DAS_reconstruction_general.m:51-53`.
-- Behaviour: `TGC = sqrt(t)/max(sqrt(t)).*...` with negative `t` gives an imaginary `sqrt`; MATLAB's `max` of a complex array picks the largest magnitude, so when `|t(1)| > t(end)` (time to peak + lens correction longer than the recording after it) the normalisation is imaginary, `TGC` is imaginary for `t ≥ 0`, `hilbert` drops the imaginary part of `RF.*TGC`, and the image is all NaN (0/0).
-- Ported in: `pyproteus.reconstruction.time_gain_compensation` returns `real(TGC)`.
-- Test: `tests/oracle/test_das.py::test_time_gain_compensation` (`t0,t1 = -12e-6,10e-6`), `tests/unit/test_reconstruction.py::test_tgc_matches_formula_and_imaginary_quirk`.
-- Planned fix: normalise by `sqrt(max(t))`; only changes the degenerate case.
+- Behaviour: `timeToPeak = I/Transmit.SamplingRate` with `I` the 1-based index of the envelope maximum of the two-way pulse `conv(PressureSignal, ReceiveImpulseResponse)`. That pulse starts at index 1 = time 0, so on its own the peak time is `(I-1)/Fs` and the line is one sample late.
+- Time axes checked (2026-11-23): the RF time axis is 0-based throughout PROTEUS. The transmit source sample m is applied at `(m-1)*dt` (`define_source_transducer.m`, delays added as Fourier shifts). k-Wave sensor sample n is `t_array(n) = (n-1)*dt`. `compute_RF.m` shifts by the lens delays and convolves with the receive IR from lag 0 (`convn(p,IR)*dt`), so RF sample k is `(k-1)*dt`. DAS uses `t = (0:Nt-1)/Fs`. pyproteus reproduces MATLAB's images to 1e-16, so the port adds no shift.
+- But the same time axis gets an undocumented k-Wave correction `+dx/(2c) + dt` (hybrid) or `+dx/(2c) + 3/2*dt` (full), and it adds linearly to `-I/Fs`. The net is identical to `(I-1)/Fs` with corrections `dx/(2c)` and `dx/(2c) + dt/2`. Whether the extra sample is a bug or part of the empirical staggered-grid compensation can only be settled by imaging a point scatterer at a known depth through the full simulator. That needs the hybrid/full path (M3).
+- Ported in: `pyproteus.reconstruction.time_to_peak` (reproduced).
+- Test: `tests/oracle/test_das.py::test_das_reconstruction`, `test_initialize_das_parameters` (time axis at the float class; a one-sample shift fails).
+- Planned fix: decide after the M3 point-scatterer check. If it is an off-by-one, use `(I-1)/Fs` (moves the image `c/(2Fs)` in depth, ≈ 19 µm at 40 MHz); otherwise fold the sample into a documented k-Wave correction.
 
 ## Q-102 — Reference DAS apodization keeps pixels at or above the array surface
 - MATLAB: `delay-and-sum/compute_das_matrix.m:65-66` (`alpha = atan(abs(y_el-Y)./X)`).
 - Behaviour: at `X = 0` the element at the pixel's own lateral position gives 0/0 = NaN, which is not above the threshold, so it is kept (the others are at `atan(Inf) = pi/2` and dropped); at `X < 0` every angle is negative and every element is kept.
 - Ported in: `pyproteus.reconstruction.compute_das_matrix`.
 - Test: `tests/oracle/test_das.py::test_compute_das_matrix_realistic` (axial grid with `X < 0` and `X = 0`), `tests/unit/test_reconstruction.py::test_compute_das_matrix_matches_brute_force`.
-- Planned fix: use `abs(X)` or drop pixels with `X ≤ 0` (the general beamformer uses `atan2` with a threshold on `|alpha|`).
+- Planned fix (1.x, developer D-18: keep in 1.0): use `abs(X)` or drop pixels with `X ≤ 0` (the general beamformer uses `atan2` with a threshold on `|alpha|`).
+
+## Q-103 — DAS lateral axis is centred on 0, whatever the domain's lateral bounds
+- MATLAB: `delay-and-sum/DAS_reconstruction.m:37-41` (`y = -width/2:pixelSize:width/2`), `initialize_das_parameters.m:31-35`.
+- Behaviour: only the domain width `Ymax - Ymin` is used; an asymmetric domain (e.g. `Ymin = -3.1 mm`, `Ymax = 2.9 mm`) is imaged over `[-3.0, 3.0] mm`. The reference beamformer also starts the axial axis at 0 instead of `Xmin`.
+- Ported in: `pyproteus.reconstruction.das_reconstruction`, `initialize_das_parameters`.
+- Test: `tests/oracle/test_das.py::test_initialize_das_parameters`, `test_das_reconstruction_general` (asymmetric domain).
+- Planned fix: span `[Ymin, Ymax]` (and start at `Xmin` in the reference beamformer).
+
+## Q-104 — transmit apodization never reaches the general beamformer
+- MATLAB: `delay-and-sum/initialize_das_parameters.m:110-121` builds `Tx.apod`; `compute_das_matrix_general.m` never reads it.
+- Behaviour: elements switched off in transmit still define the transmit model (as documented, `t = 0` is the first element over all elements) and no apodization weighting is applied to the image.
+- Ported in: `DasTransmit.apod` is filled and ignored, as in MATLAB.
+- Test: `tests/oracle/test_das.py::test_initialize_das_parameters` (`Transmit.Apodization` case).
+- Planned fix: use `Tx.apod` (e.g. drop pixels outside the insonified region) or remove the field.
 
 ## Q-80 — any `Configuration` other than exactly `'Curved'` gives a linear array
 - MATLAB: `GUIfunctions/get_element_geometry.m` (`is_curved`: `strcmp(Transducer.Configuration,'Curved')`).

@@ -2,6 +2,12 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-23 — M1 delay-and-sum: review round 1 and D-18 (m1-das)
+- Developer decisions via main (D-18): Q-101 fixed (TGC normalised by `sqrt(max(t))`; identical to MATLAB when MATLAB is valid, both regimes oracle-tested; moved to a PARITY divergence); Q-102 kept until 1.x; single-RF image class ≤ 1e-6 accepted; `colon` moved to `numerics/colon.py`.
+- Q-100 checked: the RF time axis is 0-based throughout PROTEUS (source, k-Wave `t_array`, `compute_RF` convolution, DAS); the port adds no shift. `I/Fs` is one sample late in isolation but adds linearly to the undocumented k-Wave correction (`+dt` / `+3/2 dt`), so it may be part of that empirical compensation. Kept as reproduced, decision deferred to an end-to-end point-scatterer check in M3.
+- Reviewer round 1 (CHANGES REQUESTED) fixed: reference-matrix range checks now exercised (t0 > 0 short records, exact ties at -0.5 and Nt-0.5, bounds asserted present; mutations `j <= Nt` / `j >= 1` now fail fixed tests for both matrices); missing `azimuth` and `HybridSimulation` raise; colon count rule from rounding-error analysis (was 1e-10); settings scripts clear the workspace first; complex frames take `.real` before the cast; Q-103 (lateral axis centred on 0), Q-104 (`Tx.apod` unused); single-frame axis and case-sensitive frame names documented.
+- Oracle 82 tests (+300-example sweep), unit 44 (+ `test_numerics_colon.py`).
+
 ## 2026-11-23 — M1 delay-and-sum (m1-das)
 - `src/pyproteus/reconstruction/`: `das_transmit_distance`, `compute_das_matrix`, `compute_das_matrix_general` (`das.py`), `load_rf_data` + `iter_rf_frames` + `frame_files` (`rf_data.py`, on `config.matfile.loadmat`, v5 and v7.3), `das_reconstruction` with `time_to_peak`, `das_time_axis`, `time_gain_compensation`, `beamform_frames`, `log_compress`, `colon` (`beamform.py`).
 - D-15 design choices (PARITY.md): DAS matrix built in pixel blocks into a CSR array (no full-image dense intermediates); frames streamed from disk and beamformed in blocks; no permute (matrix columns = C-order of Nelem×Nt); double precision throughout (MATLAB keeps single RF in single through TGC/hilbert).

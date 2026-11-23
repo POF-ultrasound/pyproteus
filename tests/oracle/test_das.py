@@ -30,9 +30,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from pyproteus.config.models import Medium
+from pyproteus.numerics import colon
 from pyproteus.reconstruction import (
     DasDelayMismatchWarning,
-    colon,
     compute_das_matrix,
     compute_das_matrix_general,
     das_reconstruction,
@@ -154,12 +154,36 @@ def run_compute_das_matrix(eng, t, y, x, y_el, c, Fs, focus):
     return matlab_sparse(eng, f"compute_das_matrix(t, y, x, yel, {c}, {Fs}, {focus})")
 
 
+def reference_samples(t, y, x, y_el, c, Fs, focus) -> np.ndarray:
+    """0-based rounded sample index of every apodization-kept (pixel, element) pair.
+
+    Same formulas as ``compute_das_matrix``, used only to check that a test
+    case reaches the range boundaries (it is not the comparison).
+    """
+    from pyproteus.numerics import matlab_round
+
+    Y, X = (a.reshape(-1, 1) for a in np.meshgrid(y, x))  # lateral fastest
+    F = abs(focus)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        d_in = X if not np.isfinite(F) else np.sqrt((X + F) ** 2 + Y**2) - F
+        j = matlab_round((np.sqrt((Y - y_el) ** 2 + X**2) / c + d_in / c - t[0]) * Fs)
+        kept = ~(np.arctan(np.abs(y_el - Y) / X) > np.pi / 3)
+    return j[kept]
+
+
+def assert_reaches_bounds(j: np.ndarray, Nt: int) -> None:
+    """Kept pairs on both sides of both bounds: j = -1, 0, Nt-1, Nt all occur."""
+    for value in (-1, 0, Nt - 1, Nt):
+        assert np.any(j == value), f"no pair with sample index {value} (Nt={Nt})"
+
+
+@pytest.mark.parametrize("t0,Nt", [(-0.4e-6, 600), (2e-6, 200)])
 @pytest.mark.parametrize("focus", [np.inf, -10e-3, -3e-3])
 @pytest.mark.parametrize("nelem", [8, 9])
-def test_compute_das_matrix_realistic(matlab_engine, nelem, focus) -> None:
-    c, Fs, Nt = 1540.0, 40e6, 600
+def test_compute_das_matrix_realistic(matlab_engine, nelem, focus, t0, Nt) -> None:
+    c, Fs = 1540.0, 40e6
     _, y_el, _ = linear_case(nelem)
-    t = np.arange(Nt) / Fs - 0.4e-6  # starts before 0: early samples out of range
+    t = np.arange(Nt) / Fs + t0  # t0 > 0 with a short Nt: samples fall off both ends
     x = np.linspace(-0.5e-3, 9e-3, 37)  # includes X < 0 and points near 0
     x[2] = 0.0
     y = np.linspace(-2.1e-3, 2.1e-3, 23)
@@ -167,6 +191,8 @@ def test_compute_das_matrix_realistic(matlab_engine, nelem, focus) -> None:
     M = compute_das_matrix(t, y, x, y_el, c, Fs, focus, block_size=97)
     stats = compare_das(M, ml, Nt, nelem, f"nelem={nelem} focus={focus}")
     print(stats)
+    if t0 > 0:
+        assert_reaches_bounds(reference_samples(t, y, x, y_el, c, Fs, focus), Nt)
 
 
 @pytest.mark.parametrize("focus", [np.inf, -2.0])
@@ -194,6 +220,26 @@ def test_compute_das_matrix_ties(matlab_engine, focus) -> None:
     assert stats["entries"] > 0
 
 
+def test_compute_das_matrix_boundary_ties(matlab_engine) -> None:
+    """Exact ties at both range ends: (t_del - t(1))*Fs = -0.5 and Nt - 0.5.
+
+    Half away from zero puts them at -1 and Nt (discarded); ``floor(x + 0.5)``
+    would keep the first, round-half-even the second.
+    """
+    c, Fs, Nt = 1.0, 1.0, 5
+    t = np.arange(Nt) + 0.5
+    y_el = np.array([-0.75, 0.0, 0.25, 1.0])
+    x = np.arange(-2, 23) * 0.125  # t_del = 2X under an element: 0 ... 5.5
+    y = np.arange(-9, 10) * 0.125
+    ml = run_compute_das_matrix(matlab_engine, t, y, x, y_el, c, Fs, np.inf)
+    M = compute_das_matrix(t, y, x, y_el, c, Fs, np.inf)
+    compare_das(M, ml, Nt, y_el.size, "boundary ties", require_all=True)
+    Y, X = (a.reshape(-1, 1) for a in np.meshgrid(y, x))
+    raw = (np.sqrt((Y - y_el) ** 2 + X**2) + X - t[0]) * Fs
+    assert np.any(raw == -0.5) and np.any(raw == Nt - 0.5)
+    assert_reaches_bounds(reference_samples(t, y, x, y_el, c, Fs, np.inf), Nt)
+
+
 def test_compute_das_matrix_rejects_positive_focus(matlab_engine) -> None:
     with pytest.raises(Exception, match="Only negative focus"):
         matlab_engine.eval("compute_das_matrix(0:9, 0, 1, 0, 1, 1, 5)", nargout=0)
@@ -213,11 +259,16 @@ GENERAL_CASES = [
     ("curved", np.inf, 0.12, "cosine", 0.0),
     ("curved", -20e-3, 0.05, "binary", 0.0),
     ("curved", 8e-3, -0.08, "cosine", 0.0),
+    ("linear9", -10e-3, 0.1, "cosine", 0.0, 3e-6),
+    ("curved", np.inf, 0.05, "binary", 0.0, 4e-6),
 ]
 
 
-def general_inputs(geometry: str, focus: float, steer: float, apodization: str, axis_delay):
-    c, Fs, Nt = 1540.0, 40e6, 700
+def general_inputs(
+    geometry: str, focus: float, steer: float, apodization: str, axis_delay, t0=-0.3e-6
+):
+    c, Fs = 1540.0, 40e6
+    Nt = 700 if t0 < 0 else 250  # t0 > 0: samples fall off both ends
     if geometry == "curved":
         x_el, y_el, az, center = curved_case(17, 12e-3, 0.06)
         radius, alpha_th = 12e-3, np.pi / 6
@@ -228,7 +279,7 @@ def general_inputs(geometry: str, focus: float, steer: float, apodization: str, 
         center, radius, alpha_th = -np.inf, np.inf, np.pi / 3
         x = np.linspace(-0.3e-3, 10e-3, 39)
         y = np.linspace(-2.5e-3, 2.5e-3, 27)
-    t = np.arange(Nt) / Fs - 0.3e-6
+    t = np.arange(Nt) / Fs + t0
     recon = dict(x=x, y=y, c=c, t=t, Fs=Fs, alpha_th=alpha_th, apodization=apodization)
     tr = dict(x_el=x_el, y_el=y_el, azimuth=az, center=center, radius=radius)
     tx = dict(focus=focus, steer=steer, axis_delay=axis_delay)
@@ -341,36 +392,64 @@ def test_load_rf_data_single_frame(matlab_engine, tmp_path) -> None:
 
 
 # ------------------------------------------------------------- time gain (TGC)
-@pytest.mark.parametrize("t0,t1", [(-0.5e-6, 10e-6), (-12e-6, 10e-6), (0.0, 5e-6), (-5e-6, 5e-6)])
-def test_time_gain_compensation(matlab_engine, t0, t1) -> None:
-    """Including |t(1)| > t(end), where MATLAB's max picks an imaginary sqrt."""
-    t = np.linspace(t0, t1, 301)
-    eng = matlab_engine
+def matlab_tgc(eng, t: np.ndarray) -> np.ndarray:
     put(eng, t=row(t))
     eng.eval(
         "c = 1540; f0 = 2.5e6; att = 0.5*(f0*1e-6)^1.1;"
         "TGC = sqrt(t)/max(sqrt(t)).*10.^(att.*t.*c.*1e2./20./2); TGC(t<0) = 0;"
-        "TGCr = real(TGC);",
+        "TGCr = real(TGC); clear c f0 att TGC t",
         nargout=0,
     )
-    expected = vec(eng.workspace["TGCr"])
-    med = Medium(AttenuationA=0.5, AttenuationB=1.1)
-    actual = time_gain_compensation(t, med, 2.5e6, 1540.0)
+    return vec(eng.workspace["TGCr"])
+
+
+@pytest.mark.parametrize("t0,t1", [(-0.5e-6, 10e-6), (0.0, 5e-6), (-4.9e-6, 5e-6)])
+def test_time_gain_compensation(matlab_engine, t0, t1) -> None:
+    """Where MATLAB's TGC is valid (max(t) > |min(t)|): same values."""
+    t = np.linspace(t0, t1, 301)
+    expected = matlab_tgc(matlab_engine, t)
+    actual = time_gain_compensation(t, Medium(AttenuationA=0.5, AttenuationB=1.1), 2.5e6, 1540.0)
     assert_float(actual, expected, atol=1e-15 * np.max(np.abs(expected)))
 
 
+@pytest.mark.parametrize("t0,t1", [(-12e-6, 10e-6), (-5e-6, 5e-6)])
+def test_time_gain_compensation_q101_fixed(matlab_engine, t0, t1) -> None:
+    """|min(t)| >= max(t): MATLAB normalises by an imaginary root (real part 0, Q-101);
+    pyproteus normalises by sqrt(max(t)) (D-18)."""
+    t = np.linspace(t0, t1, 301)
+    expected = matlab_tgc(matlab_engine, t)
+    np.testing.assert_allclose(expected, 0, atol=1e-300)  # MATLAB's degenerate TGC
+    actual = time_gain_compensation(t, Medium(AttenuationA=0.5, AttenuationB=1.1), 2.5e6, 1540.0)
+    gain = 10 ** (0.5 * 2.5**1.1 * t * 1540 * 1e2 / 20 / 2)
+    ref = np.where(t < 0, 0, np.sqrt(np.maximum(t, 0)) / np.sqrt(t1) * gain)
+    np.testing.assert_allclose(actual, ref, rtol=1e-13)
+
+
 # ------------------------------------------------------------------ colon / axes
-@pytest.mark.parametrize(
-    "a,d,b",
-    [(0, 0.1, 0.3), (0, 1540 / 2.5e6 / 5, 8e-3), (-2.4e-3, 1540 / 2.5e6 / 5, 2.4e-3), (0, 0.25, 1)],
-)
+COLON_CASES = [
+    (0, 0.1, 0.3),
+    (0, 1540 / 2.5e6 / 5, 8e-3),
+    (-2.4e-3, 1540 / 2.5e6 / 5, 2.4e-3),
+    (0, 0.25, 1),
+    (0, 1, 3 - 1e-14),  # genuinely short of 3: 3 elements
+    (0.5e-3, 1540 / 2.5e6 / 4, 9e-3),
+    (1, -0.25, 0),
+    (2, 1, 1),
+    (1e3, 0.1, 1e3 + 1),
+]
+
+
+@pytest.mark.parametrize("a,d,b", COLON_CASES)
 def test_colon(matlab_engine, a, d, b) -> None:
     expected = vec(matlab_engine.eval(f"{a!r}:{d!r}:{b!r}", nargout=1))
-    assert_float(colon(a, d, b), expected, atol=1e-15 * max(abs(a), abs(b)))
+    actual = colon(a, d, b)
+    assert actual.size == expected.size
+    assert_float(actual, expected, atol=4e-16 * max(abs(a), abs(b)))
 
 
 # ------------------------------------------------------------ DAS_reconstruction
 SETTINGS_M = """
+clear Acquisition SimulationParameters Transmit Transducer Geometry Medium
 Acquisition.PulsingScheme = '{scheme}';
 SimulationParameters.SamplingRate = 40e6;
 SimulationParameters.GridSize = 1e-4;
@@ -409,16 +488,20 @@ def scatterer_rf(nelem: int, nt: int, scatterers, rng) -> np.ndarray:
 
 
 DAS_CASES = [
-    # (dtype, version, scheme, hybrid, focus, elevation focus, frames)
-    (np.float64, "v7", "Standard", "true", "Inf", "20e-3", 2),
-    (np.float64, "v7.3", "Pulse inversion", "false", "-6e-3", "Inf", 2),
-    (np.float32, "v7", "Standard", "true", "Inf", "20e-3", 3),
+    # (dtype, version, scheme, hybrid, focus, elevation focus, frames, Nt)
+    (np.float64, "v7", "Standard", "true", "Inf", "20e-3", 2, 520),
+    (np.float64, "v7.3", "Pulse inversion", "false", "-6e-3", "Inf", 2, 520),
+    (np.float32, "v7", "Standard", "true", "Inf", "20e-3", 3, 520),
+    # Short record: the deepest pixels need samples past the end.
+    (np.float64, "v7", "Standard", "true", "Inf", "20e-3", 1, 330),
 ]
 
 
-@pytest.mark.parametrize("case", DAS_CASES, ids=lambda c: f"{np.dtype(c[0]).name}-{c[1]}-{c[2]}")
+@pytest.mark.parametrize(
+    "case", DAS_CASES, ids=lambda c: f"{np.dtype(c[0]).name}-{c[1]}-{c[2]}-{c[7]}"
+)
 def test_das_reconstruction(matlab_engine, tmp_path, case) -> None:
-    dtype, version, scheme, hybrid, focus, efocus, nframes = case
+    dtype, version, scheme, hybrid, focus, efocus, nframes, nt = case
     eng = matlab_engine
     rng = np.random.default_rng(7)
     data = tmp_path / "rf"
@@ -428,7 +511,7 @@ def test_das_reconstruction(matlab_engine, tmp_path, case) -> None:
         SETTINGS_M.format(scheme=scheme, hybrid=hybrid, focus=focus, efocus=efocus, path=settings),
         nargout=0,
     )
-    nelem, nt = 16, 520
+    nelem = 16
     frames = {}
     for k in range(1, nframes + 1):
         sc = [(3e-3 + 1e-3 * k, -0.6e-3 * k), (6.1e-3, 1.1e-3)]
@@ -460,6 +543,29 @@ def test_das_reconstruction(matlab_engine, tmp_path, case) -> None:
     # Peaks at the same pixels:
     for f in range(IMG.shape[2]):
         assert np.argmax(IMG[:, :, f]) == np.argmax(IMG_m[:, :, f])
+
+
+def test_das_reconstruction_q101_regime(matlab_engine, tmp_path) -> None:
+    """Long lens delay and a short record: |t(1)| > t(end). MATLAB's image is all
+    NaN (Q-101); pyproteus gives a finite image with a 0 dB peak (D-18)."""
+    eng = matlab_engine
+    data = tmp_path / "rf"
+    data.mkdir()
+    settings = tmp_path / "settings.mat"
+    eng.eval(
+        SETTINGS_M.format(
+            scheme="Standard", hybrid="true", focus="Inf", efocus="1e-3", path=settings
+        ),
+        nargout=0,
+    )
+    rf = scatterer_rf(16, 280, [(2e-3, 0.3e-3)], np.random.default_rng(5))
+    write_frames(eng, data, {"Frame_1.mat": [rf]}, "v7")
+    eng.eval(f"pyp_I__ = DAS_reconstruction('{data}', '{settings}');", nargout=0)
+    IMG_m = from_matlab(eng.workspace["pyp_I__"])
+    eng.eval("clear pyp_I__", nargout=0)
+    assert np.isnan(IMG_m).all()
+    IMG, _, _ = das_reconstruction(data, settings)
+    assert np.isfinite(IMG).any() and np.nanmax(IMG) == 0
 
 
 # ------------------------------------------------------- randomised (Hypothesis)

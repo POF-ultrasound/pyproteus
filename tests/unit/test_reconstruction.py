@@ -12,7 +12,6 @@ from pyproteus.config.models import Medium
 from pyproteus.numerics import matlab_round
 from pyproteus.reconstruction import (
     beamform_frames,
-    colon,
     compute_das_matrix,
     compute_das_matrix_general,
     das_reconstruction,
@@ -30,24 +29,6 @@ C, FS = 1540.0, 40e6
 
 def linear(nelem, pitch=0.3e-3):
     return -pitch / 2 * (nelem - 1) + np.arange(nelem) * pitch
-
-
-# ------------------------------------------------------------------- colon
-@pytest.mark.parametrize(
-    "a,d,b,n",
-    [(0, 0.1, 0.3, 4), (0, 1, 3, 4), (0, 0.25, 0.9, 4), (1, 1, 0, 0), (0, 0.1, 0.0, 1)],
-)
-def test_colon_length(a, d, b, n) -> None:
-    out = colon(a, d, b)
-    assert out.size == n
-    np.testing.assert_array_equal(out, a + np.arange(n) * d)
-
-
-def test_colon_rejects_bad_step() -> None:
-    with pytest.raises(ValueError):
-        colon(0, 0, 1)
-    with pytest.raises(ValueError):
-        colon(0, -1, 1)
 
 
 # ---------------------------------------------------- das_transmit_distance
@@ -303,17 +284,18 @@ def test_load_rf_data_class_of_first_frame(tmp_path) -> None:
 
 
 # ---------------------------------------------------------- TGC / beamform
-def test_tgc_matches_formula_and_imaginary_quirk() -> None:
+def test_tgc_matches_formula_and_q101_fix() -> None:
     med = Medium(AttenuationA=0.5, AttenuationB=1.1)
     att = 0.5 * 2.5**1.1
-    t = np.linspace(-1e-6, 10e-6, 23)
-    tgc = time_gain_compensation(t, med, 2.5e6, C)
-    expected = np.sqrt(np.maximum(t, 0)) / np.sqrt(t.max()) * 10 ** (att * t * C * 1e2 / 40)
-    expected[t < 0] = 0
-    np.testing.assert_allclose(tgc, expected, rtol=1e-13)
-    # |t(1)| > t(end): MATLAB's max picks the imaginary sqrt; the real part is 0.
-    t = np.linspace(-10e-6, 5e-6, 23)
-    np.testing.assert_array_equal(time_gain_compensation(t, med, 2.5e6, C), 0)
+    for t in (np.linspace(-1e-6, 10e-6, 23), np.linspace(-10e-6, 5e-6, 23)):
+        tgc = time_gain_compensation(t, med, 2.5e6, C)
+        expected = np.sqrt(np.maximum(t, 0)) / np.sqrt(t.max()) * 10 ** (att * t * C * 1e2 / 40)
+        expected[t < 0] = 0
+        # The second axis has |t(1)| > t(end): MATLAB would normalise by an
+        # imaginary number (Q-101); pyproteus normalises by sqrt(max(t)) (D-18).
+        np.testing.assert_allclose(tgc, expected, rtol=1e-13)
+        assert tgc.max() > 0
+    np.testing.assert_array_equal(time_gain_compensation(np.linspace(-2, 0, 5), med, 2.5e6, C), 0)
 
 
 def test_beamform_frames_streaming_equals_batch() -> None:

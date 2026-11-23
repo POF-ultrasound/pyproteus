@@ -19,7 +19,6 @@ for the oracle status and the design differences with MATLAB (D-15).
 
 from .beamform import (
     beamform_frames,
-    colon,
     das_reconstruction,
     das_time_axis,
     log_compress,
@@ -48,7 +47,6 @@ __all__ = [
     "DasTransducer",
     "DasTransmit",
     "beamform_frames",
-    "colon",
     "compute_das_matrix",
     "compute_das_matrix_general",
     "das_reconstruction",

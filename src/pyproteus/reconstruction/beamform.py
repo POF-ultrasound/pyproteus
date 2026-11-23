@@ -28,41 +28,19 @@ import scipy.sparse as sp
 
 from pyproteus.config.models import Settings
 from pyproteus.config.readers import load_settings_mat
-from pyproteus.numerics import conv, hilbert
+from pyproteus.numerics import colon, conv, hilbert
 
-from .das import _field, compute_das_matrix
+from .das import _field, _required, compute_das_matrix
 from .rf_data import iter_rf_frames
 
 __all__ = [
     "beamform_frames",
-    "colon",
     "das_reconstruction",
     "das_time_axis",
     "log_compress",
     "time_gain_compensation",
     "time_to_peak",
 ]
-
-
-def colon(a: float, d: float, b: float) -> np.ndarray:
-    """MATLAB ``a:d:b`` for a positive step: ``[a, a+d, ..., a+m*d]``, ``m = fix((b-a)/d)``.
-
-    ``(b-a)/d`` within ``1e-10`` (relative) below an integer counts as that
-    integer, so that a range meant to end on ``b`` keeps its last element
-    despite floating-point noise (``0:0.1:0.3`` has 4 elements, as in MATLAB).
-    Element values are ``a + k*d``; MATLAB may differ in the last bits (within
-    the D-13 float class). Empty if ``b < a``.
-    """
-    a, d, b = float(a), float(d), float(b)
-    if not d > 0 or not np.isfinite(a) or not np.isfinite(b):
-        raise ValueError("colon: finite end points and a positive step expected")
-    q = (b - a) / d
-    if q < 0:
-        return np.zeros(0)
-    m = np.floor(q)
-    if np.ceil(q) - q <= 1e-10 * max(1.0, abs(q)):
-        m = np.ceil(q)
-    return a + np.arange(int(m) + 1) * d
 
 
 def time_to_peak(transmit: Any, transducer: Any) -> float:
@@ -104,31 +82,34 @@ def das_time_axis(
 
     dt = 1 / float(_field(sim, "SamplingRate"))
     dx = float(_field(sim, "GridSize"))
-    kwave = dx / (2 * c) + dt if _field(sim, "HybridSimulation") else dx / (2 * c) + dt * 3 / 2
+    kwave = (
+        dx / (2 * c) + dt
+        if _required(sim, "HybridSimulation", "SimulationParameters")
+        else dx / (2 * c) + dt * 3 / 2
+    )
     return t - ttp - lens + kwave
 
 
 def time_gain_compensation(t: np.ndarray, medium: Any, f0: float, c: float) -> np.ndarray:
-    """Real TGC factor applied to the RF data (``DAS_reconstruction.m``).
+    """TGC factor applied to the RF data (``DAS_reconstruction.m``), with Q-101 fixed (D-18).
 
     MATLAB: ``TGC = sqrt(t)/max(sqrt(t)).*10.^(att.*t.*c.*1e2./20./2)`` with
     ``att = AttenuationA*(f0*1e-6)^AttenuationB``, then ``TGC(t<0) = 0``.
-    ``sqrt`` of the negative times is imaginary and MATLAB's ``max`` of a
-    complex array picks the largest magnitude (ties: largest phase angle), so
-    if the earliest time is further from 0 than the latest, the normalisation
-    is imaginary; ``hilbert`` then ignores the imaginary part of ``RF.*TGC``.
-    The factor returned here is therefore ``real(TGC)`` (quirk,
-    ``docs/QUIRKS.md``).
+    pyproteus normalises by ``sqrt(max(t))``, the largest real root. This is
+    MATLAB's result whenever MATLAB's ``max`` (largest magnitude of the complex
+    ``sqrt(t)``) picks that root, i.e. when ``max(t) > |min(t)|``. Otherwise
+    MATLAB normalises by an imaginary number and its image is all NaN; pyproteus
+    still gives the image (divergence D-18, ``docs/PARITY.md``). If no time is
+    positive the factor is 0 (as MATLAB's real part).
     """
     t = np.asarray(t, dtype=np.float64).reshape(-1)
     a, b = float(_field(medium, "AttenuationA")), float(_field(medium, "AttenuationB"))
     att = a * (float(f0) * 1e-6) ** b
-    s = np.sqrt(t.astype(np.complex128))
-    mag = np.abs(s)
-    cand = np.flatnonzero(mag == np.nanmax(mag))
-    den = s[cand[np.argmax(np.angle(s[cand]))]]  # first index of the largest angle
+    tmax = np.max(t) if t.size else 0.0
+    if not tmax > 0:
+        return np.zeros_like(t)
     gain = 10.0 ** (att * t * c * 1e2 / 20 / 2)
-    tgc = np.sqrt(np.maximum(t, 0)) / den.real * gain if den.imag == 0 else (s / den * gain).real
+    tgc = np.sqrt(np.maximum(t, 0)) / np.sqrt(tmax) * gain
     tgc[t < 0] = 0
     return tgc
 
@@ -162,9 +143,10 @@ def beamform_frames(
     def flush() -> None:
         if not block:
             return
-        rf = np.stack(block, axis=-1).astype(np.float64)  # Nelem x Nt x nb
+        rf = np.stack(block, axis=-1)  # Nelem x Nt x nb
         if np.iscomplexobj(rf):
             rf = rf.real  # MATLAB hilbert uses the real part
+        rf = rf.astype(np.float64)
         rf = rf * tgc[:, :, None]
         a = hilbert(rf, axis=1)
         # C-order flattening of Nelem x Nt = column-major Nt x Nelem stacking.
