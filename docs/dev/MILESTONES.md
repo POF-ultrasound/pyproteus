@@ -20,7 +20,7 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 - [x] Asymmetric mask test: map source and sensor rows between Fortran (MATLAB) and C order (k-wave-python) (2026-11-20, `tools/tracer_bullet/adapter.py`, B-10)
 - [x] Compare sensor data (target ≤ 1e-5 rel); check additive pressure source scaling (2026-11-20: ≤ 7e-7; source inputs bit-identical)
 - [x] Velocity source (`ux`/`uy`, curved array) case (2026-11-20)
-- [ ] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older (open: needs cluster access, see findings note)
+- [x] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older (2026-11-23: Quadro RTX 6000, CC 7.5, 24 GB; D-16) (open: needs cluster access, see findings note)
 - [x] Note findings in PROTEUS-py Project §Notes (2026-11-20, shared note `tracer-bullet-findings.md`; mirror to Obsidian pending)
 
 ### Repo setup

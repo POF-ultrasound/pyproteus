@@ -50,3 +50,9 @@ Exact comparison stays where it falls out naturally (loaded data, integer settin
 
 ## D-14 — Replace code tuned by probing MATLAB (2026-11-22)
 Supersedes D-8. The pchip coefficient grouping chosen to match MATLAB bit for bit, and the interp1 rules for flat segments and Inf/NaN neighbours found by probing, are replaced by standard textbook or SciPy forms, keeping only documented MATLAB semantics (NaN outside the range, shape-preserving end slopes, ...). Those oracle tests move to the D-13 float class. ulp-level observations (B-31, B-32) stay as notes, with no code to replicate them. Who: developer.
+
+## D-15 — pyproteus is a better PROTEUS, not an exact copy (2026-11-23)
+Maximise behavioural similarity to MATLAB PROTEUS v1.1.0 (the only reference so far), within the D-13 tolerances, but do not idealize PROTEUS or copy its implementation where a different Python design is better. Sessions and reviewers should challenge PROTEUS choices — toolbox and package dependencies, workflow, data handling and file formats, memory use, performance, API and usability — and use the better design when results stay within tolerance. Record each such divergence in `docs/PARITY.md` (what differs, why, how parity is still checked). Changes that alter results (including quirk fixes) are proposed to the main session for a developer decision and otherwise land in 1.x. Who: developer.
+
+## D-16 — University cluster GPU (2026-11-23)
+Quadro RTX 6000 (compute capability 7.5, driver 620.70.06, 24 GB). Meets the k-Wave CUDA binary's CC ≥ 7.5 requirement, so the release GPU test uses the C++/CUDA binary; the CuPy fallback is not needed for this cluster. 24 GB bounds the medium case (`pyproteus estimate`, M5). Who: developer (measurement).

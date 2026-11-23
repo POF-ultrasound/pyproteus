@@ -3,7 +3,8 @@
 Python port of MATLAB PROTEUS. Read `docs/ROADMAP.md` (plan), `docs/dev/MILESTONES.md` (checklists), `docs/dev/DECISIONS.md` before working.
 
 ## Phase A rules (until parity is confirmed)
-- Faithful port: reproduce MATLAB PROTEUS behaviour, quirks included. Record each quirk in `docs/QUIRKS.md`; do not fix it.
+- Reproduce MATLAB PROTEUS results (D-13 tolerances), quirks that change results included: record each in `docs/QUIRKS.md`, don't fix it before parity.
+- Don't idealize PROTEUS (D-15). pyproteus is a step towards a better, more efficient, easier-to-use PROTEUS, not an exact copy. Challenge PROTEUS implementation choices (toolbox/package dependencies, workflow, data handling, memory, performance, API) and use a better Python design when results stay within tolerance. Note each such change in `docs/PARITY.md`; propose result-changing improvements to the main session instead of applying them.
 - MATLAB oracle: `/Users/theodoremichel/Repos/TWENTE/Ultrasound/PROTEUS-cleaning/PROTEUS-oracle` (commit 8d37938, detached). Read-only: never edit, commit or switch branches there. Test-only shims go in `tests/oracle/shims/`.
 - Porting PROTEUS's own MATLAB code is fine (MIT). Never translate MathWorks toolbox source (e.g. `ode45.m`, `interp1.m`) or k-Wave MATLAB source (LGPL): clean-room from papers/docs, or use k-wave-python.
 - Every ported function gets an oracle test (same inputs through MATLAB Engine and Python) with inputs that hit ties at .5, equal values, odd/non-square shapes, out-of-range queries. Comparison classes: ROADMAP §4 (medium tolerances, D-13).

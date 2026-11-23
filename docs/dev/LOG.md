@@ -2,6 +2,9 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-23 — direction and cluster GPU (main session)
+- D-15: pyproteus is a step towards a better PROTEUS, not an exact copy; challenge PROTEUS implementation choices when results stay within tolerance. ROADMAP summary and CLAUDE.md updated. D-16: cluster GPU is a Quadro RTX 6000 (CC 7.5, 24 GB): CUDA binary usable.
+
 ## 2026-11-22 — M2 ode45 (m2-ode45)
 - `src/pyproteus/numerics/ode45.py`: `ode45`, `odeset`, `ODEResult` (`t`, `y`, `t_steps`, `y_steps`, `stats`, `stopped`, `message`; unpacks as `t, y`). Dormand–Prince 5(4) FSAL (Dormand & Prince 1980), step-size rule (eq. 4.13 with the safety factor and bounds of HNW's DOPRI5 code: 0.9, facmin 0.2, facmax 10; facmax 1 for the step after a rejection; no beta stabilisation, own choice), DOPRI5's 1.01 last-step stretch (kept within MaxStep) and `|h| <= 10 eps |t|` failure test (own addition: `|t|` floored at the span), starting step and dense output from Hairer–Nørsett–Wanner I (§II.4, §II.6); `RelTol` must exceed `10 eps`, structure per Shampine & Reichelt 1997, interface and option meanings from MATLAB's public `ode45`/`odeset` documentation (`RelTol`, `AbsTol` scalar/vector, `NormControl`, `MaxStep`, `InitialStep`, `Refine`, `OutputFcn`; `BDF`/`MaxOrder`/`Stats` accepted and ignored). Open choices documented in the module docstring. `OutputFcn` returning true stops after the step (hook for PROTEUS' wall-clock timeout).
 - Parity policy changed during this task (developer, via main session): results within a tolerance, no reproduction of MATLAB internals by black-box probing. An earlier probe-based version (PR #9, closed) was discarded; its probe results are removed and nothing of it is a target. B-52 kept as a general observation (MATLAB and NumPy elementary functions need not round identically), no code acting on it.
