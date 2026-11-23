@@ -160,6 +160,9 @@ Notes:
   as a 1-D array without the settings structs; `compute_delays` wraps it and stores the 1×N
   row in a copy of `Transmit`. The domain helpers MATLAB keeps as subfunctions are public.
   `compute_simulation_domain` returns a copy of `Geometry` (MATLAB value semantics).
+- `compute_transducer_projection` with `Configuration = 'Custom'` returns before reading
+  `Pitch`, `ElementWidth`, `ElevationFocus`, `LateralFocus`, `Angle`; MATLAB reads them first
+  and errors if one is missing. No effect on results.
 - Positions are differences of `R·cos` terms of the size of the array, so their absolute floor
   scales with `max(N·Pitch, R)`, not with the (possibly tiny) value: for a nearly flat array
   the apex `R(1 - cos θmax)` carries an absolute error of order eps·R on both sides.

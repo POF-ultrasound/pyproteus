@@ -298,7 +298,11 @@ TRANSMITS = [
     Transmit(LateralFocus=40e-3, Angle=10.0),
     Transmit(LateralFocus=-15e-3, Angle=20.0),
     Transmit(LateralFocus=math.nan, Angle=5.0),
-    Transmit(LateralFocus=30e-3, Angle=90.0),  # axial focus coordinate 0: ±Inf/NaN lines
+    # axial focus coordinate 0 (signed zero decides ±Inf/NaN lines):
+    Transmit(LateralFocus=30e-3, Angle=90.0),
+    Transmit(LateralFocus=30e-3, Angle=-90.0),
+    Transmit(LateralFocus=-30e-3, Angle=90.0),
+    Transmit(LateralFocus=30e-3, Angle=270.0),
 ]
 
 
@@ -330,10 +334,12 @@ def test_domain_custom_configuration(matlab_engine: Any) -> None:
     rng = np.random.default_rng(3)
     tr = transducer("P4-1", Configuration="Custom")
     pts = rng.uniform(-5e-3, 5e-3, size=(17, 3))
-    tr.integration_points = pts  # extra field (N×3)
-    for manual in (False, True):
-        g = geometry("renal_tree", 25e-3, manual, 1e-3, (0.0, 4e-2, -1e-2, 1e-2, -1e-2, 1e-2))
-        check_domain(matlab_engine, g, tr, TRANSMITS[2], f"custom manual={manual}")
+    # N×3, 3×N and a 3N row: MATLAB reshape(points, [], 3) is column-major
+    for layout in (pts, pts.T.copy(), pts.reshape(1, -1)):
+        tr.integration_points = layout  # extra field
+        for manual in (False, True):
+            g = geometry("renal_tree", 25e-3, manual, 1e-3, (0.0, 4e-2, -1e-2, 1e-2, -1e-2, 1e-2))
+            check_domain(matlab_engine, g, tr, TRANSMITS[2], f"custom {layout.shape} {manual}")
 
 
 def test_domain_default_settings(matlab_engine: Any, oracle: Any) -> None:

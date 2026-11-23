@@ -146,9 +146,11 @@ def compute_transducer_projection(transducer: Any, transmit: Any, d: float) -> n
 
 def compute_end_depth(geometry: Geometry) -> float:
     """Start depth plus the axial extent of the rotated geometry bounding box [m]."""
-    diagonal = np.asarray(geometry.BoundingBox.Diagonal, dtype=np.float64).reshape(-1, 1)
+    diagonal = np.asarray(geometry.BoundingBox.Diagonal, dtype=np.float64)
+    if diagonal.shape not in ((3, 1), (1, 1)):  # MATLAB Diagonal.*P needs 3×1 (or scalar)
+        raise ValueError(f"Geometry.BoundingBox.Diagonal must be 3×1, got {diagonal.shape}")
     bb = np.asarray(geometry.Rotation, dtype=np.float64) @ (diagonal * _UNIT_CUBE)
-    return float(geometry.startDepth) + np.max(bb[0]) - np.min(bb[0])
+    return float(geometry.startDepth) + np.fmax.reduce(bb[0]) - np.fmin.reduce(bb[0])
 
 
 def compute_simulation_domain(geometry: Geometry, transducer: Any, transmit: Any) -> Geometry:

@@ -6,6 +6,7 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - #15 (get_element_geometry) merged after CI green + reviewer APPROVE; main session told.
 - `transducer/delays.py` (`compute_delays`, `transmit_delays`), `transducer/domain.py` (`compute_simulation_domain` and its subfunctions, `GeometryBehindTransducerWarning`), private `_trig` (`sind`/`cosd`, exact at multiples of 90) and `_fields` helpers.
 - Oracle test `tests/oracle/test_transducer_domain_delays.py` (40 tests): 10 transducers (5 catalogue, single/odd linear, single/strongly curved/flat curved) × 7 foci (±Inf, NaN, ±mm, 1 µm, 0) × 7 angles (incl. ±90, 180) × 2 c; Hypothesis; domains for both geometries × 3 start depths × 7 transmits, manual boxes, `Custom`, defaults, errors. Mutation checks (sign of focus, element height, warning condition) caught.
+- Reviewer (fresh agent): APPROVE; applied: ±90/270° focused transmits, 3×N and 3N-row `integration_points`, NaN-ignoring end depth with a 3×1 `Diagonal` check, PARITY note on the Custom early return.
 - Next: signal leaves.
 
 ## 2026-11-23 — M1 get_element_geometry (m1-leaves)
