@@ -66,3 +66,8 @@ PROTEUS's `estimate_impulse_response` (`butter(3,Wn,'bandpass')` in (b,a) form, 
 - Q-100 (image one sample deep from the 1-based `I/Fs` time-to-peak): first check that it is a genuine off-by-one inside MATLAB PROTEUS and not an indexing artefact of the port; if genuine, reproduce and fix in 1.x.
 - Single-precision RF (PROTEUS default) images: compared at ≤ 1e-6 abs on the linear image, since single precision cannot meet 1e-9.
 Who: developer (Q-100..Q-102); main session (single-precision class).
+
+## D-19 — Grid PML split and shipped geometries (2026-11-23)
+- Q-90: `define_grid` uses `PML = floor((M-N)/2)` instead of PROTEUS's `ceil`, so with odd M-N the extra point stays in the core grid and a one-point axis is not emptied. Grids then differ from MATLAB by one core point in those cases; oracle tests document that difference and compare everything else.
+- The shipped STL geometries (Zenodo record 10573662) are downloaded into a gitignored folder and registered with pooch, so the default-geometry tests run.
+Who: developer.
