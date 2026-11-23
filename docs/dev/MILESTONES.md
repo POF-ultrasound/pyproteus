@@ -131,6 +131,7 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [ ] `main_pressure_field`
 
 ### Done when
+- [ ] Point scatterer at a known depth, imaged through the hybrid and full paths: settles DAS quirk Q-100 (one-sample depth offset vs the k-Wave staggered-grid correction; D-18)
 - [ ] Hybrid and full paths match MATLAB on tiny and small cases (CPU)
 - [ ] Medium case on GPU
 
