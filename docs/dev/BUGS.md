@@ -109,3 +109,18 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Observation: their last bit can differ between the two environments, so ported formulas are not expected to be bit-identical to MATLAB.
 - Impact: ~1 ulp per operation, far inside the tolerance classes (D-12/D-13/D-14).
 - Action: none; no code acts on this.
+
+## B-110 — `VOXELISE` extends the grid along one axis only (quirk, reproduced)
+- Where: `VOXELISE.m`, "Check that the output grid is large enough to cover the mesh" (`if ... elseif ... elseif`).
+- Behaviour: when the mesh extends beyond the grid, a grid line at the mesh bound is added (and cropped afterwards) only along the first traced axis that needs it; the other axes are left short. The extra line only changes which neighbouring rays the odd-crossing corrections see.
+- Handling: reproduced in `pyproteus.geometry.voxelisation.voxelise`; `test_mesh_larger_than_grid` (`xyz`, `yz`, `z`) agrees exactly. Irrelevant for PROTEUS, whose grids contain the vessel.
+
+## B-111 — `VOXELISE` drops facets with a projected area below an absolute 1e-14 (quirk, reproduced)
+- Where: `VOXELISEinternal`, `if abs(planecoC) < 1e-14, planecoC = 0`.
+- Behaviour: the threshold is in the mesh's length unit squared (m² in PROTEUS, after `STLunit` scaling), so facets with a projected area under ~5e-15 m² give no crossing; the ray becomes odd and is filled from its neighbours. Unit-dependent, but such a facet is almost never crossed by a ray.
+- Handling: reproduced (same threshold). Candidate for a relative threshold after parity.
+
+## B-112 — default settings voxelise the mouse brain arteriole to an empty mask (observation)
+- Where: `define_medium` with `make_default_settings(PATHS, 'mouse_brain')`: grid spacing c/(f0·6) ≈ 103 µm; the arteriole's bounding box is 0.3 × 0.3 × 1.2 mm with vessels thinner than a voxel.
+- Behaviour: MATLAB and pyproteus both give 0 vessel voxels (the renal tree gives 4710 of 23.7 M). The default mouse-brain simulation has no vessel in the medium.
+- Impact: PROTEUS behaviour, reproduced. Worth telling users (finer `PointsPerWavelength` or a dedicated grid); reported to the main session.
