@@ -116,3 +116,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Observation: their last bit can differ between the two environments, so ported formulas are not expected to be bit-identical to MATLAB.
 - Impact: ~1 ulp per operation, far inside the tolerance classes (D-12/D-13/D-14).
 - Action: none; no code acts on this.
+
+## B-90 — MATLAB `VOXELISE` errors when a mesh bound is equidistant from two grid lines (observation, for M4)
+- Where: `mesh-voxelisation/Mesh_voxelisation/VOXELISE.m` (`VOXELISEinternal`, `meshXminp`...`meshYmaxp = find(abs(gridCO - meshmin) == min(...))`), called by `define_medium.m` with `EmbedVessel`.
+- Symptom: a facet bound exactly half-way between two grid coordinates gives two indices, and the ray loop `for loopY = meshYminp:meshYmaxp` fails with "Colon operands must be real scalars". Found with a synthetic box STL in `tests/oracle/test_medium_define.py` (faces now 0.3 dx past a node).
+- Impact: real meshes rarely hit an exact tie; the M4 port should pick one index (first) and note the difference.
+
