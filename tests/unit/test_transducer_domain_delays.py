@@ -10,18 +10,6 @@ import pytest
 from pyproteus import config
 from pyproteus import transducer as ptr
 from pyproteus.config.models import Geometry, Medium, Transducer, Transmit
-from pyproteus.transducer._trig import cosd, sind
-
-
-def test_sind_cosd() -> None:
-    k = np.arange(-8, 9) * 90.0
-    np.testing.assert_array_equal(sind(k), np.round(np.sin(np.deg2rad(k))))  # bans: allow
-    np.testing.assert_array_equal(cosd(k), np.round(np.cos(np.deg2rad(k))))  # bans: allow
-    assert not np.signbit(sind(k)).any() or np.all(sind(k)[np.signbit(sind(k))] != 0)
-    x = np.linspace(-1000, 1000, 2001) + 0.37
-    np.testing.assert_allclose(sind(x), np.sin(np.deg2rad(x)), atol=1e-13)
-    np.testing.assert_allclose(cosd(x), np.cos(np.deg2rad(x)), atol=1e-13)
-    assert np.isnan(sind(np.inf)) and np.isnan(cosd(np.nan))
 
 
 def lin(n: int = 5, conf: str = "Linear") -> Transducer:

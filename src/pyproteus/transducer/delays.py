@@ -8,9 +8,9 @@ from typing import Any
 import numpy as np
 
 from pyproteus.config.models import Transmit
+from pyproteus.numerics import cosd, sind
 
 from ._fields import element_count, required, scalar
-from ._trig import cosd, sind
 from .geometry import get_element_geometry
 
 __all__ = ["compute_delays", "transmit_delays"]

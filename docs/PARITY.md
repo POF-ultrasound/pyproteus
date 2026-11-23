@@ -34,6 +34,7 @@ permutation of exact inputs (documented semantics, not float noise).
 | `hilbert(x)` (vectors along length, matrices along columns) | `hilbert` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `conv(u,v,shape)`, `convn(A,B,shape)` | `conv`, `convn` | exact on small integers, else float | `test_numerics_signal.py` | ✅ |
 | `rng(seed,'twister')`, `rand`, `randi` | `rng`, `MatlabRNG.rand`, `MatlabRNG.randi` | float (same MT19937 stream) | `test_numerics_random.py` | ✅ |
+| `sind(x)`, `cosd(x)` (exact at integer multiples of 90°, documented) | `sind`, `cosd` (exact reduction modulo 360 and to the nearest multiple of 90; exact zeros are +0) | exact at multiples of 90°, else float (1e-9 rel + 1e-15 abs) | `test_numerics_trig.py` | ✅ |
 | `randn` | not provided | — | — | ⬜ (only used with infinite truncation cutoff) |
 
 Notes:
@@ -148,8 +149,7 @@ Notes:
   a 300-batch sweep passed.
 - `is_curved(transducer)` is the one exact-match test for `'Curved'` (Q-80), shared by the ports
   of `compute_delays`, `compute_simulation_domain` and the acoustic module.
-- `sind`/`cosd`: private `transducer._trig` (exact reduction modulo 360 and to the nearest
-  multiple of 90, so `cosd(90) == 0` exactly as documented for MATLAB; exact zeros are +0).
+- `sind`/`cosd` come from `numerics` (see the numerics table).
   This matters in `compute_transducer_projection`, which divides by `LateralFocus*cosd(Angle)`:
   at `Angle = 90` the beam lines are ±Inf/NaN on both sides, and the domain bounds ignore NaN
   like MATLAB's `max`/`min` (`np.fmax`/`np.fmin`).

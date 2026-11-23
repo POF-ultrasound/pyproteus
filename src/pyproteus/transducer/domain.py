@@ -14,9 +14,9 @@ from typing import Any
 import numpy as np
 
 from pyproteus.config.models import Domain, Geometry
+from pyproteus.numerics import cosd, sind
 
 from ._fields import configuration_is, field, scalar
-from ._trig import cosd, sind
 from .geometry import get_element_geometry, is_curved
 
 __all__ = [

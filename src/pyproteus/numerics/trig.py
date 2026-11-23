@@ -2,7 +2,8 @@
 
 Documented MATLAB behaviour: exact results at integer multiples of 90 degrees
 (``sind(180) == 0``, ``cosd(90) == 0``), unlike ``sin(deg2rad(x))``. This
-matters where PROTEUS divides by ``cosd(theta)``. Implemented by exact
+matters where PROTEUS divides by ``cosd(theta)`` (beam projections) or tests
+for zero. ±Inf and NaN give NaN. Implemented by exact
 reduction modulo 360 and to the nearest multiple of 90; exact zeros are +0.
 Not tuned to MATLAB's last bit elsewhere (D-12).
 """
@@ -12,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import ArrayLike
 
-from pyproteus.numerics import matlab_round
+from .rounding import matlab_round
 
 __all__ = ["cosd", "sind"]
 
