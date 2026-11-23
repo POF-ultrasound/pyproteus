@@ -325,3 +325,14 @@ def test_integration_points_rca_and_custom(element_geometry) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         acoustic.get_transducer_integration_points(C, _G())
+
+
+def test_sinc_complex_and_delta_row_centres() -> None:
+    X = np.arange(8) * 0.5
+    V = np.exp(1j * X)
+    out = acoustic.sinc_interpolation(X, V, X)
+    assert np.iscomplexobj(out)
+    np.testing.assert_allclose(out, V, atol=1e-14)
+    x = np.array([[0.0, 0.3, 0.6]])
+    b = acoustic.evaluate_delta_function(x, np.array([0.0, 0.3, 0.1]), [0.1], [16])
+    np.testing.assert_allclose(b[:2], [1.0, 1.0])

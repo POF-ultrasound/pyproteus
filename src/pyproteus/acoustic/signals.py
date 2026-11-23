@@ -43,6 +43,8 @@ def evaluate_delta_function(x: ArrayLike, xi: ArrayLike, dx: ArrayLike, N: Array
         a = np.asarray(v, dtype=float)
         if a.ndim == 2 and a.shape[0] == d and a.shape[1] > 1:
             return a  # d × M: implicit expansion against x
+        if d == 1 and a.ndim == 1 and a.size > 1:
+            return a.reshape(1, -1)  # d = 1: a row of centres
         a = a.reshape(-1)
         if a.size == 1:
             a = np.repeat(a, d)
@@ -119,9 +121,9 @@ def sinc_interpolation(X: ArrayLike, V: ArrayLike, Xq: ArrayLike) -> np.ndarray:
     # one sample: mean of an empty diff is NaN, as in MATLAB (output NaN)
     spacing = float(np.mean(np.diff(X))) if X.size > 1 else np.nan
     if V.ndim <= 1 or (V.ndim == 2 and V.shape[0] == 1):  # vector or MATLAB row
-        out = _apply_sinc(Xq, X, V.astype(float).reshape(-1, 1), spacing=spacing)[:, 0]
+        out = _apply_sinc(Xq, X, V.reshape(-1, 1), spacing=spacing)[:, 0]
     elif V.ndim == 2:  # len(X) × k, also k = 1 (one bubble): k × len(Xq)
-        out = _apply_sinc(Xq, X, V.astype(float), spacing=spacing).T
+        out = _apply_sinc(Xq, X, V, spacing=spacing).T
     else:
         raise ValueError(f"V must be a vector or a matrix, got shape {V.shape}")
     return out.astype(out_dtype) if out_dtype is not None else out
