@@ -56,3 +56,6 @@ Maximise behavioural similarity to MATLAB PROTEUS v1.1.0 (the only reference so 
 
 ## D-16 — University cluster GPU (2026-11-23)
 Quadro RTX 6000 (compute capability 7.5, driver 620.70.06, 24 GB). Meets the k-Wave CUDA binary's CC ≥ 7.5 requirement, so the release GPU test uses the C++/CUDA binary; the CuPy fallback is not needed for this cluster. 24 GB bounds the medium case (`pyproteus estimate`, M5). Who: developer (measurement).
+
+## D-17 — Impulse response: accurate SOS instead of PROTEUS's (b,a) path (2026-11-23)
+PROTEUS's `estimate_impulse_response` (`butter(3,Wn,'bandpass')` in (b,a) form, then `impz`) is ill-conditioned for poles near z = 1. Against an exact zpk partial-fraction reference, MATLAB is off by about 1e-8 for the default P4-1 and by 1–2 % for narrow bands. pyproteus uses SciPy second-order sections (≤ 5e-14 from the reference). Tests: vs the reference at 1e-12; vs MATLAB at 1e-7 relative to max|IR| for catalogue-like bands. Narrow-band MATLAB errors are logged as a PROTEUS bug (B-80) and not reproduced (QUIRKS). `PressureSignal` and the IR/PressureSignal defaults inherit this class. Who: developer (first result-changing improvement under D-15).
