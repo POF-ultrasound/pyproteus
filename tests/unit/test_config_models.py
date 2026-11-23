@@ -208,7 +208,7 @@ def test_defaults_spot_values() -> None:
     ],
 )
 def test_reset_transmit_delay_type(configuration: str | None, delay: str | None) -> None:
-    t = Transducer(CenterFrequency=3e6)
+    t = Transducer(CenterFrequency=3e6, SamplingRate=250e6, TransmitImpulseResponse=np.ones((1, 3)))
     if configuration is not None:
         t.Configuration = configuration
     tx = config.reset_transmit(t)
