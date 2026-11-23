@@ -26,3 +26,6 @@ tools/tracer_bullet/.kwave-libs/
 tools/tracer_bullet/data/
 # reference export output (published on Zenodo, hashes in src/pyproteus/io/reference_registry.txt)
 tools/export_reference/data/
+
+# shipped STL geometries fetched from Zenodo 10573662 (see src/pyproteus/io registry)
+data/geometries/

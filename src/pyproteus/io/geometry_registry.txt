@@ -1,0 +1,8 @@
+# Shipped PROTEUS vessel geometries (pooch format: "<file> sha256:<hex>").
+# Source: Zenodo record 10573662 ("CFD models for the PROTEUS simulator"), members of
+# renal_tree_no_vtu.zip (renal_tree_no_vtu/maa.stl) and mouse_brain_no_vtu.zip
+# (mouse_brain_no_vtu/lpa_mouse_t10.stl), extracted unchanged (zip CRC-32 checked).
+# Paths are relative to a geometries folder (GeometriesPath), e.g. PYPROTEUS_GEOMETRIES_PATH.
+# No base_url: the files are zip members, not separate downloads.
+renal_tree/maa.stl sha256:b8187c8dcce8254a08ea7ce83704218b40b169319159181c16b730f11986a058
+mouse_brain/lpa_mouse_t10.stl sha256:1ba5da367587a89f229d38a1bbde318f18fd5355543a0a4732d039feb62aaedf
