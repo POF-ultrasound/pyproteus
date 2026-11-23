@@ -132,3 +132,20 @@ def test_estimate_impulse_response_and_defaults() -> None:
     assert tx_default.PressureSignal.min() == pytest.approx(-200e3)
     assert tx_default.MechanicalIndex == pytest.approx(0.2 / math.sqrt(2.5))
     assert config.PENDING_FIELDS == {}
+
+
+def test_pressure_signal_is_a_row_and_missing_fields() -> None:
+    t = Transducer(SamplingRate=1e6, TransmitImpulseResponse=np.array([[1.0], [2.0]]))
+    v = tx(Type="Custom", VoltageSignal=np.array([[1.0], [0.0], [-1.0]]))
+    assert ptx.get_pressure_signal(v, t).PressureSignal.shape == (1, 4)
+    with pytest.raises(ValueError, match="AmplitudeMode"):
+        ptx.get_voltage_signal(
+            Transmit(Type="Three-level", CenterFrequency=1e6, NumberOfCycles=1.0, SamplingRate=1e8)
+        )
+    with pytest.raises(ValueError, match="Envelope"):
+        ptx.get_voltage_signal(Transmit(Type="Cosine envelope", AmplitudeMode="Pressure"))
+    # unknown envelope: nothing else is read (MATLAB switch without otherwise)
+    out = ptx.get_voltage_signal(
+        Transmit(Type="Cosine envelope", Envelope="Gaussian", AmplitudeMode="Pressure")
+    )
+    assert out.VoltageSignal is None

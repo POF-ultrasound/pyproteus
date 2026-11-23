@@ -73,6 +73,6 @@ Format:
 
 ## Q-83 — narrow-band estimated impulse responses are inaccurate in MATLAB (not reproduced, D-17)
 - MATLAB: `GUIfunctions/estimate_impulse_response.m` (`[b,a] = butter(3,Wn,'bandpass'); impz(b,a,N,Fs)`).
-- Behaviour: the (b, a) form of the 6th-order bandpass is ill-conditioned when the band is narrow relative to the sampling rate; MATLAB's impulse response is then off by 1–2 % of its maximum (0.5–0.6 MHz at 250 MHz; 1–2 MHz at 1 GHz) and by up to 1.5e-8 for the catalogue bands (B-80).
+- Behaviour: the (b, a) form of the 6th-order bandpass is ill-conditioned when the band is narrow relative to the sampling rate; MATLAB's impulse response is then off by 1–2 % of its maximum (0.5–0.6 MHz at 250 MHz; 1–2 MHz at 1 GHz) by up to 1.0e-8 for the catalogue bands (P4-1) and 1.5e-8 for other wide bands tested (B-80).
 - pyproteus deliberately does **not** reproduce this (D-17): `pyproteus.transducer.estimate_impulse_response` uses second-order sections, accurate to ~1e-14 (catalogue bands) and ~3e-12 (narrow bands) of the exact response.
 - Test: `tests/oracle/test_transmit_signals.py::test_impulse_response_vs_reference` (gated), `::test_impulse_response_vs_matlab` (catalogue bands gated at 1e-7, narrow bands reported).

@@ -75,17 +75,28 @@ def get_voltage_signal(transmit: Transmit) -> Transmit:
     """
     tx = transmit.copy_struct()
     ttype = tx.Type
-    if ttype in ("Three-level", "Cosine envelope"):
-        fs = _scalar(tx, "SamplingRate", "Transmit")
-        f = _scalar(tx, "CenterFrequency", "Transmit")
-        ncy = _scalar(tx, "NumberOfCycles", "Transmit")
-        if ttype == "Three-level":
-            tx.VoltageSignal = tri_level_signal(fs, f, ncy).reshape(1, -1)
-        elif tx.Envelope == "Rectangular":
-            tx.VoltageSignal = rect_pulse(fs, f, ncy, -math.pi / 2).reshape(1, -1)
-        elif tx.Envelope == "Hann":
-            tx.VoltageSignal = hann_pulse(fs, f, ncy, -math.pi / 2).reshape(1, -1)
+    if ttype is None:
+        raise ValueError("Transmit has no field Type")  # MATLAB: reference error
 
+    def pulse_parameters() -> tuple[float, float, float]:
+        return (
+            _scalar(tx, "SamplingRate", "Transmit"),
+            _scalar(tx, "CenterFrequency", "Transmit"),
+            _scalar(tx, "NumberOfCycles", "Transmit"),
+        )
+
+    if ttype == "Three-level":
+        tx.VoltageSignal = tri_level_signal(*pulse_parameters()).reshape(1, -1)
+    elif ttype == "Cosine envelope":
+        if tx.Envelope is None:
+            raise ValueError("Transmit has no field Envelope")
+        if tx.Envelope == "Rectangular":
+            tx.VoltageSignal = rect_pulse(*pulse_parameters(), -math.pi / 2).reshape(1, -1)
+        elif tx.Envelope == "Hann":
+            tx.VoltageSignal = hann_pulse(*pulse_parameters(), -math.pi / 2).reshape(1, -1)
+
+    if tx.AmplitudeMode is None:
+        raise ValueError("Transmit has no field AmplitudeMode")
     if tx.AmplitudeMode == "Voltage":
         v = tx.VoltageSignal
         if v is None:
@@ -131,6 +142,8 @@ def get_pressure_signal(transmit: Transmit, transducer: Any) -> Transmit:
         ir = np.asarray(ir, dtype=np.float64)
         p = (conv(v, ir) / fs).reshape(1, -1)  # always a row (PARITY.md)
 
+    if tx.AmplitudeMode is None:
+        raise ValueError("Transmit has no field AmplitudeMode")
     # Peak negative pressure (MATLAB min ignores NaN)
     pnp = abs(np.fmin.reduce(p, axis=None)) if p.size else np.float64(np.nan)
     if tx.AmplitudeMode == "Pressure":

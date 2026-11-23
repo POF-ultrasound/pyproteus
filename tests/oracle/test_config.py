@@ -251,6 +251,7 @@ def test_reset_medium(meng: Any) -> None:
 IR_REL = 1e-7
 IR_PATHS = {".TransmitImpulseResponse": IR_REL, ".ReceiveImpulseResponse": IR_REL}
 SIGNAL_REL = {".PressureSignal": IR_REL, ".MechanicalIndex": 1e-12}
+FLOAT_REL = {".PressureSignal": 1e-9, ".MechanicalIndex": 1e-12}
 
 
 def test_reset_transducer(meng: Any) -> None:
@@ -286,7 +287,8 @@ def test_reset_transmit(meng: Any, ttype: str) -> None:
     assert_same_tree(
         py_struct(config.reset_transmit(T)),
         expected,
-        rel=SIGNAL_REL,
+        # Calibrated impulse responses are loaded data: pressure pulse at the float class
+        rel=SIGNAL_REL if T.ImpulseResponseType == "Estimate" else FLOAT_REL,
         skip=_pending("Transmit"),
     )
 

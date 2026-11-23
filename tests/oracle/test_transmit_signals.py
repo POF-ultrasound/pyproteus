@@ -4,8 +4,10 @@ Classes (D-13):
 - rectangular/Hann pulses, pressure signals: float, ``1e-9*|e| + 1e-14*max|e|``;
 - three-level pulses (values -1/0/1 from thresholding a sine): statistical,
   same length and >= 99.9 % of samples equal, differences reported;
-- impulse response: see ``IR_VS_MATLAB`` and B-80 (MATLAB's (b, a) design is
-  inaccurate); also checked against an independent high-accuracy reference.
+- impulse response: see ``IR_VS_MATLAB`` and B-80 (MATLAB's (b, a) + impz path is
+  inaccurate). The realisation is checked against partial fractions of SciPy's zpk
+  design, and the design itself against MATLAB's zpk run through MATLAB's
+  ``zp2sos`` + ``sosfilt`` (D-17).
 """
 
 from __future__ import annotations
@@ -339,3 +341,23 @@ def test_impulse_response_vs_matlab(matlab_engine: Any) -> None:
             if (case.BandwidthLow, case.BandwidthHigh, case.SamplingRate) not in NARROW:
                 assert err <= IR_VS_MATLAB, report[-1]
     print("IR vs MATLAB (rel. to max):", "; ".join(report[::2]))
+
+
+def test_impulse_response_vs_matlab_zpk_sos(matlab_engine: Any) -> None:
+    """Same filter design as MATLAB: MATLAB's butter zpk realised by MATLAB's zp2sos/sosfilt."""
+    eng = matlab_engine
+    for low, high, fs in BANDS + NARROW:
+        band = np.array([low, high]) / 1e6
+        n = int(matlab_round(5 * fs / 1e6 / (band[1] - band[0])))
+        eng.eval(
+            f"[pyp_z__,pyp_p__,pyp_k__] = butter(3,"
+            f" [{low / 1e6!r} {high / 1e6!r}]/({fs / 1e6!r}/2), 'bandpass');"
+            f" pyp_h__ = sosfilt(zp2sos(pyp_z__,pyp_p__,pyp_k__), [1 zeros(1,{n - 1})])"
+            f" * {fs!r};",
+            nargout=0,
+        )
+        e = from_matlab(eng.workspace["pyp_h__"]).ravel()
+        eng.eval("clear pyp_z__ pyp_p__ pyp_k__ pyp_h__", nargout=0)
+        a = ptr.butterworth_impulse_response(low, high, fs)
+        bound = IR_VS_REFERENCE_NARROW if (low, high, fs) in NARROW else IR_VS_REFERENCE
+        assert np.max(np.abs(a - e)) <= bound * np.max(np.abs(e)), (low, high, fs)

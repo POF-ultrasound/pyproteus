@@ -9,8 +9,8 @@ Divergence (D-15, B-80): the filter is designed and applied in second-order
 sections (``scipy.signal.butter(..., output='sos')``, ``sosfilt``) instead of
 the transfer-function (b, a) form PROTEUS uses. The (b, a) form of this
 bandpass is ill-conditioned (poles near z = 1); the sections are accurate to
-~1e-14 relative, while the (b, a) result loses up to 1e-8 for the catalogue
-bands and percent-level accuracy for narrow bands.
+~1e-14 relative, while the (b, a) result loses up to 1.0e-8 for the catalogue
+bands (1.5e-8 for other wide bands) and percent-level accuracy for narrow bands.
 """
 
 from __future__ import annotations
