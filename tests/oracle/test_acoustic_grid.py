@@ -90,19 +90,16 @@ def matlab_value(eng: Any, expr: str, tmp: Path, name: str = "pyp_val__") -> Any
     return config.loadmat(file)[name]
 
 
-#: Counts of axes compared in the D-19 odd-padding case (the tests assert both cases occur).
-AXIS_CASES = {"even": 0, "odd": 0}
-
-
-def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> None:
+def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> list[str]:
     """Python grid vs MATLAB ``pgrid`` (value tree), with the D-19 divergence.
 
     Per axis, with ``M - N`` even everything matches. With ``M - N`` odd MATLAB's
     PML is ``ceil`` (core ``N - 1``) and pyproteus' ``floor`` (core ``N + 1``):
     the core has exactly 2 more points, the PML 1 fewer, the full size is the
     same, and the coordinates continue MATLAB's (first ``N - 1`` equal, then
-    ``+dx`` steps).
+    ``+dx`` steps). Returns the padding parity per axis (``"even"``/``"odd"``).
     """
+    parities = []
     for k in ("dx", "dy", "dz", "dt"):
         assert_float(getattr(grid, k), ref[k].item(), err_msg=f"{k} {err_msg}")
     assert grid.full_size == tuple(int(v) for v in ref["full_size"].reshape(-1)), err_msg
@@ -119,10 +116,10 @@ def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> 
         # MATLAB's core is always M - 2*ceil(...), so its parity cannot tell the cases
         # apart; the domain count N (MATLAB: n_ref + 1 when odd) decides via pyproteus.
         if n_py == n_ref:  # even padding: identical
-            AXIS_CASES["even"] += 1
+            parities.append("even")
             assert pml_py == pml_ref, f"{ax} {err_msg}"
         else:  # odd padding (D-19): MATLAB ceil vs pyproteus floor
-            AXIS_CASES["odd"] += 1
+            parities.append("odd")
             assert (n_py, pml_py) == (n_ref + 2, pml_ref - 1), f"{ax} D-19 {err_msg}"
             assert (M - (n_ref + 1)) % 2 == 1, f"{ax}: not an odd-padding axis {err_msg}"
         d = grid.dx
@@ -134,6 +131,18 @@ def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> 
             assert_float(coords[n_ref:], expect, atol=1e-12 * d, err_msg=f"{ax} tail {err_msg}")
     assert grid.PML.Alpha == pml["Alpha"].item()
     assert bool(grid.sensor_on_grid) == bool(ref["sensor_on_grid"].item())
+    return parities
+
+
+def assert_grid_exact(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> None:
+    """``define_grid(..., pml_rounding="ceil")`` is MATLAB's grid: same sizes, PML, coordinates."""
+    m = grid_from_matlab(ref)
+    assert (grid.Nx, grid.Ny, grid.Nz) == (m.Nx, m.Ny, m.Nz), err_msg
+    assert grid.PML == m.PML and grid.full_size == m.full_size, err_msg
+    for ax in "xyz":
+        assert_float(
+            getattr(grid, ax), getattr(m, ax), atol=1e-12 * m.dx, err_msg=f"{ax} {err_msg}"
+        )
 
 
 def grid_from_matlab(ref: dict[str, Any]) -> acoustic.Grid:
@@ -258,29 +267,32 @@ def _domain_cases() -> list[dict[str, Any]]:
     return cases
 
 
-@pytest.mark.parametrize("case", _domain_cases(), ids=lambda c: str(c)[:60])
-def test_define_grid_domains(matlab_engine: Any, tmp_path: Path, case: dict[str, Any]) -> None:
+def test_define_grid_domains(matlab_engine: Any, tmp_path: Path) -> None:
+    """All domain cases; together they must hit both padding parities (D-19)."""
     eng = matlab_engine
-    (x0, x1), (y0, y1), (z0, z1) = case["X"], case["Y"], case["Z"]
-    sp: dict[str, Any] = dict(GridSize=case["dx"], SamplingRate=33e6, SensorOnGrid=True)
-    for opt in ("MaxPrime", "PMLmin"):
-        if opt in case:
-            sp[opt] = float(case[opt])
-    domain = dict(Xmin=x0, Xmax=x1, Ymin=y0, Ymax=y1, Zmin=z0, Zmax=z1)
-    put(eng, **{f"pyp_{k}__": float(v) for k, v in {**sp, **domain}.items() if k != "SensorOnGrid"})
-    fields = ",".join(f"'{k}',pyp_{k}__" for k in sp if k != "SensorOnGrid")
-    dfields = ",".join(f"'{k}',pyp_{k}__" for k in domain)
-    eng.eval(
-        f"pyp_SP__ = struct({fields}, 'SensorOnGrid', true);"
-        f"pyp_G__ = struct('Domain', struct({dfields}));",
-        nargout=0,
-    )
-    ref = matlab_value(eng, "define_grid(pyp_SP__, pyp_G__)", tmp_path)
-    eng.eval("clear pyp_*", nargout=0)
-    grid = acoustic.define_grid(
-        config.SimulationParameters(**sp), config.Geometry(Domain=Domain(**domain))
-    )
-    assert_grid(grid, ref, err_msg=str(case))
+    seen: list[str] = []
+    for case in _domain_cases():
+        (x0, x1), (y0, y1), (z0, z1) = case["X"], case["Y"], case["Z"]
+        sp: dict[str, Any] = dict(GridSize=case["dx"], SamplingRate=33e6, SensorOnGrid=True)
+        for opt in ("MaxPrime", "PMLmin"):
+            if opt in case:
+                sp[opt] = float(case[opt])
+        domain = dict(Xmin=x0, Xmax=x1, Ymin=y0, Ymax=y1, Zmin=z0, Zmax=z1)
+        values = {**sp, **domain}
+        put(eng, **{f"pyp_{k}__": float(v) for k, v in values.items() if k != "SensorOnGrid"})
+        fields = ",".join(f"'{k}',pyp_{k}__" for k in sp if k != "SensorOnGrid")
+        dfields = ",".join(f"'{k}',pyp_{k}__" for k in domain)
+        eng.eval(
+            f"pyp_SP__ = struct({fields}, 'SensorOnGrid', true);"
+            f"pyp_G__ = struct('Domain', struct({dfields}));",
+            nargout=0,
+        )
+        ref = matlab_value(eng, "define_grid(pyp_SP__, pyp_G__)", tmp_path)
+        eng.eval("clear pyp_*", nargout=0)
+        args = (config.SimulationParameters(**sp), config.Geometry(Domain=Domain(**domain)))
+        seen += assert_grid(acoustic.define_grid(*args), ref, err_msg=str(case))
+        assert_grid_exact(acoustic.define_grid(*args, pml_rounding="ceil"), ref, str(case))
+    assert "even" in seen and "odd" in seen, seen
 
 
 @pytest.mark.parametrize("folder", ["renal_tree", "mouse_brain"])
@@ -297,7 +309,13 @@ def test_define_grid_default_settings(
     ref = matlab_value(eng, "define_grid(S.SimulationParameters, S.Geometry)", tmp_path)
     eng.eval("clear S", nargout=0)
     grid = acoustic.define_grid(settings.SimulationParameters, settings.Geometry)
-    assert_grid(grid, ref, err_msg=f"{folder} ppw={ppw}")
+    parities = assert_grid(grid, ref, err_msg=f"{folder} ppw={ppw}")
+    if ppw is None:  # measured: default settings pad every axis oddly (D-19 applies)
+        assert parities == ["odd", "odd", "odd"], parities
+    exact = acoustic.define_grid(
+        settings.SimulationParameters, settings.Geometry, pml_rounding="ceil"
+    )
+    assert_grid_exact(exact, ref, f"{folder} ppw={ppw}")
     assert grid.shape == (grid.Nx, grid.Ny, grid.Nz)
     # every full size has prime factors <= 5 (default MaxPrime)
     assert all(acoustic.largest_prime_factor(m) <= 5 for m in grid.full_size)
@@ -308,10 +326,3 @@ def test_matlab_value_roundtrip(matlab_engine: Any, tmp_path: Path) -> None:
     v = matlab_value(matlab_engine, "struct('a', 1:3, 'b', zeros(2,0), 'c', true)", tmp_path)
     assert v["a"].shape == (1, 3) and v["b"].shape == (2, 0) and v["c"].dtype == bool
     assert from_matlab(1.0).shape == (1, 1)
-
-
-def test_both_padding_parities_covered() -> None:
-    """The define_grid tests above hit both the even and the odd (D-19) padding case."""
-    if AXIS_CASES["even"] == 0 and AXIS_CASES["odd"] == 0:
-        pytest.skip("define_grid oracle tests did not run")
-    assert AXIS_CASES["even"] > 0 and AXIS_CASES["odd"] > 0, AXIS_CASES

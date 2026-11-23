@@ -8,6 +8,7 @@ D-13 float class (≤ 1e-9 rel; delays near zero with an absolute floor).
 
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -101,7 +102,7 @@ def test_integration_delays(
 ) -> None:
     eng = matlab_engine
     n_el = int(default_settings.Transducer.NumberOfElements)
-    pts = _points(n_el, 9, seed=hash((config, layout)) % 2**31, layout=layout)
+    pts = _points(n_el, 9, seed=zlib.crc32(f"{config}-{layout}".encode()), layout=layout)
     T = _setup(eng, default_settings, config, focus, pts)
     ref = matlab_value(eng, "get_transducer_integration_delays(pyp_T__, pyp_S0__.Medium)", tmp_path)
     mine = acoustic.get_transducer_integration_delays(T, default_settings.Medium)

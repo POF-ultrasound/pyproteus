@@ -62,6 +62,36 @@ def test_evaluate_delta_function_cases(matlab_engine: Any) -> None:
         assert_signal(mine, ref.reshape(-1), err_msg=f"N={case[3]}")
 
 
+def test_evaluate_delta_function_centre_per_column(matlab_engine: Any) -> None:
+    """``xi`` d×M (one centre per column, implicit expansion), as ``update_sensor_fast.m``."""
+    rs = np.random.RandomState(12)
+    cases = []
+    for m in (2, 9, 40):
+        dx = np.array([1e-4, 1.2e-4, 0.9e-4])
+        N = np.array([64.0, 75.0, 30.0])
+        xi = rs.uniform(-1e-3, 1e-3, size=(3, m))
+        x = (
+            xi
+            + rs.randint(-3, 4, size=(3, m)) * dx[:, None]
+            + rs.uniform(-0.5, 0.5, (3, m)) * dx[:, None]
+        )
+        x[:, 0] = xi[:, 0]  # x == xi on every axis → 1
+        x[1, 1] = xi[1, 1]  # one axis only
+        cases.append((x, xi, dx, N))
+    out = batch(
+        matlab_engine,
+        "@evaluate_delta_function",
+        [c[0] for c in cases],
+        [c[1] for c in cases],
+        [col(c[2]) for c in cases],
+        [col(c[3]) for c in cases],
+    )[0]
+    for case, ref in zip(cases, out, strict=True):
+        mine = acoustic.evaluate_delta_function(*case)
+        assert mine[0] == 1.0
+        assert_signal(mine, ref.reshape(-1), err_msg=f"M={case[0].shape[1]}")
+
+
 @ORACLE_SETTINGS
 @given(st.integers(0, 2**31 - 1), st.integers(1, 3), st.integers(1, 30))
 def test_evaluate_delta_function_random(matlab_engine: Any, seed: int, d: int, m: int) -> None:
@@ -108,11 +138,32 @@ def test_sinc_interpolation_shapes(matlab_engine: Any) -> None:
         (X, M[:, :1], Xq_in),
         (X[:1], V[:1], X[:1]),
     ]
+    # 1-D or row V → 1-D (MATLAB 1×nq row); a len(X)×k matrix, also k = 1 → k×nq as MATLAB
+    expected_ndim = [1, 2, 1, 2, 2, 1]
     for k, (args, ref) in enumerate(zip(py_args, out, strict=True)):
         mine = acoustic.sinc_interpolation(*args)
-        if ref.shape[0] == 1:  # MATLAB row ↔ Python 1-D
+        assert mine.ndim == expected_ndim[k], (k, mine.shape)
+        if mine.ndim == 1:
+            assert ref.shape[0] == 1
             ref = ref.reshape(-1)
         assert_signal(mine, ref, err_msg=f"case {k}")
+
+
+def test_sinc_interpolation_single(matlab_engine: Any) -> None:
+    """Single-precision V (k-Wave sensor data): single output, single-precision class."""
+    rs = np.random.RandomState(8)
+    X = np.arange(300) * 2e-8
+    Xq = X[:-1] + 1e-8
+    for V in (
+        rs.standard_normal((300, 4)).astype(np.float32),
+        rs.standard_normal((300, 1)).astype(np.float32),
+    ):
+        (ref,) = batch(matlab_engine, "@sinc_interpolation", [row(X)], [V], [row(Xq)])[0]
+        assert ref.dtype == np.float32
+        mine = acoustic.sinc_interpolation(X, V, Xq)
+        assert mine.dtype == np.float32 and mine.shape == ref.shape
+        scale = float(np.max(np.abs(ref)))
+        np.testing.assert_allclose(mine, ref, rtol=0, atol=1e-5 * scale)
 
 
 @ORACLE_SETTINGS
@@ -134,9 +185,7 @@ def test_sinc_interpolation_random(
     Xq[: nq // 3] = X[rs.randint(0, n, nq // 3)]
     V = rs.standard_normal((n, k))
     (ref,) = batch(matlab_engine, "@sinc_interpolation", [row(X)], [V], [row(Xq)])[0]
-    mine = acoustic.sinc_interpolation(X, V, Xq)
-    if k == 1:
-        ref = ref.reshape(-1)
+    mine = acoustic.sinc_interpolation(X, V, Xq)  # (n, k) matrix → k × nq, also k = 1
     assert_signal(mine, ref)
 
 

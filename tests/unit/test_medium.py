@@ -213,22 +213,27 @@ def test_define_medium_broadcast_views_work_with_kwave_adapter() -> None:
     np.testing.assert_array_equal(a["p"], b["p"])
 
 
-def geometry_registry() -> dict[str, str]:
-    """``{path: "sha256:<hex>"}`` from ``pyproteus/io/geometry_registry.txt`` (pooch format)."""
-    from pathlib import Path
-
-    import pyproteus.io
-
-    text = (Path(pyproteus.io.__file__).parent / "geometry_registry.txt").read_text()
-    entries = {}
-    for line in text.splitlines():
-        if line.strip() and not line.startswith("#"):
-            name, digest = line.split()
-            entries[name] = digest
-    return entries
-
-
 def test_geometry_registry_lists_the_shipped_stls() -> None:
-    entries = geometry_registry()
+    from tools.fetch_geometries import SOURCES, read_registry
+
+    entries = read_registry()
+    assert set(entries) == set(SOURCES)
     assert set(entries) == {"renal_tree/maa.stl", "mouse_brain/lpa_mouse_t10.stl"}
     assert all(v.startswith("sha256:") and len(v) == 7 + 64 for v in entries.values())
+
+
+def test_define_medium_single_plane_keeps_three_dims() -> None:
+    """Nz = 1: MatlabRNG.rand drops the trailing singleton; the maps stay 3-D."""
+    g = acoustic.define_grid(
+        SimulationParameters(GridSize=1e-4, SamplingRate=1e7, SensorOnGrid=False, PMLmin=12.0),
+        Geometry(Domain=Domain(Xmin=0.0, Xmax=1e-3, Ymin=0.0, Ymax=5e-4, Zmin=0.0, Zmax=0.0)),
+    )
+    assert g.Nz == 1
+    mask = np.zeros(g.shape, dtype=bool)
+    mask[2, 1, 0] = True
+    kw, vessel = medium.define_medium(
+        g, _medium(), Geometry(EmbedVessel=True), rng=nm.rng(1), vessel=mask
+    )
+    for k in ("sound_speed", "density", "BonA", "alpha_coeff"):
+        assert kw[k].shape == g.shape, k
+    assert kw["sound_speed"][2, 1, 0] == 1570.0 and vessel.shape == g.shape

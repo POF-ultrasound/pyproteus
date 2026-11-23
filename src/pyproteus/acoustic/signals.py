@@ -16,8 +16,8 @@ __all__ = [
     "sinc_matrix",
 ]
 
-#: Rows of the dense sinc matrix built at once (bounds memory: rows × len(t_old) doubles).
-_CHUNK = 4096
+#: Elements of the dense sinc matrix built at once (2^22 doubles = 32 MB).
+_CHUNK_ELEMENTS = 1 << 22
 
 
 def evaluate_delta_function(x: ArrayLike, xi: ArrayLike, dx: ArrayLike, N: ArrayLike) -> np.ndarray:
@@ -25,9 +25,11 @@ def evaluate_delta_function(x: ArrayLike, xi: ArrayLike, dx: ArrayLike, N: Array
 
     Wise, Cox, Jaros & Treeby (2019), JASA 146(1) 278-288, Eqs. 10, 12, 13.
 
-    ``x`` is ``d × M`` (grid coordinates), ``xi``, ``dx`` and ``N`` hold one
-    value per dimension (any vector shape). Returns a 1-D array of ``M``
-    values (MATLAB: ``1 × M``). Per dimension: odd ``N`` uses the
+    ``x`` is ``d × M`` (grid coordinates). ``xi``, ``dx`` and ``N`` hold one
+    value per dimension (``d``-vector or ``d × 1``) or, with MATLAB implicit
+    expansion, ``d × M`` (one centre per column, as ``update_sensor_fast.m``
+    passes). Returns a 1-D array of ``M`` values (MATLAB: ``1 × M``).
+    Per dimension: odd ``N`` uses the
     ``sin``-denominator form (Eq. 10), even ``N`` the ``tan`` form (Eq. 12);
     ``x == xi`` gives 1. As in MATLAB, a distance that is a nonzero multiple
     of ``N*dx`` divides by zero (Inf/NaN).
@@ -38,14 +40,18 @@ def evaluate_delta_function(x: ArrayLike, xi: ArrayLike, dx: ArrayLike, N: Array
     d = x.shape[0]
 
     def per_dim(v: ArrayLike) -> np.ndarray:
-        a = np.asarray(v, dtype=float).reshape(-1)
+        a = np.asarray(v, dtype=float)
+        if a.ndim == 2 and a.shape[0] == d and a.shape[1] > 1:
+            return a  # d × M: implicit expansion against x
+        a = a.reshape(-1)
         if a.size == 1:
             a = np.repeat(a, d)
         if a.size != d:
-            raise ValueError(f"expected {d} values (one per dimension), got {a.size}")
+            raise ValueError(f"expected {d} values (one per dimension) or d × M, got {a.size}")
         return a.reshape(-1, 1)
 
     xi_, dx_, N_ = per_dim(xi), per_dim(dx), per_dim(N)
+    x, xi_ = np.broadcast_arrays(x, xi_)
     r = x - xi_
     even = np.mod(N_, 2) == 0
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -53,6 +59,7 @@ def evaluate_delta_function(x: ArrayLike, xi: ArrayLike, dx: ArrayLike, N: Array
         arg = np.pi * r / (N_ * dx_)
         den = N_ * np.where(even, np.tan(arg), np.sin(arg))
         b = num / den
+    b = np.array(b, copy=True)
     b[x == xi_] = 1.0
     return np.prod(b, axis=0)
 
@@ -71,10 +78,11 @@ def sinc_matrix(
 def _apply_sinc(t_query: np.ndarray, t: np.ndarray, V: np.ndarray, **kw: float) -> np.ndarray:
     """``sinc_matrix(t_query, t, **kw) @ V``, in row chunks to bound memory."""
     out = np.empty((t_query.size, *V.shape[1:]), dtype=np.result_type(V, float))
+    rows = max(1, _CHUNK_ELEMENTS // max(t.size, 1))
     # errstate: Apple Accelerate's matmul raises spurious FP flags on finite data.
     with np.errstate(all="ignore"):
-        for start in range(0, t_query.size, _CHUNK):
-            stop = start + _CHUNK
+        for start in range(0, t_query.size, rows):
+            stop = start + rows
             out[start:stop] = sinc_matrix(t_query[start:stop], t, **kw) @ V
     return out
 
@@ -91,25 +99,32 @@ def sinc_interpolation(X: ArrayLike, V: ArrayLike, Xq: ArrayLike) -> np.ndarray:
 
     The sample spacing is ``mean(diff(X))``. Shapes:
 
-    - ``V`` a vector (1-D, row or column): returns a 1-D array of ``len(Xq)``
-      values (MATLAB returns a row).
-    - ``V`` an ``len(X) × k`` matrix (one signal per column, as PROTEUS passes
-      ``transpose(sensed_p)``): returns ``k × len(Xq)``, as MATLAB.
+    - ``V`` 1-D or a ``1 × n`` row: returns a 1-D array of ``len(Xq)`` values
+      (MATLAB returns a row).
+    - ``V`` an ``len(X) × k`` matrix, ``k ≥ 1`` (one signal per column, as
+      PROTEUS passes ``transpose(sensed_p)``, also for a single bubble):
+      returns ``k × len(Xq)``, as MATLAB.
+    - dtype: ``float32`` ``V`` (k-Wave sensor data) gives ``float32`` output, as
+      MATLAB's double × single product; the sum is accumulated in double and
+      rounded once (MATLAB accumulates in single), so the two agree at the
+      single-precision class, not 1e-9 (docs/PARITY.md).
 
     Divergence (D-15): the ``len(Xq) × len(X)`` sinc matrix is built in row
-    chunks instead of at once (same values, bounded memory).
+    blocks of at most 2^22 elements instead of at once (same values, bounded memory).
     """
     X = _vector(X, "X").astype(float)
     Xq = _vector(Xq, "Xq").astype(float)
     V = np.asarray(V)
+    out_dtype = np.float32 if V.dtype == np.float32 else None
     # one sample: mean of an empty diff is NaN, as in MATLAB (output NaN)
     spacing = float(np.mean(np.diff(X))) if X.size > 1 else np.nan
-    if V.ndim <= 1 or 1 in V.shape:
-        vec = V.reshape(-1, 1)
-        return _apply_sinc(Xq, X, vec, spacing=spacing)[:, 0]
-    if V.ndim != 2:
+    if V.ndim <= 1 or (V.ndim == 2 and V.shape[0] == 1):  # vector or MATLAB row
+        out = _apply_sinc(Xq, X, V.astype(float).reshape(-1, 1), spacing=spacing)[:, 0]
+    elif V.ndim == 2:  # len(X) × k, also k = 1 (one bubble): k × len(Xq)
+        out = _apply_sinc(Xq, X, V.astype(float), spacing=spacing).T
+    else:
         raise ValueError(f"V must be a vector or a matrix, got shape {V.shape}")
-    return _apply_sinc(Xq, X, V, spacing=spacing).T
+    return out.astype(out_dtype) if out_dtype is not None else out
 
 
 def resample_signal(

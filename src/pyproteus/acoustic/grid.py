@@ -109,7 +109,7 @@ class Grid:
         return (self.Nx, self.Ny, self.Nz)
 
 
-def define_grid(simulation_parameters: Any, geometry: Any) -> Grid:
+def define_grid(simulation_parameters: Any, geometry: Any, *, pml_rounding: str = "floor") -> Grid:
     """Port of ``define_grid.m``.
 
     Grid points are integer multiples of ``GridSize`` that lie within or on the
@@ -123,6 +123,11 @@ def define_grid(simulation_parameters: Any, geometry: Any) -> Grid:
     point of the domain (a one-point axis becomes empty). Here the core grid
     has ``N + 1`` points in that case: the whole domain plus one point just
     beyond ``max`` (PML one point thinner per side, same full size ``M``).
+    With the default settings of both shipped geometries every axis has odd
+    padding. ``pml_rounding="ceil"`` reproduces MATLAB's grid exactly (for
+    parity runs against MATLAB results and references).
+
+    Missing ``SensorOnGrid`` gives ``sensor_on_grid=None`` (MATLAB errors).
     """
     sp, D = simulation_parameters, _get(geometry, "Domain")
     dx = dy = dz = _scalar(_get(sp, "GridSize"))
@@ -142,10 +147,20 @@ def define_grid(simulation_parameters: Any, geometry: Any) -> Grid:
     My = optimize_grid_size(Ny, 2 * pml_min, max_prime)
     Mz = optimize_grid_size(Nz, 2 * pml_min, max_prime)
 
+    if pml_rounding == "floor":
+
+        def half(m: int) -> int:
+            return m // 2
+    elif pml_rounding == "ceil":
+
+        def half(m: int) -> int:
+            return -(-m // 2)
+    else:
+        raise ValueError(f"pml_rounding must be 'floor' or 'ceil', not {pml_rounding!r}")
     pml = PML(
-        X_SIZE=(Mx - Nx) // 2,
-        Y_SIZE=(My - Ny) // 2,
-        Z_SIZE=(Mz - Nz) // 2,
+        X_SIZE=half(Mx - Nx),
+        Y_SIZE=half(My - Ny),
+        Z_SIZE=half(Mz - Nz),
         Alpha=2.0,
     )
     Nx, Ny, Nz = Mx - 2 * pml.X_SIZE, My - 2 * pml.Y_SIZE, Mz - 2 * pml.Z_SIZE

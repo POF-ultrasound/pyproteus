@@ -118,6 +118,41 @@ def test_define_medium_curved_coupling(
     _compare(ref, kw, vessel, ref_v, f"curved R={radius}")
 
 
+@pytest.mark.parametrize("curved", [False, True])
+def test_define_medium_single_plane(
+    matlab_engine: Any, oracle: Any, tmp_path: Path, curved: bool
+) -> None:
+    """Nz = 1 (one-point z domain, PMLmin 12 → even padding): maps stay Nx × Ny × 1."""
+    eng = matlab_engine
+    _small_settings(eng, oracle.path, "pyp_S8__")
+    if curved:
+        eng.eval(
+            "pyp_S8__.Transducer.Configuration = 'Curved'; pyp_S8__.Transducer.Radius = 3e-3;"
+            "pyp_S8__.Transmit = reset_transmit(pyp_S8__.Transducer);",
+            nargout=0,
+        )
+        update_settings(eng, "pyp_S8__")
+    eng.eval(
+        "pyp_S8__.Geometry.Domain.Zmin = 0; pyp_S8__.Geometry.Domain.Zmax = 0;"
+        "pyp_S8__.SimulationParameters.PMLmin = 12; pyp_S8__.Geometry.GeometriesPath = tempdir;"
+        "pyp_G__ = define_grid(pyp_S8__.SimulationParameters, pyp_S8__.Geometry);"
+        "rng(4,'twister');"
+        "[pyp_m__, pyp_v__] = define_medium(pyp_G__, pyp_S8__.Medium, pyp_S8__.Geometry,"
+        " pyp_S8__.Transducer);",
+        nargout=0,
+    )
+    grid = grid_from_matlab(matlab_value(eng, "pyp_G__", tmp_path))
+    assert grid.Nz == 1
+    ref = matlab_value(eng, "pyp_m__", tmp_path)
+    ref_v = matlab_value(eng, "pyp_v__", tmp_path)
+    s = load_settings(eng, tmp_path, var="pyp_S8__")
+    eng.eval("clear pyp_m__ pyp_v__ pyp_G__; rng(0,'twister');", nargout=0)
+    kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, s.Transducer, rng=nm.rng(4))
+    for k in KEYS:
+        assert np.shape(kw[k]) == grid.shape, k
+    _compare(ref, kw, vessel, ref_v, f"Nz=1 curved={curved}")
+
+
 def _write_box_stl(path: Path, lo: np.ndarray, hi: np.ndarray) -> None:
     """ASCII STL of an axis-aligned box (12 triangles), coordinates in micrometres."""
     v = np.array(
@@ -215,13 +250,9 @@ def test_define_medium_vessel_from_matlab_voxelise(
 
 def assert_registry_hash(path: Path, name: str) -> None:
     """The STL is the one recorded in ``pyproteus/io/geometry_registry.txt``."""
-    import hashlib
+    from tools.fetch_geometries import read_registry, sha256
 
-    from tests.unit.test_medium import geometry_registry
-
-    entries = geometry_registry()
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    assert entries[name] == f"sha256:{digest}", f"{name}: hash differs from the registry"
+    assert read_registry()[name] == sha256(path), f"{name}: hash differs from the registry"
 
 
 SHIPPED = {"renal_tree": "maa.stl", "mouse_brain": "lpa_mouse_t10.stl"}
@@ -235,7 +266,7 @@ def test_define_medium_shipped_geometries(
 
     The STL files are not in the oracle checkout (Zenodo 10573662); set
     ``PYPROTEUS_GEOMETRIES_PATH`` to a folder with ``renal_tree/maa.stl`` and
-    ``mouse_brain/lpa_mouse_t10.stl``.
+    ``mouse_brain/lpa_mouse_t10.stl`` (``python -m tools.fetch_geometries``).
     """
     root = os.environ.get("PYPROTEUS_GEOMETRIES_PATH")
     stl = Path(root or ".") / folder / SHIPPED[folder]

@@ -54,7 +54,7 @@ def define_medium(
     cutoff = _get(medium, "InhomogeneityCutoff")
     background = 1 + _scalar(_get(medium, "Inhomogeneity")) * random_truncated_normal(
         cutoff, list(shape), rng
-    )
+    ).reshape(shape)  # MATLAB rand drops a trailing singleton (Nz = 1); keep 3-D
 
     if transducer is not None:
         from pyproteus.transducer import get_element_geometry, is_curved

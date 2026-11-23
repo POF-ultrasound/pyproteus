@@ -120,7 +120,7 @@ def get_transducer_integration_points(transducer: Any, grid: Any) -> Any:
     elif _config_is(T, "Custom"):
         pts = np.asarray(_get(T, "integration_points"), dtype=float)
         P = pts.reshape(-1, 3, order="F") if pts.ndim == 3 else pts.reshape(-1, 3)
-        span = P.max(axis=0) - P.min(axis=0)
+        span = np.nanmax(P, axis=0) - np.nanmin(P, axis=0)  # MATLAB max/min skip NaN
         if span[0] > max(span[1], span[2]):
             warnings.warn(
                 f"The custom transducer extends {span[0] * 1e3:.1f} mm along x (axial) but "
@@ -171,7 +171,7 @@ def get_transducer_integration_delays(transducer: Any, medium: Any) -> Any:
                 delays = -delays
         else:
             delays = z * 0
-        delays = delays - np.min(delays)
+        delays = delays - np.nanmin(delays)  # MATLAB min skips NaN
         _set(T, "integration_transmit_delays", delays)
         _set(T, "integration_receive_delays", delays.copy())
     return T
@@ -180,7 +180,7 @@ def get_transducer_integration_delays(transducer: Any, medium: Any) -> Any:
 def _max_distance_domain_boundary(points: np.ndarray, vertices: np.ndarray) -> np.ndarray:
     """Largest distance from each integration point (``N_el × N_int × 3``) to the vertices."""
     diff = points[:, :, None, :] - vertices[None, None, :, :]
-    return np.max(np.sqrt(np.sum(diff**2, axis=3)), axis=2)
+    return np.nanmax(np.sqrt(np.sum(diff**2, axis=3)), axis=2)
 
 
 def compute_travel_times(
@@ -217,17 +217,17 @@ def compute_travel_times(
         d = _max_distance_domain_boundary(points, vertices)
         t_tx = d / c + np.asarray(_get(transducer, "integration_transmit_delays"), dtype=float)
         t_tx = t_tx + delays_tx[:, None]  # MATLAB: + transpose(Transmit.Delays)
-        transmit_time = float(np.max(t_tx))
+        transmit_time = float(np.nanmax(t_tx))
         t_rx = d / c + np.asarray(_get(transducer, "integration_receive_delays"), dtype=float)
-        receive_time = float(np.max(t_rx))
+        receive_time = float(np.nanmax(t_rx))
     else:
         D = _get(geometry, "Domain")
         xmax, ymin, ymax = (_scalar(_get(D, k)) for k in ("Xmax", "Ymin", "Ymax"))
         py = points[:, :, 1]
         y = np.mean(py, axis=1)  # element centres
-        y1, y2 = np.max(py), np.min(py)
+        y1, y2 = np.nanmax(py), np.nanmin(py)
         max_trans_dist = np.maximum(np.hypot(y - ymin, xmax), np.hypot(y - ymax, xmax))
-        transmit_time = float(np.max(max_trans_dist / c + delays_tx))
+        transmit_time = float(np.nanmax(max_trans_dist / c + delays_tx))
         receive_time = max(float(np.hypot(y1 - ymin, xmax)), float(np.hypot(y2 - ymax, xmax))) / c
 
     diagonal = np.asarray(_get(_get(geometry, "BoundingBox"), "Diagonal"), dtype=float)
