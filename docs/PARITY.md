@@ -104,8 +104,8 @@ Compared as flattened trees: every node's class, size, field names **in order** 
 |---|---|---|---|---|
 | `reset_acquisition`, `reset_simulation_parameters`, `reset_medium` | `config.reset_*` | exact | `tests/oracle/test_config.py` | ✅ |
 | `reset_microbubble` | `config.reset_microbubble` | exact; `Distribution.Probabilities` 1e-12 rel (7e-16 seen, B-31/B-32) | `test_config.py` | ✅ |
-| `reset_transducer` | `config.reset_transducer` | exact; `TransmitImpulseResponse`, `ReceiveImpulseResponse`: default pending M1 (signal leaves: `estimate_impulse_response`) | `test_config.py` | 🟡 |
-| `reset_transmit` (all catalogue configurations, missing `Configuration`) | `config.reset_transmit` | exact; `VoltageSignal`, `PressureSignal`, `MechanicalIndex`: default pending M1 (signal leaves: `get_voltage_signal`, `get_pressure_signal`) | `test_config.py` | 🟡 |
+| `reset_transducer` | `config.reset_transducer` | exact; `TransmitImpulseResponse`, `ReceiveImpulseResponse` 1e-7 rel. to max (D-17, B-80) | `test_config.py` | ✅ |
+| `reset_transmit` (all catalogue configurations, missing `Configuration`) | `config.reset_transmit` | exact (`VoltageSignal` too); `PressureSignal` 1e-7 rel. to max (D-17, B-80), `MechanicalIndex` 1e-12 | `test_config.py` | ✅ |
 | `reset_geometry` (renal tree, mouse brain, no `Folder`, existing fields kept) | `config.reset_geometry` | exact | `test_config.py` | ✅ |
 | `get_transducer_properties` (5 types, `Custom linear`, unknown) | `transducer.get_transducer_properties` | exact | `test_config.py` | ✅ |
 | `load_transducer_model` (PROTEUS both forms, Verasonics, v7.3, single/int IR, errors) | `transducer.load_transducer_model` | exact | `test_config.py` | ✅ |
@@ -121,7 +121,7 @@ Notes:
 
 - Models store MATLAB doubles and logicals (what PROTEUS writes). A file with other classes in typed fields (e.g. a `single` `Pitch`, an `int32` `SamplingRate`) loads with those fields converted to double; untyped (extra) fields keep their class. The raw reader `config.loadmat` keeps every class.
 - Field-less structs (`struct()`, `repmat(struct(),2,1)`, `struct('a',{})`) and v7.3 `canonical empty` values load like MATLAB (`test_load_settings_mat`).
-- **Default pending M1 (signal leaves):** the 5 fields above are `None` (absent) in the Python defaults and listed in `config.PENDING_FIELDS`; the oracle test skips exactly these. The M1 session that ports `estimate_impulse_response`, `get_voltage_signal` and `get_pressure_signal` completes `reset_transducer`/`reset_transmit`, empties `PENDING_FIELDS` and turns these rows ✅.
+- The signal defaults (impulse responses, voltage and pressure pulses, mechanical index) are filled since M1; `config.PENDING_FIELDS` is empty. Impulse responses and pressure pulses are compared at the D-17 class (1e-7 rel. to max).
 - Looser class, named fields only: `Microbubble.Distribution.Radii` and `Probabilities` (computed with `linspace`, `exp`, `sum`) are compared at 1e-12; every other default field (constants, catalogue values, plain arithmetic) and all loaded data are exact.
 - `linspace` is the textbook formula (`d1 + k*(d2-d1)/(n-1)`, last element `d2`), compared at 1e-12 rel. Per the developer's policy (2026-11-22) no code matches MATLAB's ulps or summation order; computed values are compared within tolerance, loaded data and constants exactly.
 - Settings JSON (`config.save_settings_json`) is lossless for every value tree (round trip tested on real settings files).
@@ -167,6 +167,29 @@ Notes:
 - Positions are differences of `R·cos` terms of the size of the array, so their absolute floor
   scales with `max(N·Pitch, R)`, not with the (possibly tiny) value: for a nearly flat array
   the apex `R(1 - cos θmax)` carries an absolute error of order eps·R on both sides.
+
+## Transmit signals (`pyproteus.transmit`, `pyproteus.transducer`, M1)
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `get_voltage_signal` (three-level, cosine envelope rectangular/Hann, voltage/pressure amplitude mode, unknown type/envelope, `round` ties in the length) | `transmit.get_voltage_signal` (+ `tri_level_signal`, `rect_pulse`, `hann_pulse`) | three-level: statistical (equal except at threshold ties, none seen); cosine pulses: float (1e-9 rel + 1e-14·max) | `tests/oracle/test_transmit_signals.py` | ✅ |
+| `get_pressure_signal` (convolution with MATLAB's impulse responses: P4-1 estimate, C1-6D model, L22-14v; pressure/voltage/other mode; `Custom (pressure)` row/column/NaN) | `transmit.get_pressure_signal`, `compute_mechanical_index` | float (1e-9 rel + 1e-14·max) | `test_transmit_signals.py` | ✅ |
+| `estimate_impulse_response` (catalogue bands, other rates, narrow bands) | `transducer.estimate_impulse_response`, `butterworth_impulse_response` | D-17: vs MATLAB 1e-7 rel. to max on catalogue-like bands (measured ≤ 1.5e-8; narrow bands 1–2 % reported, not gated, B-80/Q-83); vs zpk partial-fraction reference 1e-12 (measured ≤ 5e-14; narrow bands 1e-11, measured 2.7e-12) | `test_transmit_signals.py` | ✅ |
+
+Notes:
+
+- Divergence (D-15, D-17, B-80): the Butterworth bandpass is designed and applied in second-order
+  sections (`scipy.signal.butter(..., output='sos')`, `sosfilt`), not in the (b, a) form +
+  `impz` of PROTEUS. The (b, a) form of this filter is ill-conditioned; the sections are
+  accurate to ~1e-14 of max|IR|, MATLAB's result to 1e-8 (P4-1) and only to percent level for
+  narrow bands at high sampling rates. No Signal Processing Toolbox code is translated.
+- Divergence (shape): `get_pressure_signal` always returns a 1×N row from the convolution.
+  MATLAB `conv` can return a column for column inputs; PROTEUS's signals are rows
+  (`load_transducer_model` stores impulse responses as rows). `Custom (pressure)` signals keep
+  their shape, as in MATLAB.
+- Three-level pulses threshold `sin` samples at `sin(0.33·pi/2)`; a sample within an ulp of the
+  threshold may fall on the other side in MATLAB. The test accepts differences only at such ties
+  (within 1e-12); none occurred in the fixed cases or a 300-batch Hypothesis sweep.
 
 ## ODE solvers (`pyproteus.numerics`)
 
