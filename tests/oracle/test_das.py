@@ -20,6 +20,7 @@ MATLAB sparse matrices cannot cross the engine: they come back as
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +31,14 @@ from hypothesis import strategies as st
 
 from pyproteus.config.models import Medium
 from pyproteus.reconstruction import (
+    DasDelayMismatchWarning,
     colon,
     compute_das_matrix,
     compute_das_matrix_general,
     das_reconstruction,
+    das_reconstruction_general,
     das_transmit_distance,
+    initialize_das_parameters,
     load_rf_data,
     time_gain_compensation,
 )
@@ -517,3 +521,206 @@ def test_compute_das_matrix_large(matlab_engine) -> None:
         M = compute_das_matrix(t, y, x, y_el, c, Fs, focus)
         stats[focus] = compare_das(M, ml, t.size, 64, f"large focus={focus}")
     print(stats)
+
+
+# ------------------------------------- initialize_das_parameters / general DAS
+GENERAL_SETTINGS_M = """
+clear Acquisition SimulationParameters Transmit Transducer Geometry Medium
+Acquisition.PulsingScheme = 'Standard';
+SimulationParameters.SamplingRate = 40e6;
+SimulationParameters.GridSize = 1e-4;
+SimulationParameters.HybridSimulation = {hybrid};
+Transmit.LateralFocus = {focus};
+Transmit.Angle = {angle};
+Transmit.CenterFrequency = 2.5e6;
+Transmit.SamplingRate = 40e6;
+tt = (0:79)/40e6;
+Transmit.PressureSignal = sin(2*pi*2.5e6*tt).*exp(-((tt-1e-6)/0.4e-6).^2);
+Transducer.Type = 'test';
+Transducer.Configuration = '{config}';
+Transducer.NumberOfElements = {nelem};
+Transducer.Pitch = 0.3e-3;
+Transducer.ElementWidth = 0.27e-3;
+Transducer.Radius = {radius};
+Transducer.SamplingRate = 40e6;
+Transducer.ReceiveImpulseResponse = exp(-((0:39)/40e6 - 0.4e-6).^2/(0.2e-6)^2);
+Transducer.ElementHeight = 5e-3;
+Transducer.ElevationFocus = {efocus};
+Geometry.Domain.Xmin = {xmin}; Geometry.Domain.Xmax = 9e-3;
+Geometry.Domain.Ymin = -3.1e-3; Geometry.Domain.Ymax = 2.9e-3;
+Medium.SpeedOfSound = 1540; Medium.AttenuationA = 0.5; Medium.AttenuationB = 1.1;
+{extra}
+"""
+
+INIT_CASES = [
+    # (config, nelem, radius, focus, angle, hybrid, efocus, xmin, extra)
+    ("Linear", 16, "Inf", "Inf", "0", "true", "20e-3", "0", ""),
+    ("Linear", 15, "Inf", "-8e-3", "7", "false", "Inf", "0.5e-3", ""),
+    ("Curved", 17, "15e-3", "Inf", "0", "true", "20e-3", "-1e-3", ""),
+    ("Curved", 16, "12e-3", "6e-3", "-5", "true", "Inf", "0", "Transmit.Apodization = rand(1,16);"),
+]
+
+
+def make_general_settings(eng, case) -> None:
+    config, nelem, radius, focus, angle, hybrid, efocus, xmin, extra = case
+    eng.eval(
+        GENERAL_SETTINGS_M.format(
+            config=config,
+            nelem=nelem,
+            radius=radius,
+            focus=focus,
+            angle=angle,
+            hybrid=hybrid,
+            efocus=efocus,
+            xmin=xmin,
+            extra=extra,
+        ),
+        nargout=0,
+    )
+
+
+def python_settings(eng) -> Any:
+    """Settings model from the MATLAB workspace structs (via a v7 file round trip)."""
+    from pyproteus.config.readers import load_settings_mat
+
+    path = Path(eng.eval("[tempname '.mat']", nargout=1))
+    eng.eval(
+        f"save('{path}', 'Acquisition', 'SimulationParameters', 'Transmit', 'Transducer', "
+        "'Geometry', 'Medium');",
+        nargout=0,
+    )
+    try:
+        return load_settings_mat(path)
+    finally:
+        path.unlink()
+
+
+@pytest.mark.parametrize("case", INIT_CASES, ids=lambda c: f"{c[0]}{c[1]}-{c[3]}-{c[4]}")
+def test_initialize_das_parameters(matlab_engine, case) -> None:
+    eng = matlab_engine
+    eng.eval("rng(0, 'twister');", nargout=0)
+    make_general_settings(eng, case)
+    nelem, Nt = case[1], 431
+    eng.eval(
+        "[R, T, X] = initialize_das_parameters(Medium, SimulationParameters, Transducer, "
+        f"Transmit, Geometry, {nelem}, {Nt});",
+        nargout=0,
+    )
+    S = python_settings(eng)
+    recon, trans, tx = initialize_das_parameters(
+        S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, nelem, Nt
+    )
+    for name in ("x", "y", "t"):
+        expected = vec(eng.eval(f"R.{name}", nargout=1))
+        assert_float(getattr(recon, name), expected, atol=1e-15 * np.max(np.abs(expected)))
+    for name in ("c", "Fs", "alpha_th"):
+        assert_float(getattr(recon, name), eng.eval(f"R.{name}", nargout=1))
+    assert recon.apodization == eng.eval("R.apodization", nargout=1)
+    for name in ("x_el", "y_el", "azimuth"):
+        assert_float(getattr(trans, name), vec(eng.eval(f"T.{name}", nargout=1)), atol=1e-18)
+    assert_float(trans.center, eng.eval("T.center", nargout=1), atol=1e-18)
+    assert_float(trans.radius, eng.eval("T.radius", nargout=1))
+    assert trans.type == eng.eval("T.type", nargout=1)
+    assert trans.configuration == eng.eval("T.configuration", nargout=1)
+    for name in ("focus", "steer", "axis_delay"):
+        assert_float(getattr(tx, name), eng.eval(f"X.{name}", nargout=1), atol=1e-18)
+    assert_float(tx.apod, vec(eng.eval("X.apod", nargout=1)))
+    eng.eval("clear R T X", nargout=0)
+
+
+def test_initialize_das_parameters_errors_and_warning(matlab_engine) -> None:
+    eng = matlab_engine
+    make_general_settings(eng, INIT_CASES[0])
+    S = python_settings(eng)
+    args = "Medium, SimulationParameters, Transducer, Transmit, Geometry"
+    # Element count mismatch:
+    with pytest.raises(Exception, match="15 elements, the transducer 16"):
+        eng.eval(f"initialize_das_parameters({args}, 15, 100);", nargout=0)
+    with pytest.raises(ValueError, match="15 elements, the transducer 16"):
+        initialize_das_parameters(
+            S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, 15, 100
+        )
+    # Unsupported configuration:
+    eng.eval("Transducer.Configuration = 'RCA';", nargout=0)
+    with pytest.raises(Exception, match="not supported"):
+        eng.eval(f"initialize_das_parameters({args}, 16, 100);", nargout=0)
+    S.Transducer.Configuration = "RCA"
+    with pytest.raises(ValueError, match="not supported"):
+        initialize_das_parameters(
+            S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, 16, 100
+        )
+    # Delays that do not match the model (plane wave declared, 1 us ramp stored):
+    for ramp, warns in ((1e-6, True), (1e-9, False)):
+        eng.eval(
+            f"Transducer.Configuration = 'Linear'; Transmit.Delays = linspace(0, {ramp}, 16);"
+            f"lastwarn(''); initialize_das_parameters({args}, 16, 100); [~, id] = lastwarn;",
+            nargout=0,
+        )
+        assert (eng.eval("id", nargout=1) == "initialize_das_parameters:delays") == warns
+        S = python_settings(eng)
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            initialize_das_parameters(
+                S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, 16, 100
+            )
+        assert any(issubclass(w.category, DasDelayMismatchWarning) for w in rec) == warns
+
+
+GENERAL_DAS_CASES = [
+    (np.float64, "v7", INIT_CASES[0]),
+    (np.float64, "v7.3", INIT_CASES[1]),
+    (np.float64, "v7", INIT_CASES[2]),
+    (np.float32, "v7", INIT_CASES[3]),
+]
+
+
+@pytest.mark.parametrize(
+    "dtype,version,case",
+    GENERAL_DAS_CASES,
+    ids=lambda c: c[0] + str(c[1]) if isinstance(c, tuple) else str(c),
+)
+def test_das_reconstruction_general(matlab_engine, tmp_path, dtype, version, case) -> None:
+    eng = matlab_engine
+    eng.eval("rng(0, 'twister');", nargout=0)
+    make_general_settings(eng, case)
+    settings = tmp_path / "settings.mat"
+    eng.eval(
+        f"save('{settings}', 'Acquisition', 'SimulationParameters', 'Transmit', "
+        "'Transducer', 'Geometry', 'Medium');",
+        nargout=0,
+    )
+    rng = np.random.default_rng(11)
+    nelem, nt = case[1], 560
+    data = tmp_path / "rf"
+    data.mkdir()
+    frames = {}
+    for k in (1, 2):
+        rf = 1e-3 * rng.standard_normal((nelem, nt))
+        tau = 1.5e-6 + (np.arange(nelem) - nelem / 2) ** 2 * 2e-9 + 3e-6 * k
+        tt = np.arange(nt) / 40e6
+        rf += np.sin(2 * np.pi * 2.5e6 * (tt - tau[:, None])) * np.exp(
+            -(((tt - tau[:, None]) / 0.4e-6) ** 2)
+        )
+        frames[f"Frame_{k}.mat"] = [rf.astype(dtype)]
+    write_frames(eng, data, frames, version)
+    eng.eval(
+        f"[pyp_I__, pyp_x__, pyp_y__] = DAS_reconstruction_general('{data}', '{settings}');",
+        nargout=0,
+    )
+    IMG_m = from_matlab(eng.workspace["pyp_I__"])
+    x_m, y_m = vec(eng.workspace["pyp_x__"]), vec(eng.workspace["pyp_y__"])
+    eng.eval("clear pyp_I__ pyp_x__ pyp_y__", nargout=0)
+
+    IMG, x, y = das_reconstruction_general(data, settings)
+    assert_float(x, x_m, atol=1e-15)
+    assert_float(y, y_m, atol=1e-15)
+    assert IMG.shape == IMG_m.shape
+    lin, lin_m = 10 ** (IMG / 20), 10 ** (IMG_m / 20)
+    err = np.max(np.abs(lin - lin_m))
+    print(f"{case[:2]} {np.dtype(dtype).name}: max |linear image difference| = {err:.3g}")
+    if dtype == np.float64:
+        np.testing.assert_allclose(lin, lin_m, rtol=FLOAT_REL, atol=1e-12)
+    else:
+        assert err <= SINGLE_IMAGE_ATOL
+    for f in range(IMG.shape[2]):
+        assert np.argmax(IMG[:, :, f]) == np.argmax(IMG_m[:, :, f])

@@ -178,7 +178,8 @@ so `(t_del - t(1))*Fs` hits exact .5 values on both sides (half away from zero).
 | TGC expression of `DAS_reconstruction` (incl. Q-101) | `time_gain_compensation` | float | `test_time_gain_compensation` | ✅ |
 | colon `a:d:b` (pixel axes) | `reconstruction.colon` | float values, exact length on tested cases | `test_colon` | ✅ |
 | `DAS_reconstruction` (double RF; v7.3 + pulse inversion + diverging + full-simulation k-Wave correction; single RF) | `das_reconstruction` | float on the linear image `10^(IMG/20)` for double RF (measured 4.4e-16); single RF ≤ 1e-6 abs (measured 5.5e-8) | `test_das_reconstruction` | ✅ |
-| `initialize_das_parameters`, `DAS_reconstruction_general` | — | — | — | ⬜ (wait for `get_element_geometry`) |
+| `initialize_das_parameters` (linear even/odd, curved; steered, diverging, focused; lens/k-Wave variants; `Transmit.Apodization`; errors; delay-mismatch warning) | `initialize_das_parameters` (warning: `DasDelayMismatchWarning`) | float (axes, time axis, element geometry); exact length of axes | `test_initialize_das_parameters*` | ✅ |
+| `DAS_reconstruction_general` (linear 16/15 elements, curved 17/16; plane, steered diverging, focused; v7/v7.3; single RF) | `das_reconstruction_general` | as `DAS_reconstruction` (measured ≤ 6.7e-16 double, 9.8e-8 single) | `test_das_reconstruction_general` | ✅ |
 
 Design differences with MATLAB (D-15; results within the classes above):
 

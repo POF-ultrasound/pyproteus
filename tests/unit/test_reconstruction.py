@@ -16,8 +16,10 @@ from pyproteus.reconstruction import (
     compute_das_matrix,
     compute_das_matrix_general,
     das_reconstruction,
+    das_reconstruction_general,
     das_transmit_distance,
     frame_files,
+    initialize_das_parameters,
     load_rf_data,
     log_compress,
     time_gain_compensation,
@@ -385,3 +387,72 @@ def test_das_reconstruction_images_scatterer(tmp_path) -> None:
         assert IMG[ix, iy, f] == 0
         # Within about a wavelength (the time-to-peak quirk shifts by one sample):
         assert abs(x[ix] - S[0]) < 4 * pix and abs(y[iy] - S[1]) < 2 * pix
+
+
+# ------------------------------------------ initialize_das_parameters / general
+def general_settings(tmp_path: Path, config="Curved", nelem=16, **transmit):
+    data, path, _ = write_case(tmp_path)
+    from pyproteus.config.readers import load_settings_mat
+
+    S = load_settings_mat(path)
+    S.Transducer.Type = "test"
+    S.Transducer.Configuration = config
+    S.Transducer.NumberOfElements = nelem
+    S.Transducer.Radius = 15e-3
+    S.Transducer.ElementWidth = 0.27e-3
+    S.Transmit.Angle = transmit.get("Angle", 0.0)
+    if "Delays" in transmit:
+        S.Transmit.Delays = transmit["Delays"]
+    return data, S
+
+
+def test_initialize_das_parameters_curved(tmp_path) -> None:
+    from pyproteus.transducer import get_element_geometry
+
+    _, S = general_settings(tmp_path, Angle=10.0)
+    recon, tr, tx = initialize_das_parameters(
+        S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, 16, 300
+    )
+    El = get_element_geometry(S.Transducer)
+    np.testing.assert_array_equal(tr.x_el, El.x)
+    assert tr.center == El.center and tr.radius == 15e-3
+    assert recon.alpha_th == np.pi / 6 and recon.apodization == "cosine"
+    assert np.isclose(recon.x[1] - recon.x[0], C / 2.5e6 / 4)
+    assert recon.t.size == 300
+    np.testing.assert_allclose(tx.steer, np.deg2rad(10.0), rtol=1e-15)
+    np.testing.assert_array_equal(tx.apod, np.ones(16))
+
+
+def test_initialize_das_parameters_errors(tmp_path) -> None:
+    _, S = general_settings(tmp_path, config="Linear")
+    args = (S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry)
+    with pytest.raises(ValueError, match="15 elements, the transducer 16"):
+        initialize_das_parameters(*args, 15, 100)
+    S.Transducer.Configuration = "RCA"
+    with pytest.raises(ValueError, match="not supported"):
+        initialize_das_parameters(*args, 16, 100)
+
+
+def test_initialize_das_parameters_delay_warning(tmp_path) -> None:
+    import warnings
+
+    from pyproteus.reconstruction import DasDelayMismatchWarning
+
+    ramp = np.linspace(0, 1e-6, 16).reshape(1, -1)
+    _, S = general_settings(tmp_path, config="Linear", Delays=ramp)
+    args = (S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry)
+    with pytest.warns(DasDelayMismatchWarning):
+        initialize_das_parameters(*args, 16, 100)
+    S.Transmit.Delays = np.zeros((1, 16))  # plane wave, no steering: matches
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        initialize_das_parameters(*args, 16, 100)
+
+
+def test_das_reconstruction_general_linear_images_scatterer(tmp_path) -> None:
+    data, S = general_settings(tmp_path, config="Linear")
+    IMG, x, y = das_reconstruction_general(data, S)
+    assert IMG.shape == (x.size, y.size, 2)
+    ix, iy = np.unravel_index(np.argmax(IMG[:, :, 0]), IMG.shape[:2])
+    pix = C / 2.5e6 / 4
+    assert abs(x[ix] - 5e-3) < 3 * pix and abs(y[iy] - 0.9e-3) < 2 * pix

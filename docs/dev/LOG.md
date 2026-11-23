@@ -2,13 +2,13 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
-## 2026-11-23 — M1 delay-and-sum, part 1 (m1-das)
+## 2026-11-23 — M1 delay-and-sum (m1-das)
 - `src/pyproteus/reconstruction/`: `das_transmit_distance`, `compute_das_matrix`, `compute_das_matrix_general` (`das.py`), `load_rf_data` + `iter_rf_frames` + `frame_files` (`rf_data.py`, on `config.matfile.loadmat`, v5 and v7.3), `das_reconstruction` with `time_to_peak`, `das_time_axis`, `time_gain_compensation`, `beamform_frames`, `log_compress`, `colon` (`beamform.py`).
 - D-15 design choices (PARITY.md): DAS matrix built in pixel blocks into a CSR array (no full-image dense intermediates); frames streamed from disk and beamformed in blocks; no permute (matrix columns = C-order of Nelem×Nt); double precision throughout (MATLAB keeps single RF in single through TGC/hilbert).
 - Oracle (`tests/oracle/test_das.py`, 56 tests + 500-example Hypothesis sweep of the general matrix): sample indices 100 % equal everywhere (5.28 M entries on a λ/5, 64-element image; exact .5 tie cases with dyadic inputs); weights, distances, TGC float class; RF files exact; images 4.4e-16 (double RF) and 5.5e-8 (single RF) of the peak on the linear image.
 - Quirks Q-100 (time to peak one sample late), Q-101 (imaginary TGC normalisation), Q-102 (reference apodization keeps X ≤ 0 pixels). B-100 (pixel at −0: sign of zero, observation).
 - Unit tests (`tests/unit/test_reconstruction.py`, 34): brute-force reference matrix, half-away rounding, block-size invariance, general = reference up to pixel order (plane; diverging with odd elements), cosine taper, curved inside-circle, point scatterer imaged in place, frame order, schemes, class rules, TGC quirk, streaming = batch, end-to-end reconstruction from scipy-written files.
-- Next: `initialize_das_parameters`, `DAS_reconstruction_general` once `get_element_geometry` is on main.
+- After #15 (`get_element_geometry`) landed: `initialize_das_parameters` (+ `DasDelayMismatchWarning` for MATLAB's `initialize_das_parameters:delays`) and `das_reconstruction_general` (`general.py`). Oracle: settings fields, axes, time axis, element geometry float class; errors and warning as MATLAB; images ≤ 6.7e-16 (double), 9.8e-8 (single). Oracle total 65 tests (+300-example sweep).
 
 ## 2026-11-23 — M1 get_element_geometry (m1-leaves)
 - `src/pyproteus/transducer/geometry.py`: `get_element_geometry` → frozen `ElementGeometry` (1-D arrays, snake_case; `to_struct()` gives MATLAB's `El`). Accepts a `Transducer` model or a mapping with MATLAB field names.

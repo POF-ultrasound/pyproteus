@@ -30,7 +30,7 @@ from pyproteus.config.models import Settings
 from pyproteus.config.readers import load_settings_mat
 from pyproteus.numerics import conv, hilbert
 
-from .das import compute_das_matrix
+from .das import _field, compute_das_matrix
 from .rf_data import iter_rf_frames
 
 __all__ = [
@@ -73,13 +73,13 @@ def time_to_peak(transmit: Any, transducer: Any) -> float:
     ties). MATLAB uses the 1-based index, i.e. one sample later than the peak
     time ``(I-1)/Fs`` (quirk, ``docs/QUIRKS.md``).
     """
-    V_ref = conv(transmit.PressureSignal, transducer.ReceiveImpulseResponse) / float(
-        transducer.SamplingRate
-    )
+    pulse = _field(transmit, "PressureSignal")
+    ir = _field(transducer, "ReceiveImpulseResponse")
+    V_ref = conv(pulse, ir) / float(_field(transducer, "SamplingRate"))
     env = np.abs(hilbert(V_ref))
     # MATLAB max ignores NaN and returns the first maximum (index 1 if all NaN).
     I = 1 if np.isnan(env).all() else int(np.nanargmax(env)) + 1
-    return I / float(transmit.SamplingRate)
+    return I / float(_field(transmit, "SamplingRate"))
 
 
 def das_time_axis(
@@ -93,18 +93,18 @@ def das_time_axis(
     ``dx/(2c) + dt`` (hybrid) or ``dx/(2c) + 3/2*dt`` (full simulation).
     """
     sim = simulation_parameters
-    Fs = float(sim.SamplingRate)
+    Fs = float(_field(sim, "SamplingRate"))
     t = np.arange(Nt) / Fs
     ttp = time_to_peak(transmit, transducer)
 
-    H = float(transducer.ElementHeight)
-    F = float(transducer.ElevationFocus)
+    H = float(_field(transducer, "ElementHeight"))
+    F = float(_field(transducer, "ElevationFocus"))
     lens = np.sqrt((H / 2) ** 2 + F**2) / c - F / c if np.isfinite(abs(F)) else 0.0
     lens = 2 * lens
 
-    dt = 1 / float(sim.SamplingRate)
-    dx = float(sim.GridSize)
-    kwave = dx / (2 * c) + dt if sim.HybridSimulation else dx / (2 * c) + dt * 3 / 2
+    dt = 1 / float(_field(sim, "SamplingRate"))
+    dx = float(_field(sim, "GridSize"))
+    kwave = dx / (2 * c) + dt if _field(sim, "HybridSimulation") else dx / (2 * c) + dt * 3 / 2
     return t - ttp - lens + kwave
 
 
@@ -121,7 +121,8 @@ def time_gain_compensation(t: np.ndarray, medium: Any, f0: float, c: float) -> n
     ``docs/QUIRKS.md``).
     """
     t = np.asarray(t, dtype=np.float64).reshape(-1)
-    att = float(medium.AttenuationA) * (float(f0) * 1e-6) ** float(medium.AttenuationB)
+    a, b = float(_field(medium, "AttenuationA")), float(_field(medium, "AttenuationB"))
+    att = a * (float(f0) * 1e-6) ** b
     s = np.sqrt(t.astype(np.complex128))
     mag = np.abs(s)
     cand = np.flatnonzero(mag == np.nanmax(mag))
