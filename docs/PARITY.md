@@ -35,6 +35,7 @@ permutation of exact inputs (documented semantics, not float noise).
 | `hilbert(x)` (vectors along length, matrices along columns) | `hilbert` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `conv(u,v,shape)`, `convn(A,B,shape)` | `conv`, `convn` | exact on small integers, else float | `test_numerics_signal.py` | ✅ |
 | `rng(seed,'twister')`, `rand`, `randi` | `rng`, `MatlabRNG.rand`, `MatlabRNG.randi` | float (same MT19937 stream) | `test_numerics_random.py` | ✅ |
+| `sind(x)`, `cosd(x)` (exact at integer multiples of 90°, documented) | `sind`, `cosd` (exact reduction modulo 360 and to the nearest multiple of 90; exact zeros are +0) | exact at multiples of 90°, else float (1e-9 rel + 1e-15 abs) | `test_numerics_trig.py` | ✅ |
 | `randn` | not provided | — | — | ⬜ (only used with infinite truncation cutoff) |
 
 Notes:
@@ -130,6 +131,8 @@ Notes:
 | MATLAB | Python | Class | Oracle test | Status |
 |---|---|---|---|---|
 | `El = get_element_geometry(Transducer)` (linear, curved, `RCA`/other → linear; catalogue incl. C1-6D model file; `reset_transducer`; errors) | `transducer.get_element_geometry` → `ElementGeometry` | float (1e-9 rel; positions atol 1e-14·L, L = max(N·Pitch, R)); measured ≤ 2.2e-16·L on 500 random curved arrays (one-off script) | `tests/oracle/test_transducer_geometry.py` | ✅ |
+| `Transmit = compute_delays(Transmit, Transducer, Medium)` (linear, curved, RCA; focused, diverging, plane/diverging wave, NaN focus, angles incl. ±90/180; errors) | `transducer.compute_delays` (+ `transmit_delays` on plain numbers) | float (1e-9 rel; atol 1e-14·L/c, L = max(N·Pitch, \|f\|, R)) | `tests/oracle/test_transducer_domain_delays.py` | ✅ |
+| `Geometry = compute_simulation_domain(Geometry, Transducer, Transmit)` (auto and manual domain, both shipped geometries, start depth in front of/behind a curved apex, catalogue + odd/single/curved arrays, `Custom`, odd RCA error, warning) | `transducer.compute_simulation_domain` (+ `compute_transducer_vertices`, `compute_transducer_projection`, `compute_end_depth`) | float (1e-9 rel; atol 1e-14·max\|output\|); Domain field order and the warning compared | `test_transducer_domain_delays.py` | ✅ |
 
 Notes:
 
@@ -147,6 +150,20 @@ Notes:
   a 300-batch sweep passed.
 - `is_curved(transducer)` is the one exact-match test for `'Curved'` (Q-80), shared by the ports
   of `compute_delays`, `compute_simulation_domain` and the acoustic module.
+- `sind`/`cosd` come from `numerics` (see the numerics table).
+  This matters in `compute_transducer_projection`, which divides by `LateralFocus*cosd(Angle)`:
+  at `Angle = 90` the beam lines are ±Inf/NaN on both sides, and the domain bounds ignore NaN
+  like MATLAB's `max`/`min` (`np.fmax`/`np.fmin`).
+- Divergence (input validation): `compute_delays` raises for an odd RCA element count (MATLAB
+  silently builds `floor(N/2)` delays centred on the wrong element and returns the wrong
+  length) and for a non-integer count; `compute_simulation_domain` already raised for odd RCA.
+- Divergence (API, D-15): `transmit_delays(transducer, focus, angle, c)` returns the delays
+  as a 1-D array without the settings structs; `compute_delays` wraps it and stores the 1×N
+  row in a copy of `Transmit`. The domain helpers MATLAB keeps as subfunctions are public.
+  `compute_simulation_domain` returns a copy of `Geometry` (MATLAB value semantics).
+- `compute_transducer_projection` with `Configuration = 'Custom'` returns before reading
+  `Pitch`, `ElementWidth`, `ElevationFocus`, `LateralFocus`, `Angle`; MATLAB reads them first
+  and errors if one is missing. No effect on results.
 - Positions are differences of `R·cos` terms of the size of the array, so their absolute floor
   scales with `max(N·Pitch, R)`, not with the (possibly tiny) value: for a nearly flat array
   the apex `R(1 - cos θmax)` carries an absolute error of order eps·R on both sides.
