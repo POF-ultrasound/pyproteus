@@ -60,9 +60,9 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 - [ ] `compute_gaussian_distribution`, `compute_polydisperse_distribution`
 - [ ] `estimate_impulse_response`
 - [x] `load_transducer_model`, `get_transducer_properties` (2026-11-22, `pyproteus.transducer`, settings PR)
-- [ ] `get_element_geometry` (linear and curved)
-- [ ] `compute_simulation_domain`, `compute_sound_speed_extrema`
-- [ ] `compute_delays`
+- [x] `get_element_geometry` (linear and curved) (2026-11-23, `pyproteus.transducer.geometry`)
+- [x] `compute_simulation_domain`, `compute_sound_speed_extrema` (2026-11-23, `pyproteus.transducer.domain`; extrema in the settings PR)
+- [x] `compute_delays` (2026-11-23, `pyproteus.transducer.delays`)
 - [x] medium/liquid property helpers (`assign_medium_properties`, `assign_liquid_properties`, `get_gas_properties`) (2026-11-22, `pyproteus.medium`, `pyproteus.microbubble`; also `compute_sound_speed_extrema`, `compute_polydisperse_distribution`)
 
 ### Grid, medium, transducer
