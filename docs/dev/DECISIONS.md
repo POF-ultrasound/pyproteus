@@ -59,3 +59,10 @@ Quadro RTX 6000 (compute capability 7.5, driver 620.70.06, 24 GB). Meets the k-W
 
 ## D-17 — Impulse response: accurate SOS instead of PROTEUS's (b,a) path (2026-11-23)
 PROTEUS's `estimate_impulse_response` (`butter(3,Wn,'bandpass')` in (b,a) form, then `impz`) is ill-conditioned for poles near z = 1. Against an exact zpk partial-fraction reference, MATLAB is off by about 1e-8 for the default P4-1 and by 1–2 % for narrow bands. pyproteus uses SciPy second-order sections (≤ 5e-14 from the reference). Tests: vs the reference at 1e-12; vs MATLAB at 1e-7 relative to max|IR| for catalogue-like bands. Narrow-band MATLAB errors are logged as a PROTEUS bug (B-80) and not reproduced (QUIRKS). `PressureSignal` and the IR/PressureSignal defaults inherit this class. Who: developer (first result-changing improvement under D-15).
+
+## D-18 — Delay-and-sum quirks (2026-11-23)
+- Q-101 (TGC divides by `max(sqrt(t))` over complex values, giving an all-NaN image when |t(1)| > t(end)): fixed now with the real/magnitude maximum; results unchanged wherever MATLAB's output is valid.
+- Q-102 (reference apodization keeps pixels at X ≤ 0): reproduced; fix in 1.x.
+- Q-100 (image one sample deep from the 1-based `I/Fs` time-to-peak): first check that it is a genuine off-by-one inside MATLAB PROTEUS and not an indexing artefact of the port; if genuine, reproduce and fix in 1.x.
+- Single-precision RF (PROTEUS default) images: compared at ≤ 1e-6 abs on the linear image, since single precision cannot meet 1e-9.
+Who: developer (Q-100..Q-102); main session (single-precision class).
