@@ -19,9 +19,8 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from pyproteus import acoustic, medium
-from pyproteus.config.models import Domain, Geometry, SimulationParameters
 from tests.oracle.helpers import ORACLE_SETTINGS, put
-from tests.oracle.test_acoustic_grid import matlab_value
+from tests.oracle.test_acoustic_grid import grid_from_matlab, matlab_value
 
 THRESHOLD = 0.999
 
@@ -34,10 +33,10 @@ def _grid(eng: Any, dx: float, dom: dict[str, float]) -> acoustic.Grid:
         f"pyp_Grid__ = define_grid(pyp_SP__, struct('Domain', struct({fields})));",
         nargout=0,
     )
-    return acoustic.define_grid(
-        SimulationParameters(GridSize=dx, SamplingRate=30e6, SensorOnGrid=False),
-        Geometry(Domain=Domain(**dom)),
-    )
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:  # same grid both sides (define_grid: D-19)
+        return grid_from_matlab(matlab_value(eng, "pyp_Grid__", Path(tmp)))
 
 
 def _compare(eng: Any, grid: acoustic.Grid, pts: np.ndarray, tmp: Path, label: str) -> None:

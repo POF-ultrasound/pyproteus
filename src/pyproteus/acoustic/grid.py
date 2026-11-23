@@ -116,10 +116,13 @@ def define_grid(simulation_parameters: Any, geometry: Any) -> Grid:
     domain boundaries ``Geometry.Domain``. The full grid (core + PML) in each
     direction is ``optimize_grid_size(N, 2*PMLmin, MaxPrime)`` (defaults
     ``PMLmin = 15``, ``MaxPrime = 5``, used when the fields are absent), and
-    the PML takes ``ceil((M - N)/2)`` points per side.
+    the PML takes ``floor((M - N)/2)`` points per side.
 
-    Quirk Q-90: when ``M - N`` is odd the core grid shrinks by one point, so
-    the last grid point inside the domain is dropped.
+    Divergence (D-19, docs/PARITY.md): MATLAB uses ``ceil((M - N)/2)``, so when
+    ``M - N`` is odd its core grid has ``N - 1`` points and drops the last grid
+    point of the domain (a one-point axis becomes empty). Here the core grid
+    has ``N + 1`` points in that case: the whole domain plus one point just
+    beyond ``max`` (PML one point thinner per side, same full size ``M``).
     """
     sp, D = simulation_parameters, _get(geometry, "Domain")
     dx = dy = dz = _scalar(_get(sp, "GridSize"))
@@ -140,9 +143,9 @@ def define_grid(simulation_parameters: Any, geometry: Any) -> Grid:
     Mz = optimize_grid_size(Nz, 2 * pml_min, max_prime)
 
     pml = PML(
-        X_SIZE=int(np.ceil((Mx - Nx) / 2)),
-        Y_SIZE=int(np.ceil((My - Ny) / 2)),
-        Z_SIZE=int(np.ceil((Mz - Nz) / 2)),
+        X_SIZE=(Mx - Nx) // 2,
+        Y_SIZE=(My - Ny) // 2,
+        Z_SIZE=(Mz - Nz) // 2,
         Alpha=2.0,
     )
     Nx, Ny, Nz = Mx - 2 * pml.X_SIZE, My - 2 * pml.Y_SIZE, Mz - 2 * pml.Z_SIZE

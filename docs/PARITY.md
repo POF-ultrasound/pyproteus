@@ -167,7 +167,7 @@ Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxS
 | MATLAB | Python | Class | Oracle test | Status |
 |---|---|---|---|---|
 | `optimize_grid_size(N, range, maxPrime)`, `max(factor(n))` | `acoustic.optimize_grid_size`, `acoustic.largest_prime_factor` | exact (integer search on exact inputs) | `test_acoustic_grid.py` | ✅ |
-| `define_grid(SimulationParameters, Geometry)` (`MaxPrime`/`PMLmin` present or absent) | `acoustic.define_grid` → `Grid` | sizes/PML exact; coordinates float | `test_acoustic_grid.py` | ✅ |
+| `define_grid(SimulationParameters, Geometry)` (`MaxPrime`/`PMLmin` present or absent) | `acoustic.define_grid` → `Grid` | full sizes exact; core size/PML exact for even padding, D-19 difference (core +2, PML −1) for odd padding; coordinates float | `test_acoustic_grid.py` (both cases asserted to occur) | ✅ (D-19) |
 | `random_truncated_normal(cutoff, sz)` after `rng(seed,'twister')` | `medium.random_truncated_normal(cutoff, sz, rng)` | float (measured ≤ 2.8e-13 rel, ≤ 1.8e-15 abs; same number of uniforms) | `test_medium_random.py` (also PROTEUS' recorded toolbox draws) | ✅ (infinite cutoff: ⬜, see notes) |
 | `voxelize_media_points(MP, Grid)` | `medium.voxelize_media_points` (0-based) | statistical (measured 100 % equal); points and exclusion mask exact | `test_medium_voxelize.py` | ✅ |
 | `evaluate_delta_function(x, xi, dx, N)` | `acoustic.evaluate_delta_function` | float (atol 1e-12 × max) | `test_acoustic_signals.py` | ✅ |
@@ -185,10 +185,11 @@ Notes:
 - `random_truncated_normal` with an infinite cutoff (MATLAB: untruncated `randn`) raises `NotImplementedError`: MATLAB's `randn` algorithm is not documented, so its stream is not reproduced (ROADMAP §5). Default settings use a finite cutoff.
 - `define_medium` with `Geometry.EmbedVessel` (true for both shipped geometries) needs `READ_stl`/`VOXELISE` (M4). Until then the caller passes the vessel mask (`vessel=`); `NotImplementedError` (pointing to M4) is raised only when `EmbedVessel` is true and no mask is given. The oracle test passes MATLAB's `VOXELISE` output for an asymmetric, off-centre box STL and asserts the mask contract M4's voxeliser must meet: `bool`, shape `(Nx, Ny, Nz)`, indexed `[ix, iy, iz]` (checked against the box computed from the grid coordinates, so a transposed or C/Fortran-reshuffled mask fails). `test_define_medium_shipped_geometries` does the same for the renal tree and mouse brain STLs when `PYPROTEUS_GEOMETRIES_PATH` points to them (not in the oracle checkout; Zenodo 10573662); it skips otherwise.
 
-Design divergences (D-15; results unchanged, parity checked as above):
+Design divergences (D-15; results unchanged unless marked, parity checked as above):
 
 | Where | MATLAB | pyproteus | Why |
 |---|---|---|---|
+| `define_grid` PML (D-19, developer) | `PML = ceil((M - N)/2)`: with odd `M - N` the core has `N - 1` points, the last domain point is dropped, a one-point axis becomes empty | `PML = floor((M - N)/2)`: the core has `N + 1` points (whole domain plus one point beyond `max`), same full size `M`, PML one point thinner (still ≥ `PMLmin`) | **result-changing**: for odd-padding axes the grid has 2 more core points than MATLAB's; oracle tests check the documented difference and that the shared coordinates, full sizes and every even-padding axis match. Downstream oracle tests (voxelisation, medium) run on MATLAB's grid (`grid_from_matlab`) so they compare like with like. Code building the k-Wave grid must use `Grid.Nx/Ny/Nz` and `Grid.PML` (never recompute them) |
 | `define_grid` | struct `pgrid`, 1×N coordinate rows | frozen `Grid` dataclass (`PML` record), 1-D coordinates, `shape` property | typed, immutable, no 1-D/2-D ambiguity |
 | `optimize_grid_size` | `maxPrime < 2` loops forever | raises `ValueError` | fail fast |
 | `random_truncated_normal`, `define_medium` | global `rand` stream | explicit `rng` (`numerics.MatlabRNG`) argument | no global state (ROADMAP §7); seeds per job |

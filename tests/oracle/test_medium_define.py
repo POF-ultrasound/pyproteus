@@ -15,11 +15,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from pyproteus import acoustic, medium
+from pyproteus import medium
 from pyproteus import numerics as nm
 from tests.oracle.test_acoustic_grid import (
     assert_float,
     build_settings,
+    grid_from_matlab,
     load_settings,
     matlab_value,
     update_settings,
@@ -78,8 +79,8 @@ def test_define_medium_background(
     ref = matlab_value(eng, "pyp_m__", tmp_path)
     ref_v = matlab_value(eng, "pyp_v__", tmp_path)
     s = load_settings(eng, tmp_path, var="pyp_S4__")
+    grid = grid_from_matlab(matlab_value(eng, "pyp_G__", tmp_path))  # same grid both sides
     eng.eval("clear pyp_m__ pyp_v__ pyp_G__; rng(0,'twister');", nargout=0)
-    grid = acoustic.define_grid(s.SimulationParameters, s.Geometry)
     assert min(grid.shape) > 1
     kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(seed))
     _compare(ref, kw, vessel, ref_v, f"seed {seed}")
@@ -109,8 +110,8 @@ def test_define_medium_curved_coupling(
     ref = matlab_value(eng, "pyp_m__", tmp_path)
     ref_v = matlab_value(eng, "pyp_v__", tmp_path)
     s = load_settings(eng, tmp_path, var="pyp_S5__")
+    grid = grid_from_matlab(matlab_value(eng, "pyp_G__", tmp_path))  # same grid both sides
     eng.eval("clear pyp_m__ pyp_v__ pyp_G__; rng(0,'twister');", nargout=0)
-    grid = acoustic.define_grid(s.SimulationParameters, s.Geometry)
     kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, s.Transducer, rng=nm.rng(3))
     n_coupling = int(np.count_nonzero(kw["sound_speed"] == s.Medium.SpeedOfSound))
     assert n_coupling > 0, "test must hit the coupling region"
@@ -163,8 +164,8 @@ def _voxelise_in_matlab(eng: Any, var: str, tmp: Path, seed: int):
     ref = matlab_value(eng, "pyp_m__", tmp)
     ref_v = matlab_value(eng, "pyp_v__", tmp)
     s = load_settings(eng, tmp, var=var)
+    grid = grid_from_matlab(matlab_value(eng, "pyp_G__", tmp))  # same grid both sides
     eng.eval("clear pyp_m__ pyp_v__ pyp_G__; rng(0,'twister');", nargout=0)
-    grid = acoustic.define_grid(s.SimulationParameters, s.Geometry)
     # The mask contract M4's voxeliser must meet: bool, (Nx, Ny, Nz), index [ix, iy, iz]
     # (MATLAB's own subscripts; the .mat reader keeps them, no C/Fortran reshuffle).
     assert ref_v.dtype == bool, ref_v.dtype
@@ -178,7 +179,8 @@ def test_define_medium_vessel_from_matlab_voxelise(
     """Asymmetric box STL: MATLAB's mask, its orientation, and the Python vessel path."""
     eng = matlab_engine
     _small_settings(eng, oracle.path, "pyp_S6__")
-    grid0 = acoustic.define_grid(*_grid_inputs(eng, tmp_path, "pyp_S6__"))
+    eng.eval("pyp_G0__ = define_grid(pyp_S6__.SimulationParameters, pyp_S6__.Geometry);", nargout=0)
+    grid0 = grid_from_matlab(matlab_value(eng, "pyp_G0__", tmp_path))
     center = np.asarray(eng.eval("pyp_S6__.Geometry.Center")).reshape(-1)
     # Box faces 0.3 dx past a grid node (not half-way: VOXELISE errors when a face is
     # equidistant from two grid lines), a different extent along each axis,
@@ -209,11 +211,6 @@ def test_define_medium_vessel_from_matlab_voxelise(
         medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(5))
     kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(5), vessel=ref_v)
     _compare(ref, kw, vessel, ref_v, "box vessel")
-
-
-def _grid_inputs(eng: Any, tmp: Path, var: str):
-    s = load_settings(eng, tmp, var=var)
-    return s.SimulationParameters, s.Geometry
 
 
 SHIPPED = {"renal_tree": "maa.stl", "mouse_brain": "lpa_mouse_t10.stl"}

@@ -89,27 +89,28 @@ def test_define_grid_basic() -> None:
         assert N + 2 * pml == M and pml >= 15
 
 
-def test_define_grid_q90_odd_padding_drops_a_point() -> None:
-    """Q-90: M - N odd → the core grid loses its last point."""
+def test_define_grid_odd_padding_keeps_the_domain() -> None:
+    """D-19: PML = floor((M - N)/2), so an odd padding point stays in the core grid."""
     dx = 1e-4
     g = acoustic.define_grid(
         _settings(dx), _geometry(Xmin=0.0, Xmax=99 * dx, Ymin=0.0, Ymax=89 * dx, Zmin=0.0, Zmax=0.0)
     )
-    # x: N = 100 → M = 135, M - N = 35 → PML 18, core 99 (domain has 100 points)
-    assert (g.full_size[0], g.PML.X_SIZE, g.Nx) == (135, 18, 99)
-    assert g.x[-1] < 99 * dx * (1 - 1e-12)
-    # y: N = 90 → M = 120 (even padding) → all 90 points kept
-    assert g.Ny == 90
-    # z: a one-point domain gives an empty core grid (N = 1 → M = 32, PML 16, core 0)
-    assert (g.full_size[2], g.PML.Z_SIZE, g.Nz) == (32, 16, 0) and g.z.size == 0
+    # x: N = 100 → M = 135, M - N = 35 → PML 17, core 101 (MATLAB: PML 18, core 99)
+    assert (g.full_size[0], g.PML.X_SIZE, g.Nx) == (135, 17, 101)
+    np.testing.assert_allclose(g.x, np.arange(101) * dx)  # whole domain + one point beyond
+    # y: N = 90 → M = 120 (even padding) → unchanged, 90 points
+    assert (g.full_size[1], g.PML.Y_SIZE, g.Ny) == (120, 15, 90)
+    # z: a one-point domain keeps its point (N = 1 → M = 32, PML 15, core 2; MATLAB: core 0)
+    assert (g.full_size[2], g.PML.Z_SIZE, g.Nz) == (32, 15, 2)
+    np.testing.assert_allclose(g.z, [0.0, dx])
 
 
 def test_define_grid_overrides() -> None:
     dx = 1e-4
     geo = _geometry(Xmin=0.0, Xmax=50 * dx, Ymin=0.0, Ymax=50 * dx, Zmin=0.0, Zmax=50 * dx)
     g = acoustic.define_grid(_settings(dx, MaxPrime=7.0, PMLmin=10.0), geo)
-    # N = 51 → 51 + 20 = 71 (prime) → 72 = 2^3*3^2
-    assert g.full_size == (72, 72, 72) and g.PML.X_SIZE == 11 and g.Nx == 50
+    # N = 51 → 51 + 20 = 71 (prime) → 72 = 2^3*3^2; odd padding 21 → PML 10, core 52
+    assert g.full_size == (72, 72, 72) and g.PML.X_SIZE == 10 and g.Nx == 52  # D-19
     g2 = acoustic.define_grid(_settings(dx, MaxPrime=2.0), geo)
     assert g2.full_size == (128, 128, 128)
 

@@ -90,25 +90,79 @@ def matlab_value(eng: Any, expr: str, tmp: Path, name: str = "pyp_val__") -> Any
     return config.loadmat(file)[name]
 
 
+#: Counts of axes compared in the D-19 odd-padding case (the tests assert both cases occur).
+AXIS_CASES = {"even": 0, "odd": 0}
+
+
 def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> None:
-    """Python grid vs MATLAB ``pgrid`` (value tree)."""
-    for k in ("Nx", "Ny", "Nz"):
-        assert getattr(grid, k) == int(ref[k].item()), f"{k} {err_msg}"
+    """Python grid vs MATLAB ``pgrid`` (value tree), with the D-19 divergence.
+
+    Per axis, with ``M - N`` even everything matches. With ``M - N`` odd MATLAB's
+    PML is ``ceil`` (core ``N - 1``) and pyproteus' ``floor`` (core ``N + 1``):
+    the core has exactly 2 more points, the PML 1 fewer, the full size is the
+    same, and the coordinates continue MATLAB's (first ``N - 1`` equal, then
+    ``+dx`` steps).
+    """
     for k in ("dx", "dy", "dz", "dt"):
         assert_float(getattr(grid, k), ref[k].item(), err_msg=f"{k} {err_msg}")
-    for k in ("x", "y", "z"):
-        e = ref[k]
-        assert e.shape == (1, getattr(grid, "N" + k)), f"{k} shape {err_msg}"
-        assert_float(
-            getattr(grid, k), e.reshape(-1), atol=1e-12 * grid.dx, err_msg=f"{k} {err_msg}"
-        )
     assert grid.full_size == tuple(int(v) for v in ref["full_size"].reshape(-1)), err_msg
     assert ref["full_size"].shape == (3, 1)
     pml = ref["PML"]
-    for k in ("X_SIZE", "Y_SIZE", "Z_SIZE"):
-        assert getattr(grid.PML, k) == int(pml[k].item()), f"PML.{k} {err_msg}"
+    for ax, pk, M in zip("xyz", ("X_SIZE", "Y_SIZE", "Z_SIZE"), grid.full_size, strict=True):
+        n_ref, n_py = int(ref["N" + ax].item()), getattr(grid, "N" + ax)
+        pml_ref, pml_py = int(pml[pk].item()), getattr(grid.PML, pk)
+        assert M == n_py + 2 * pml_py == n_ref + 2 * pml_ref, f"{ax} sizes {err_msg}"
+        e = ref[ax]
+        assert e.shape == (1, n_ref), f"{ax} shape {err_msg}"
+        coords = getattr(grid, ax)
+        assert coords.shape == (n_py,)
+        # MATLAB's core is always M - 2*ceil(...), so its parity cannot tell the cases
+        # apart; the domain count N (MATLAB: n_ref + 1 when odd) decides via pyproteus.
+        if n_py == n_ref:  # even padding: identical
+            AXIS_CASES["even"] += 1
+            assert pml_py == pml_ref, f"{ax} {err_msg}"
+        else:  # odd padding (D-19): MATLAB ceil vs pyproteus floor
+            AXIS_CASES["odd"] += 1
+            assert (n_py, pml_py) == (n_ref + 2, pml_ref - 1), f"{ax} D-19 {err_msg}"
+            assert (M - (n_ref + 1)) % 2 == 1, f"{ax}: not an odd-padding axis {err_msg}"
+        d = grid.dx
+        assert_float(coords[:n_ref], e.reshape(-1), atol=1e-12 * d, err_msg=f"{ax} {err_msg}")
+        if n_py > n_ref:
+            start = coords[0] if n_ref == 0 else e.reshape(-1)[-1]
+            k0 = 0 if n_ref == 0 else 1
+            expect = start + np.arange(k0, k0 + n_py - n_ref) * d
+            assert_float(coords[n_ref:], expect, atol=1e-12 * d, err_msg=f"{ax} tail {err_msg}")
     assert grid.PML.Alpha == pml["Alpha"].item()
     assert bool(grid.sensor_on_grid) == bool(ref["sensor_on_grid"].item())
+
+
+def grid_from_matlab(ref: dict[str, Any]) -> acoustic.Grid:
+    """``acoustic.Grid`` holding MATLAB's ``pgrid`` exactly.
+
+    Downstream oracle tests (voxelisation, medium) use it so both sides see the
+    same grid despite the D-19 core-size divergence of ``define_grid``.
+    """
+    pml = ref["PML"]
+    return acoustic.Grid(
+        x=ref["x"].reshape(-1).astype(float),
+        y=ref["y"].reshape(-1).astype(float),
+        z=ref["z"].reshape(-1).astype(float),
+        Nx=int(ref["Nx"].item()),
+        Ny=int(ref["Ny"].item()),
+        Nz=int(ref["Nz"].item()),
+        dx=float(ref["dx"].item()),
+        dy=float(ref["dy"].item()),
+        dz=float(ref["dz"].item()),
+        dt=float(ref["dt"].item()),
+        full_size=tuple(int(v) for v in ref["full_size"].reshape(-1)),
+        PML=acoustic.PML(
+            X_SIZE=int(pml["X_SIZE"].item()),
+            Y_SIZE=int(pml["Y_SIZE"].item()),
+            Z_SIZE=int(pml["Z_SIZE"].item()),
+            Alpha=float(pml["Alpha"].item()),
+        ),
+        sensor_on_grid=bool(ref["sensor_on_grid"].item()),
+    )
 
 
 # ------------------------------------------------------- optimize_grid_size
@@ -254,3 +308,10 @@ def test_matlab_value_roundtrip(matlab_engine: Any, tmp_path: Path) -> None:
     v = matlab_value(matlab_engine, "struct('a', 1:3, 'b', zeros(2,0), 'c', true)", tmp_path)
     assert v["a"].shape == (1, 3) and v["b"].shape == (2, 0) and v["c"].dtype == bool
     assert from_matlab(1.0).shape == (1, 1)
+
+
+def test_both_padding_parities_covered() -> None:
+    """The define_grid tests above hit both the even and the odd (D-19) padding case."""
+    if AXIS_CASES["even"] == 0 and AXIS_CASES["odd"] == 0:
+        pytest.skip("define_grid oracle tests did not run")
+    assert AXIS_CASES["even"] > 0 and AXIS_CASES["odd"] > 0, AXIS_CASES
