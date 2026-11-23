@@ -4,9 +4,10 @@ Newest first. One entry per working session or milestone step: what was done, wh
 
 ## 2026-11-23 — M1 grid, medium, transducer integration (m1-grid-medium)
 - New `src/pyproteus/acoustic/` (`grid.py`: `optimize_grid_size`, `largest_prime_factor`, `define_grid` → frozen `Grid`/`PML` dataclasses; `signals.py`: `evaluate_delta_function`, `sinc_interpolation`, `resample_signal`; `transducer_integration.py`: `get_transducer_integration_points`, `get_transducer_integration_delays`, `compute_travel_times`) and in `src/pyproteus/medium/`: `random_truncated_normal` (explicit `MatlabRNG`, SciPy `erfc`/`erfcinv`), `voxelize_media_points` (0-based `VoxelizedPoints`), `define_medium` (non-STL path; `vessel=` mask injectable until M4).
-- Oracle tests compare on settings built by MATLAB (`reset_*` + derived fields, read back through `config.load_settings_mat`) plus tie cases. All integer quantities agree 100 %; floats far inside 1e-9 (truncated normal ≤ 2.8e-13 rel, resampling ≤ 1.3e-15 × max). Sweep at `PYPROTEUS_ORACLE_EXAMPLES=300`: 129 passed (independent functions).
+- Oracle tests compare on settings built by MATLAB (`reset_*` + derived fields, read back through `config.load_settings_mat`) plus tie cases. All integer quantities agree 100 %; floats far inside 1e-9 (truncated normal ≤ 2.8e-13 rel, resampling ≤ 1.3e-15 × max). Sweep at `PYPROTEUS_ORACLE_EXAMPLES=300`: 129 passed (independent functions); after merging `get_element_geometry` from main, integration points and `define_medium` oracle tests pass too.
 - `define_medium` vessel path checked with MATLAB's own `VOXELISE` on a synthetic box STL; the mask is passed to Python.
 - Found: default settings need the STL branch (both geometries have `EmbedVessel = true`) → reported to the main session with the `vessel=` proposal. Q-90 (odd PML padding drops the last domain point; a one-point axis becomes empty).
+- k-Wave adapter accepts the broadcast views (python backend, identical sensor data; unit test).
 - D-15 divergences logged in PARITY.md (broadcast views for constant `alpha_coeff`/`BonA`, chunked sinc matrix, explicit RNG, vectorised integration points, dataclass grid, fail-fast `max_prime < 2`).
 
 ## 2026-11-23 — M1 get_element_geometry (m1-leaves)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 from scipy.stats import truncnorm
@@ -181,3 +183,31 @@ def test_define_medium_curved_coupling() -> None:
     )
     ref, _ = medium.define_medium(g, _medium(), Geometry(EmbedVessel=False), rng=nm.rng(4))
     np.testing.assert_array_equal(lin["sound_speed"], ref["sound_speed"])
+
+
+def test_define_medium_broadcast_views_work_with_kwave_adapter() -> None:
+    """Read-only broadcast ``alpha_coeff``/``BonA`` give the same k-Wave result as dense arrays."""
+    from pyproteus.backends.kwave import KGrid, kspace_first_order
+
+    g = acoustic.define_grid(
+        SimulationParameters(GridSize=1e-4, SamplingRate=1.5e7, SensorOnGrid=False),
+        Geometry(
+            Domain=Domain(Xmin=0.0, Xmax=1.5e-3, Ymin=-5e-4, Ymax=5e-4, Zmin=-3e-4, Zmax=3e-4)
+        ),
+    )
+    kw, _ = medium.define_medium(g, _medium(), Geometry(EmbedVessel=False), rng=nm.rng(1))
+    dense = {k: np.array(v) if isinstance(v, np.ndarray) else v for k, v in kw.items()}
+    kg = KGrid(g.shape, (g.dx, g.dy, g.dz), g.dt, 30)
+    src_mask = np.zeros(g.shape, bool)
+    src_mask[2, g.Ny // 2, g.Nz // 2] = True
+    sen_mask = np.zeros(g.shape, bool)
+    sen_mask[-3, :, g.Nz // 2] = True
+    source = {"p_mask": src_mask, "p": np.sin(np.arange(10) / 2.0)[None, :]}
+    pml = (g.PML.X_SIZE, g.PML.Y_SIZE, g.PML.Z_SIZE)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        a = kspace_first_order(kg, kw, source, {"mask": sen_mask}, pml_size=pml, backend="python")
+        b = kspace_first_order(
+            kg, dense, source, {"mask": sen_mask}, pml_size=pml, backend="python"
+        )
+    np.testing.assert_array_equal(a["p"], b["p"])
