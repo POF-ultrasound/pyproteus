@@ -56,3 +56,17 @@ Format:
 - Test: `tests/oracle/test_transducer_geometry.py::test_fixed_cases[other]`, `test_catalogue_transducers[RC6gV]`.
 - Note: a curved array ignores `ElementWidth` (element width = pitch, no kerf); that is PROTEUS's documented convention, not a quirk.
 - Planned fix (proposal for after parity; changes results for misspelt values): an enumerated, validated `Configuration` and an explicit RCA geometry. One test, `transducer.is_curved`, keeps the rule in one place meanwhile.
+
+## Q-81 — the pressure pulse assumes the voltage and impulse response share a sampling rate
+- MATLAB: `GUIfunctions/get_pressure_signal.m` (`conv(V, IR)/Transducer.SamplingRate`).
+- Behaviour: `Transmit.VoltageSignal` is sampled at `Transmit.SamplingRate`, the impulse response at `Transducer.SamplingRate`; neither is checked or resampled. With a calibrated model sampled at another rate the pulse has the wrong time scale and amplitude.
+- Ported in: `pyproteus.transmit.get_pressure_signal` (same behaviour).
+- Test: `tests/oracle/test_transmit_signals.py::test_pressure_signal` (model impulse responses).
+- Planned fix (proposal for after parity): resample the impulse response to the transmit rate, or raise.
+
+## Q-82 — an all-zero voltage pulse or a pulse without negative pressure gives NaN/Inf
+- MATLAB: `get_voltage_signal.m` (`V*(VoltageAmplitude/max(abs(V)))`), `get_pressure_signal.m` (`p*(AcousticPressure/pnp)`).
+- Behaviour: a three-level pulse sampled too coarsely can be all zeros (e.g. 26.09 MHz at 62.5 MHz, one cycle): voltage mode gives NaN everywhere. A pressure pulse with `min(p) = 0` gives Inf/NaN in pressure mode. No warning.
+- Ported in: `pyproteus.transmit` (same behaviour, NumPy warnings silenced).
+- Test: `tests/unit/test_transmit_signals.py::test_get_voltage_signal_modes`; Hypothesis cases in `tests/oracle/test_transmit_signals.py`.
+- Planned fix (proposal for after parity): raise when the pulse has no amplitude.

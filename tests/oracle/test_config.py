@@ -245,10 +245,19 @@ def test_reset_medium(meng: Any) -> None:
     )
 
 
+#: Estimated impulse responses and the pressure pulses convolved with them: MATLAB's
+#: butter (b, a) + impz result is off by up to 1.0e-8 of max|IR| for the catalogue bands
+#: (B-80); compared relative to the maximum at this provisional class.
+IR_REL = 1e-7
+IR_PATHS = {".TransmitImpulseResponse": IR_REL, ".ReceiveImpulseResponse": IR_REL}
+SIGNAL_REL = {".PressureSignal": IR_REL, ".MechanicalIndex": 1e-12}
+
+
 def test_reset_transducer(meng: Any) -> None:
     assert_same_tree(
         py_struct(config.reset_transducer()),
         matlab_flatten(meng, "reset_transducer()"),
+        rel=IR_PATHS,
         skip=_pending("Transducer"),
     )
 
@@ -266,6 +275,9 @@ def test_reset_transmit(meng: Any, ttype: str) -> None:
         nargout=0,
     )
     T = ptr.get_transducer_properties(Transducer(Type=mtype))
+    if T.ImpulseResponseType == "Estimate":
+        T.SamplingRate = 250e6
+        T = ptr.estimate_impulse_response(T)
     if ttype == "no-configuration":
         meng.eval("pyp_T__ = rmfield(pyp_T__, 'Configuration');", nargout=0)
         T.rmfield("Configuration")
@@ -274,6 +286,7 @@ def test_reset_transmit(meng: Any, ttype: str) -> None:
     assert_same_tree(
         py_struct(config.reset_transmit(T)),
         expected,
+        rel=SIGNAL_REL,
         skip=_pending("Transmit"),
     )
 
