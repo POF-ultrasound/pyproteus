@@ -57,6 +57,7 @@ def optimize_grid_size(n: int, expand_range: Any, max_prime: int) -> int:
     r = np.atleast_1d(np.asarray(expand_range, dtype=float))
     lo, hi = float(r.min()), float(r.max())
     # MATLAB colon lo:hi = lo + (0:floor(hi - lo)); non-integer sizes raise in factors.
+    # TODO(numerics.colon, PR #17): switch to the shared helper once it is on main.
     candidates = [n + lo + k for k in range(int(np.floor(hi - lo)) + 1)]
     factors = [largest_prime_factor(m) for m in candidates]
     i = int(np.argmin(factors))  # first minimum, as MATLAB min
