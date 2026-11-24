@@ -259,3 +259,13 @@ def test_reference_beamformer_xmin(tmp_path) -> None:
     S.Geometry.Domain.Xmin = 2e-3
     _, xc, _ = das_reconstruction(data, S)
     assert xc[0] == 2e-3 and xc.size < xb.size
+
+
+def test_transmit_weight_curved_plane_wave_distinguishes_center_rays() -> None:
+    """Pixel where rays from the centre of curvature and a plane wave disagree."""
+    R = 15e-3
+    th = np.linspace(-0.4, 0.4, 9)
+    tr = {"x_el": -R + R * np.cos(th), "y_el": R * np.sin(th), "center": -R}
+    tx = {"focus": np.inf, "steer": 0.0, "apod": np.eye(9)[5]}
+    w = transmit_apodization_weight(np.array([10e-3]), np.array([3e-3]), tr, tx)
+    np.testing.assert_array_equal(w, [1.0])
