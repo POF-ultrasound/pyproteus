@@ -2,6 +2,12 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-24 — M1 compute_gaussian_distribution (m1-leaves)
+- `pyproteus.microbubble.compute_gaussian_distribution` (+ `gaussian_distribution(mean_radius, pdi)` on plain numbers), next to `compute_polydisperse_distribution`. Only PROTEUS's regression helpers call it (GUI distribution option).
+- Oracle test `tests/oracle/test_microbubble_distribution.py` (8 radii × 8 PDIs incl. 0 and negative, defaults, Hypothesis; 300-batch sweep passed), D-13 float class. Q-84 (1000 vs 1001 radii, PDI = 0 → NaN).
+- Reviewer (fresh agent): APPROVE; applied: purely relative comparison with exact zeros (tails were only held by a max-based floor), MeanRadius = 0 case and in Q-84, `Microbubble` type hint.
+- Closes the M1 GUIfunctions leaves section.
+
 ## 2026-11-24 — DAS linear interpolation option (m1-das, D-20)
 - PR #17 merged (c52f3ef) after reviewer round 3 sign-off; CI re-runs needed for macOS jobs that never got a runner and one Windows k-Wave download timeout (not code).
 - D-20: `interpolation="linear"` for `compute_das_matrix`, `compute_das_matrix_general`, `das_reconstruction`, `das_reconstruction_general`; default `"nearest"` (MATLAB, oracle tests unchanged: 86 pass). Shared `_block_entries` builds both.
