@@ -107,3 +107,10 @@ Format:
 - Behaviour: the (b, a) form of the 6th-order bandpass is ill-conditioned when the band is narrow relative to the sampling rate; MATLAB's impulse response is then off by 1–2 % of its maximum (0.5–0.6 MHz at 250 MHz; 1–2 MHz at 1 GHz) by up to 1.0e-8 for the catalogue bands (P4-1) and 1.5e-8 for other wide bands tested (B-80).
 - pyproteus deliberately does **not** reproduce this (D-17): `pyproteus.transducer.estimate_impulse_response` uses second-order sections, accurate to ~1e-14 (catalogue bands) and ~3e-12 (narrow bands) of the exact response.
 - Test: `tests/oracle/test_transmit_signals.py::test_impulse_response_vs_reference` (gated), `::test_impulse_response_vs_matlab` (catalogue bands gated at 1e-7, narrow bands reported).
+
+## Q-90 — `define_grid` drops the last grid point when the PML padding is odd
+- MATLAB: `acoustic-module/define_grid.m:80-93` (oracle commit 8d37938).
+- Behaviour: the full size `M = optimize_grid_size(N, 2*PMLmin, MaxPrime)` searches the single candidate `N + 2*PMLmin` and grows from there; the PML is `ceil((M - N)/2)` per side and the core grid becomes `M - 2*PML`. When `M - N` is odd the core grid has `N - 1` points, so the last grid point inside the domain is lost (e.g. `N = 100` → `M = 135`, PML 18, core 99). A domain one grid point thick gives an **empty** axis (`N = 1` → `M = 32`, PML 16, core 0). The default settings of both shipped geometries pad every axis oddly.
+- Ported in: `pyproteus.acoustic.define_grid`, reproduced by default (`pml_rounding="ceil"`, D-19).
+- Test: `tests/unit/test_acoustic.py::test_define_grid_q90_default_drops_a_point`; `tests/oracle/test_acoustic_grid.py::test_define_grid_domains`, `test_define_grid_default_settings` (default mode equals MATLAB's grid exactly).
+- Fix available now: `define_grid(..., pml_rounding="floor")` keeps the odd point in the core (`N + 1` points, PML one thinner, same full size; tests `test_define_grid_floor_keeps_the_domain` and the oracle `"floor"` checks). The default flips to `"floor"` in 1.x (D-19); every downstream index changes for odd-padding axes.

@@ -2,6 +2,10 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-24 — define_grid PML rounding default (m1-grid-medium follow-up)
+- D-19 revised (developer, via main): `define_grid(..., pml_rounding="ceil"|"floor")`, default `"ceil"` until 1.0 (MATLAB's grid, Q-90 reproduced), `"floor"` is the fix and becomes the default in 1.x. Q-90 back in QUIRKS.md; PARITY rows updated. Oracle tests: default mode equals MATLAB's grid exactly on every domain case and both default settings; `"floor"` checked against MATLAB with the documented core +2 / PML −1 difference (both padding parities occur).
+- `optimize_grid_size` uses `numerics.colon` (#17). No sind/cosd copies existed in acoustic/ or medium/.
+
 ## 2026-11-23 — M1 delay-and-sum: review round 1 and D-18 (m1-das)
 - Developer decisions via main (D-18): Q-101 fixed (TGC normalised by `sqrt(max(t))`; identical to MATLAB when MATLAB is valid, both regimes oracle-tested; moved to a PARITY divergence); Q-102 kept until 1.x; single-RF image class ≤ 1e-6 accepted; `colon` moved to `numerics/colon.py`.
 - Q-100 checked: the RF time axis is 0-based throughout PROTEUS (source, k-Wave `t_array`, `compute_RF` convolution, DAS); the port adds no shift. `I/Fs` is one sample late in isolation but adds linearly to the undocumented k-Wave correction (`+dt` / `+3/2 dt`), so it may be part of that empirical compensation. Kept as reproduced, decision deferred to an end-to-end point-scatterer check in M3.

@@ -91,7 +91,7 @@ def matlab_value(eng: Any, expr: str, tmp: Path, name: str = "pyp_val__") -> Any
 
 
 def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> list[str]:
-    """Python grid vs MATLAB ``pgrid`` (value tree), with the D-19 divergence.
+    """``define_grid(..., pml_rounding="floor")`` vs MATLAB ``pgrid`` (Q-90 fix, D-19).
 
     Per axis, with ``M - N`` even everything matches. With ``M - N`` odd MATLAB's
     PML is ``ceil`` (core ``N - 1``) and pyproteus' ``floor`` (core ``N + 1``):
@@ -135,7 +135,7 @@ def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> 
 
 
 def assert_grid_exact(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> None:
-    """``define_grid(..., pml_rounding="ceil")`` is MATLAB's grid: same sizes, PML, coordinates."""
+    """Default ``define_grid`` (``pml_rounding="ceil"``) is MATLAB's grid: sizes, PML, coords."""
     m = grid_from_matlab(ref)
     assert (grid.Nx, grid.Ny, grid.Nz) == (m.Nx, m.Ny, m.Nz), err_msg
     assert grid.PML == m.PML and grid.full_size == m.full_size, err_msg
@@ -290,8 +290,9 @@ def test_define_grid_domains(matlab_engine: Any, tmp_path: Path) -> None:
         ref = matlab_value(eng, "define_grid(pyp_SP__, pyp_G__)", tmp_path)
         eng.eval("clear pyp_*", nargout=0)
         args = (config.SimulationParameters(**sp), config.Geometry(Domain=Domain(**domain)))
-        seen += assert_grid(acoustic.define_grid(*args), ref, err_msg=str(case))
-        assert_grid_exact(acoustic.define_grid(*args, pml_rounding="ceil"), ref, str(case))
+        assert_grid_exact(acoustic.define_grid(*args), ref, str(case))  # default: MATLAB's grid
+        floor = acoustic.define_grid(*args, pml_rounding="floor")  # Q-90 fix (D-19)
+        seen += assert_grid(floor, ref, err_msg=str(case))
     assert "even" in seen and "odd" in seen, seen
 
 
@@ -309,13 +310,13 @@ def test_define_grid_default_settings(
     ref = matlab_value(eng, "define_grid(S.SimulationParameters, S.Geometry)", tmp_path)
     eng.eval("clear S", nargout=0)
     grid = acoustic.define_grid(settings.SimulationParameters, settings.Geometry)
-    parities = assert_grid(grid, ref, err_msg=f"{folder} ppw={ppw}")
-    if ppw is None:  # measured: default settings pad every axis oddly (D-19 applies)
-        assert parities == ["odd", "odd", "odd"], parities
-    exact = acoustic.define_grid(
-        settings.SimulationParameters, settings.Geometry, pml_rounding="ceil"
+    assert_grid_exact(grid, ref, f"{folder} ppw={ppw}")  # default "ceil" = MATLAB (D-19)
+    floor = acoustic.define_grid(
+        settings.SimulationParameters, settings.Geometry, pml_rounding="floor"
     )
-    assert_grid_exact(exact, ref, f"{folder} ppw={ppw}")
+    parities = assert_grid(floor, ref, err_msg=f"{folder} ppw={ppw}")
+    if ppw is None:  # measured: default settings pad every axis oddly (Q-90 applies)
+        assert parities == ["odd", "odd", "odd"], parities
     assert grid.shape == (grid.Nx, grid.Ny, grid.Nz)
     # every full size has prime factors <= 5 (default MaxPrime)
     assert all(acoustic.largest_prime_factor(m) <= 5 for m in grid.full_size)
