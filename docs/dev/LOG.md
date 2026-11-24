@@ -8,6 +8,12 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - Closes the M5 open item of 2026-11-23: MATLAB's grid is now the default, nothing extra is needed for end-to-end parity runs.
 - Reviewer: SIGN-OFF (nits fixed: stale D-19 comments, per-axis parity from the domain point count in the domain oracle test).
 
+## 2026-11-24 — DAS linear interpolation option (m1-das, D-20)
+- PR #17 merged (c52f3ef) after reviewer round 3 sign-off; CI re-runs needed for macOS jobs that never got a runner and one Windows k-Wave download timeout (not code).
+- D-20: `interpolation="linear"` for `compute_das_matrix`, `compute_das_matrix_general`, `das_reconstruction`, `das_reconstruction_general`; default `"nearest"` (MATLAB, oracle tests unchanged: 86 pass). Shared `_block_entries` builds both.
+- Tests against analytical references (`tests/unit/test_das_linear.py`): interpolation error bound (measured 0.016 vs 0.14 nearest), PSF vs DAS on the continuous RF (< 2 %, ≥ 4× better than nearest), on-sample delays equal nearest, weight split/adjacency/element blocks, record edges, beamformer option.
+- Q-100 wording: unresolved, decided after the M3 point-scatterer check (main session).
+
 ## 2026-11-23 — STL voxelisation moved forward from M4 (m1-voxelise)
 - `src/pyproteus/geometry/`: `read_stl`/`identify_stl_format` (port of `READ_stl.m`), `voxelise` (port of `VOXELISE.m`, vectorised over facet/ray pairs, same formulas), `place_vessel_mesh` and `vessel_mask` (the vessel block of `define_medium.m`). Mask contract as m1-grid-medium's `define_medium(vessel=)`: bool `(Nx, Ny, Nz)`, `[ix, iy, iz]`. BSD notice in the module headers and `LICENSES/mesh-voxelisation-BSD.txt` (the licence has a non-endorsement clause: BSD-3 style, PROTEUS calls it BSD-2); `pyproject.toml` ships `LICENSES/*`.
 - STLs extracted from Zenodo 10573662 (`renal_tree_no_vtu.zip`, `mouse_brain_no_vtu.zip`, members only, CRC checked) into a scratch folder; tests read them via `PYPROTEUS_GEOMETRIES_PATH`. m1-grid-medium registers them in pooch (PR #18).
