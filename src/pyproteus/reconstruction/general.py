@@ -62,8 +62,9 @@ def initialize_das_parameters(
 
     * ``Recon``: pixel axes ``x = Xmin:lambda/4:Xmax`` (axial) and
       ``y = Ymin:lambda/4:Ymax`` (lateral; D-21), or PROTEUS's
-      ``-width/2:lambda/4:width/2`` with ``proteus_compat=True`` (Q-103), ``c``, the corrected time
-      axis (time to peak, lens, k-Wave grid; :func:`das_time_axis`), ``Fs``,
+      ``-width/2:lambda/4:width/2`` with ``proteus_compat=True`` (PARITY
+      D-21), ``c``, the corrected time axis (time to peak, lens, k-Wave
+      grid; :func:`das_time_axis`), ``Fs``,
       ``alpha_th`` (``pi/6`` curved, ``pi/3`` linear), cosine apodization;
     * ``Trans``: element positions and normals (``get_element_geometry``),
       centre and radius of curvature;
@@ -147,7 +148,7 @@ def das_reconstruction_general(
     ``interpolation``: ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20).
     By default the axes span the domain and the transmit apodization weights
     the pixels (D-21); ``proteus_compat=True`` restores PROTEUS's behaviour
-    (Q-103, Q-104). ``cache``: reuse the DAS matrix of an identical call.
+    (PARITY D-21). ``cache``: reuse the DAS matrix of an identical call.
     """
     S = _settings(filename_parameters)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))

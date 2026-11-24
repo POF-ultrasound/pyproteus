@@ -20,6 +20,7 @@ Design (D-15, ``docs/PARITY.md``):
 from __future__ import annotations
 
 import hashlib
+import threading
 import warnings
 from collections import OrderedDict
 from collections.abc import Callable, Iterable
@@ -191,7 +192,7 @@ def pixel_axes(
     """Axial and lateral pixel axes over ``Geometry.Domain`` (D-21).
 
     Default: ``x = Xmin:d:Xmax``, ``y = Ymin:d:Ymax``. ``proteus_compat=True``
-    gives PROTEUS's axes (Q-103): ``x`` from ``x_start_compat`` (0 for the
+    gives PROTEUS's axes (PARITY D-21): ``x`` from ``x_start_compat`` (0 for the
     reference beamformer, ``None`` = ``Xmin``) and ``y`` centred on 0 over the
     domain width, ``-width/2:d:width/2``. Identical for ``Xmin = 0`` (or the
     general beamformer) and a symmetric domain ``Ymin = -Ymax``.
@@ -207,7 +208,11 @@ def pixel_axes(
 
 #: DAS matrices cached by their inputs (D-15, P8): the matrix depends only on
 #: the settings and the RF size, so repeated reconstructions reuse it.
+#: The cached matrices stay in memory after the call (up to DAS_CACHE_SIZE of
+#: them; a large image can take hundreds of MB): pass ``cache=False`` or call
+#: :func:`clear_das_matrix_cache` to release them. Thread-safe.
 _DAS_CACHE: OrderedDict[str, Any] = OrderedDict()
+_DAS_CACHE_LOCK = threading.Lock()
 DAS_CACHE_SIZE = 2
 
 
@@ -228,19 +233,24 @@ def cached_das_matrix(key: str, build: Callable[[], Any], cache: bool = True) ->
     """``build()`` memoised by ``key`` (at most :data:`DAS_CACHE_SIZE` matrices)."""
     if not cache:
         return build()
-    if key in _DAS_CACHE:
+    with _DAS_CACHE_LOCK:
+        M = _DAS_CACHE.get(key)
+        if M is not None:
+            _DAS_CACHE.move_to_end(key)
+            return M
+    M = build()  # outside the lock: concurrent misses may build twice
+    with _DAS_CACHE_LOCK:
+        _DAS_CACHE[key] = M
         _DAS_CACHE.move_to_end(key)
-        return _DAS_CACHE[key]
-    M = build()
-    _DAS_CACHE[key] = M
-    while len(_DAS_CACHE) > DAS_CACHE_SIZE:
-        _DAS_CACHE.popitem(last=False)
+        while len(_DAS_CACHE) > DAS_CACHE_SIZE:
+            _DAS_CACHE.popitem(last=False)
     return M
 
 
 def clear_das_matrix_cache() -> None:
     """Drop the cached DAS matrices."""
-    _DAS_CACHE.clear()
+    with _DAS_CACHE_LOCK:
+        _DAS_CACHE.clear()
 
 
 def _settings(filename_parameters: str | PathLike[str] | Settings) -> Settings:
@@ -282,7 +292,7 @@ def das_reconstruction(
     dB, axial-by-lateral) and the axial ``x`` and lateral ``y`` pixel
     coordinates [m]. Pixel size ``lambda/5``; axes ``Xmin:d:Xmax`` and
     ``Ymin:d:Ymax`` (D-21), or with ``proteus_compat=True`` PROTEUS's
-    ``0:d:Xmax`` and ``-width/2:d:width/2`` (Q-103). ``interpolation``:
+    ``0:d:Xmax`` and ``-width/2:d:width/2`` (PARITY D-21). ``interpolation``:
     ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20). ``cache``: reuse
     the DAS matrix of an identical previous call (no result change).
     """

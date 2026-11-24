@@ -152,7 +152,7 @@ def das_transmit_distance(X: ArrayLike, Y: ArrayLike, transducer: Any, transmit:
 def transmit_apodization_weight(
     X: ArrayLike, Y: ArrayLike, transducer: Any, transmit: Any
 ) -> np.ndarray | None:
-    """Transmit apodization seen by each pixel (D-21; PROTEUS ignores it, Q-104).
+    """Transmit apodization seen by each pixel (D-21; PROTEUS ignores it, see PARITY).
 
     Each pixel takes the apodization of the element its transmit ray comes
     from: the element nearest to the pixel's position across the beam for a
@@ -161,7 +161,10 @@ def transmit_apodization_weight(
     wave, beyond the focus the ray comes from the opposite side). Pixels
     outside the aperture take the apodization of the edge element, so a
     uniform apodization gives weight 1 everywhere (results unchanged), and
-    pixels insonified only by switched-off elements get 0.
+    pixels insonified only by switched-off elements get 0. Ties (a pixel
+    exactly between two elements) go to the lower element index; a pixel at
+    the focus itself (all rays meet) gets ``max(apod)``. A scalar ``apod``
+    applies to every element, as in PROTEUS's source definition.
 
     Returns an array with the broadcast shape of ``X`` and ``Y``, or ``None``
     when ``transmit`` has no ``apod``.
@@ -172,6 +175,8 @@ def transmit_apodization_weight(
     apod = _row(apod)
     x_el = _row(_field(transducer, "x_el"))
     y_el = _row(_field(transducer, "y_el"))
+    if apod.size == 1:
+        apod = np.full(x_el.size, apod[0])
     if apod.size != x_el.size:
         raise ValueError(f"transmit apod has {apod.size} values for {x_el.size} elements")
     center = float(_field(transducer, "center", -np.inf))
@@ -189,6 +194,10 @@ def transmit_apodization_weight(
             beyond = ((Fy - Y) * np.sin(steer) + (Fx - X) * np.cos(steer)) < 0
             phi_px = phi_px + np.pi * beyond
         dist = np.abs(np.angle(np.exp(1j * (phi_px - phi_el))))
+        at_focus = np.hypot(X[..., 0] - Fx, Y[..., 0] - Fy) <= 1e-9 * abs(F)
+        if F > 0 and np.any(at_focus):
+            w = apod[np.argmin(dist, axis=-1)]
+            return np.where(at_focus, np.max(apod), w)
     else:
         u_el = -x_el * np.sin(steer) + y_el * np.cos(steer)
         u_px = -X * np.sin(steer) + Y * np.cos(steer)
@@ -353,7 +362,7 @@ def compute_das_matrix_general(
 
     The transmit apodization ``transmit.apod`` (if present) weights each pixel
     (:func:`transmit_apodization_weight`, D-21). ``proteus_compat=True``
-    ignores it, as PROTEUS does (Q-104).
+    ignores it, as PROTEUS does (``docs/PARITY.md``, D-21).
     """
     x = _row(_field(recon, "x"))
     y = _row(_field(recon, "y"))

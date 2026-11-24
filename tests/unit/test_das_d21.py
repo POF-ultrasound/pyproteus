@@ -171,3 +171,57 @@ def test_das_matrix_cache(tmp_path, monkeypatch) -> None:
     clear_das_matrix_cache()
     das_reconstruction(data, settings)
     assert len(calls) == 4
+
+
+@pytest.fixture(autouse=True)
+def _fresh_cache():
+    clear_das_matrix_cache()
+    yield
+    clear_das_matrix_cache()
+
+
+def test_transmit_weight_curved_plane_wave_uses_center() -> None:
+    R = 15e-3
+    th = np.linspace(-0.4, 0.4, 9)
+    tr = {"x_el": -R + R * np.cos(th), "y_el": R * np.sin(th), "center": -R}
+    apod = np.zeros(9)
+    apod[0], apod[-1] = 1, 2  # only the edges fire
+    # Rays from the centre of curvature: far lateral pixels see the edge elements.
+    w = transmit_apodization_weight(
+        np.full(3, 10e-3), np.array([-12e-3, 0.0, 12e-3]), tr,
+        {"focus": np.inf, "steer": 0.0, "apod": apod},
+    )  # fmt: skip
+    np.testing.assert_array_equal(w, [1, 0, 2])
+
+
+def test_transmit_weight_scalar_apod_and_focus_pixel() -> None:
+    x_el, y_el = linear(8)
+    tr = {"x_el": x_el, "y_el": y_el}
+    w = transmit_apodization_weight(np.ones(3), np.zeros(3), tr, {"focus": 5e-3, "apod": 0.5})
+    np.testing.assert_array_equal(w, 0.5)
+    apod = (y_el > 0).astype(float)
+    w = transmit_apodization_weight(
+        np.array([5e-3]), np.array([0.0]), tr, {"focus": 5e-3, "steer": 0.0, "apod": apod}
+    )
+    np.testing.assert_array_equal(w, [1.0])  # all rays meet at the focus
+
+
+def test_general_cache_key_covers_apod_and_domain(tmp_path, monkeypatch) -> None:
+    from pyproteus.reconstruction import general as gen
+    from tests.unit.test_reconstruction import general_settings
+
+    data, S = general_settings(tmp_path, config="Linear")
+    calls = []
+    real = gen.compute_das_matrix_general
+    monkeypatch.setattr(
+        gen, "compute_das_matrix_general", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    a = das_reconstruction_general(data, S)[0]
+    das_reconstruction_general(data, S)
+    assert len(calls) == 1
+    S.Transmit.Apodization = (np.arange(16) >= 8).astype(float).reshape(1, -1)
+    b = das_reconstruction_general(data, S)[0]
+    assert len(calls) == 2 and not np.array_equal(a, b, equal_nan=True)
+    S.Geometry.Domain.Ymax = 2.0e-3
+    das_reconstruction_general(data, S)
+    assert len(calls) == 3
