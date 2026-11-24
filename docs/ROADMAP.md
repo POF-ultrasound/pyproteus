@@ -29,7 +29,7 @@ Reference: PROTEUS v1.1.0 · team: 1 developer + Claude Code · reviewed twice a
 ## 2. The MATLAB code today
 
 - ~10.7k lines outside tests, 94 tests, 8 App Designer apps (MainGUI + 7 settings editors).
-- Modules: acoustic-module 3.4k, GUIfunctions 1.8k (holds core physics too), mesh-voxelisation 1.2k (third party, BSD-2), microbubble-simulator 1.2k, streamline-module 1.1k, delay-and-sum 0.7k.
+- Modules: acoustic-module 3.4k, GUIfunctions 1.8k (holds core physics too), mesh-voxelisation 1.2k (third party, BSD-3-Clause with non-endorsement clause), microbubble-simulator 1.2k, streamline-module 1.1k, delay-and-sum 0.7k.
 - Engines: k-Wave 1.4.1 (`3DC` default, `3DG` CUDA, MATLAB solver), k-Wave helpers `filterTimeSeries`, `getWin`; `ode45` for bubbles; `ode23` with terminal event for streamlines; `parfor`; `gpuArray`.
 - Streamlines use nearest-voxel velocity lookup via `round` (`get_vtu_indices.m`), not interpolation.
 - Data: 7 settings structs in `.mat` (all 25 shipped `.mat` are v5); flow data VTU (Zenodo record 10573662); outputs `.mat`, some v7.3.
@@ -141,7 +141,7 @@ Rules:
 | `ode45`, `ode23` + events | clean-room ports | medium |
 | interpolation, rounding, sorting | `numerics/` helpers | silent-bug risk |
 | vtkToolbox `readVTK` | meshio, pyvista | low |
-| `VOXELISE` (BSD-2) | direct port, keep notice | low |
+| `VOXELISE` (BSD-3-Clause) | direct port, keep notice (done: `pyproteus.geometry`, `LICENSES/`) | low |
 | `parfor` | process pool | low |
 | `gpuArray` | CuPy | medium |
 | settings, `.mat` | pydantic; `scipy.io.loadmat` (v5), h5py (v7.3) | low |
@@ -217,7 +217,7 @@ Bottleneck: validation and hardware testing, not writing code.
 - Contributors never need MATLAB.
 - semver, trusted publishing to PyPI, CITATION.cff with software DOI, Zenodo per release; announce at 1.0 (IUS, k-Wave forum); "good first issue" labels.
 - Two admins on GitHub, PyPI, Zenodo.
-- Licenses OK with MIT: k-wave-python (LGPL, unmodified), meshio, pyvista, trimesh, NiceGUI (MIT), PySide6 (LGPL). VOXELISE BSD-2: keep notice. No translation of MathWorks or k-Wave MATLAB source.
+- Licenses OK with MIT: k-wave-python (LGPL, unmodified), meshio, pyvista, trimesh, NiceGUI (MIT), PySide6 (LGPL). VOXELISE BSD-3-Clause: notice kept in `LICENSES/`; package licence expression "MIT AND BSD-3-Clause" for the bundled port. No translation of MathWorks or k-Wave MATLAB source.
 
 ## 14. After parity
 
