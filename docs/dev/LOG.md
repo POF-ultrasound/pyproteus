@@ -3,7 +3,7 @@
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
 ## 2026-11-24 — Q-100 point-scatterer investigation (m1-das)
-- MATLAB PROTEUS `main_RF` on a copy of the oracle (temp output folders), real k-Wave C++ binary (D-10), one small linear bubble; RF of 1 µm minus 0.5 µm runs isolates the echo. Residual of the DAS time axis: −23 … −29 ns across one grid cell at 5 mm (hybrid), −27 ns full at 5 mm, +9 / +7 ns at 7 mm. Depth-dependent and larger than the 4 ns Q-100 term → inconclusive; Q-100 kept, B-101 opened (with the pulse-shape, resonance and element-height confounds found in review). Scripts and driver in `tools/investigations/`.
+- MATLAB PROTEUS `main_RF` on a copy of the oracle (temp output folders), real k-Wave C++ binary (D-10), one small bubble; RF of 1 µm minus 0.5 µm runs isolates the echo. Residual of the DAS time axis: −23 … −29 ns across one grid cell at 5 mm (hybrid), −27 ns full at 5 mm, +9 / +7 ns at 7 mm. Depth-dependent and larger than the 4 ns Q-100 term → inconclusive; Q-100 kept, B-101 opened (with the pulse-shape, resonance and element-height confounds found in review). Scripts and driver in `tools/investigations/`.
 
 ## 2026-11-24 — DAS linear interpolation option (m1-das, D-20)
 - PR #17 merged (c52f3ef) after reviewer round 3 sign-off; CI re-runs needed for macOS jobs that never got a runner and one Windows k-Wave download timeout (not code).

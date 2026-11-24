@@ -63,6 +63,12 @@ def cases(which: str) -> list[dict]:
 def main(work: Path, which: str) -> None:
     import matlab.engine
 
+    # Never write into the oracle or the PROTEUS checkout (k-Wave lives in it).
+    protected = [ORACLE.resolve(), Path(KWAVE).resolve().parents[2]]
+    for root in protected:
+        if work == root or work.is_relative_to(root):
+            raise SystemExit(f"work_dir {work} is inside {root}: use a temporary folder")
+
     copy = work / "proteus"
     if not copy.exists():
         shutil.copytree(ORACLE, copy, ignore=shutil.ignore_patterns(".git"))
