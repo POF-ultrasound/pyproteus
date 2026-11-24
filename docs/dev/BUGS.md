@@ -131,3 +131,10 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Where: `define_medium` with `make_default_settings(PATHS, 'mouse_brain')`: grid spacing c/(f0·6) ≈ 103 µm; the arteriole's bounding box is 0.3 × 0.3 × 1.2 mm with vessels thinner than a voxel.
 - Behaviour: MATLAB and pyproteus both give 0 vessel voxels (the renal tree gives 4710 of 23.7 M). The default mouse-brain simulation has no vessel in the medium.
 - Impact: PROTEUS behaviour, reproduced. Worth telling users (finer `PointsPerWavelength` or a dedicated grid); reported to the main session.
+
+## B-90 — MATLAB `VOXELISE` errors when a mesh bound is equidistant from two grid lines (observation, for M4)
+- Where: `mesh-voxelisation/Mesh_voxelisation/VOXELISE.m` (`VOXELISEinternal`, `meshXminp`...`meshYmaxp = find(abs(gridCO - meshmin) == min(...))`), called by `define_medium.m` with `EmbedVessel`.
+- Symptom: a facet bound exactly half-way between two grid coordinates gives two indices, and the ray loop `for loopY = meshYminp:meshYmaxp` fails with "Colon operands must be real scalars". Found with a synthetic box STL in `tests/oracle/test_medium_define.py` (faces now 0.3 dx past a node).
+- Impact: real meshes rarely hit an exact tie; the M4 port should pick one index (first) and note the difference.
+- Resolved (2026-11-24, PR #19): `pyproteus.geometry.voxelise` does not use this nearest-grid-line range (it never excludes a ray a facet can cross), so ties raise no error; result equals MATLAB's once the tie is broken (`test_mesh_bound_halfway_between_grid_lines`). Divergence in PARITY.md (Geometry).
+

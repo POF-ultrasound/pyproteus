@@ -225,3 +225,47 @@ Divergences from MATLAB (D-15):
 | a scalar grid argument is a voxel count (auto grid); a one-point `Grid.z` (Nz = 1) is therefore misread (error, or an empty vessel when z = 0) | every grid argument is coordinates; a one-point axis is one plane | PROTEUS always means coordinates; m1-grid-medium supports Nz = 1 |
 | grid coordinates in any order | must be non-decreasing (`ValueError`) | binary search per axis; PROTEUS grids are increasing |
 | mask built in the medium module | `vessel_mask(...)` in `pyproteus.geometry`, passed to `define_medium(vessel=...)` | geometry separate from medium (agreed with m1-grid-medium); bool `(Nx, Ny, Nz)`, `[ix, iy, iz]` |
+
+## Grid, medium, transducer integration (`pyproteus.acoustic`, `pyproteus.medium`, M1)
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `optimize_grid_size(N, range, maxPrime)`, `max(factor(n))` | `acoustic.optimize_grid_size`, `acoustic.largest_prime_factor` | exact (integer search on exact inputs) | `test_acoustic_grid.py` | ✅ |
+| `define_grid(SimulationParameters, Geometry)` (`MaxPrime`/`PMLmin` present or absent) | `acoustic.define_grid` → `Grid` | full sizes exact; core size/PML exact for even padding, D-19 difference (core +2, PML −1) for odd padding; coordinates float | `test_acoustic_grid.py` (both cases asserted to occur) | ✅ (D-19) |
+| `random_truncated_normal(cutoff, sz)` after `rng(seed,'twister')` | `medium.random_truncated_normal(cutoff, sz, rng)` | float (measured ≤ 2.8e-13 rel, ≤ 1.8e-15 abs; same number of uniforms) | `test_medium_random.py` (also PROTEUS' recorded toolbox draws) | ✅ (infinite cutoff: ⬜, see notes) |
+| `voxelize_media_points(MP, Grid)` | `medium.voxelize_media_points` (0-based) | statistical (measured 100 % equal); points and exclusion mask exact | `test_medium_voxelize.py` | ✅ |
+| `evaluate_delta_function(x, xi, dx, N)`, also `xi` d×M (implicit expansion, `update_sensor_fast.m`) | `acoustic.evaluate_delta_function` | float (atol 1e-12 × max) | `test_acoustic_signals.py` | ✅ |
+| `sinc_interpolation(X, V, Xq)` (vector, row, `len(X)×k` incl. k = 1; single `V`) | `acoustic.sinc_interpolation` | float (atol 1e-12 × max); single `V`: single class | `test_acoustic_signals.py` | ✅ |
+| `resample_signal(p, fs_old, fs_new, false)` | `acoustic.resample_signal` | float (measured ≤ 1.3e-15 × max) | `test_acoustic_signals.py` | ✅ |
+| `get_transducer_integration_delays` (linear, curved, RCA, Custom; finite/infinite/zero focus) | `acoustic.get_transducer_integration_delays` | float | `test_acoustic_transducer.py` | ✅ |
+| `compute_travel_times` (linear and vertex branches, steered/focused transmits) | `acoustic.compute_travel_times` | float | `test_acoustic_transducer.py`, `test_acoustic_integration_points.py` | ✅ |
+| `get_transducer_integration_points` (linear, curved, RCA incl. odd-N error, Custom incl. orientation warning) | `acoustic.get_transducer_integration_points` | counts exact; points, weights float | `test_acoustic_integration_points.py` | ✅ |
+| `define_medium` (background, `alpha_mode`, curved coupling region, vessel mask from MATLAB `VOXELISE`) | `medium.define_medium(..., rng=, vessel=)` | float | `test_medium_define.py` | ✅ (STL voxelisation: M4) |
+
+Notes:
+
+- Everything is compared on settings built by MATLAB itself (`reset_*`, `compute_simulation_domain`, `update_simulation_parameters`, `write_to_file`'s grid size and delays) and read into the Python models from a `.mat` file, plus hand-made tie cases: domain bounds on and half-way between grid nodes, one-point and empty axes, odd/non-cubic grids, `MaxPrime` 2/3/7, single elements, element heights at exact multiples of the elevation spacing, sinc/resample queries outside the sample range and on samples, `floor` ties in the resampled length, voxel ties at `.5`.
+- Integer results (`ceil`/`floor`/`round` of IEEE quotients of identical inputs) agree 100 % in every test; the voxel test still asserts the statistical class (≥ 99.9 %) and prints any difference.
+- `random_truncated_normal` with an infinite cutoff (MATLAB: untruncated `randn`) raises `NotImplementedError`: MATLAB's `randn` algorithm is not documented, so its stream is not reproduced (ROADMAP §5). Default settings use a finite cutoff.
+- `define_medium` with `Geometry.EmbedVessel` (true for both shipped geometries) needs `READ_stl`/`VOXELISE` (M4). Until then the caller passes the vessel mask (`vessel=`); `NotImplementedError` (pointing to M4) is raised only when `EmbedVessel` is true and no mask is given. The oracle test passes MATLAB's `VOXELISE` output for an asymmetric, off-centre box STL and asserts the mask contract M4's voxeliser must meet: `bool`, shape `(Nx, Ny, Nz)`, indexed `[ix, iy, iz]` (checked against the box computed from the grid coordinates, so a transposed or C/Fortran-reshuffled mask fails). `test_define_medium_shipped_geometries` does the same for the renal tree (default settings, 2 points per wavelength) and mouse brain (10 µm grid over its bounding box: its ~15 µm vessels miss every voxel centre of an ultrasound grid) STLs when `PYPROTEUS_GEOMETRIES_PATH` points to them; it checks each file's SHA-256 against `src/pyproteus/io/geometry_registry.txt` and skips without the files (`python -m tools.fetch_geometries` fetches them). The STLs are members of Zenodo 10573662's `*_no_vtu.zip` archives (not in the oracle checkout); both cases pass locally.
+
+Design divergences (D-15; results unchanged unless marked, parity checked as above):
+
+| Where | MATLAB | pyproteus | Why |
+|---|---|---|---|
+| `define_grid` PML (D-19, developer) | `PML = ceil((M - N)/2)`: with odd `M - N` the core has `N - 1` points, the last domain point is dropped, a one-point axis becomes empty | `PML = floor((M - N)/2)`: the core has `N + 1` points (whole domain plus one point beyond `max`), same full size `M`, PML one point thinner (still ≥ `PMLmin`) | **result-changing**: for odd-padding axes the grid has 2 more core points than MATLAB's; oracle tests check the documented difference and that the shared coordinates, full sizes and every even-padding axis match. Measured: the default settings of both shipped geometries pad **every** axis oddly (renal tree core 448×300×180 vs MATLAB 446×298×178), so every default k-Wave grid differs from MATLAB's. `define_grid(..., pml_rounding="ceil")` reproduces MATLAB's grid exactly (oracle-tested on every case) for parity runs against MATLAB results and references. Downstream oracle tests (voxelisation, medium) run on MATLAB's grid (`grid_from_matlab`). Code building the k-Wave grid must use `Grid.Nx/Ny/Nz` and `Grid.PML` (never recompute them) |
+| `define_grid` | struct `pgrid`, 1×N coordinate rows | frozen `Grid` dataclass (`PML` record), 1-D coordinates, `shape` property | typed, immutable, no 1-D/2-D ambiguity |
+| `optimize_grid_size` | `maxPrime < 2` loops forever | raises `ValueError` | fail fast |
+| `random_truncated_normal`, `define_medium` | global `rand` stream | explicit `rng` (`numerics.MatlabRNG`) argument | no global state (ROADMAP §7); seeds per job |
+| `sinc_interpolation`, `resample_signal` | full `numel(Xq) × numel(X)` `ndgrid` matrix | same matrix built in row blocks of at most 2^22 elements (32 MB) | bounded memory for long mass-source signals (an FFT-based resampler is a post-parity candidate) |
+| `resample_signal(..., disp_fig=true)` | plots | raises `NotImplementedError` | no plotting in the library |
+| `voxelize_media_points` | `[MP, MP_nodes, MB_idx, idx_exclude]`, 1-based | `VoxelizedPoints` named tuple, 0-based nodes and column-major linear indices | pyproteus index convention |
+| `get_transducer_integration_points` | loop over elements | vectorised over elements | speed for large arrays |
+| `get_transducer_integration_points` | `apodization_Z` branch (`getWin` Tukey) behind a hard-coded `false` | not ported | dead code |
+| `define_medium` `alpha_coeff` (always) and `BonA` (no vessel voxel) | full `Nx×Ny×Nz` arrays of one value | read-only `np.broadcast_to` views: same values, shape and indexing, no memory | two fewer full 3-D double arrays; writing to them raises instead of silently diverging |
+| `define_medium` vessel | reads and voxelises the STL inside `define_medium` | mask passed in (`vessel=`, bool `(Nx, Ny, Nz)`); voxelisation stays outside (M4) | separates geometry from medium; default path testable before M4 (approved by the main session) |
+| `define_medium` | builds the STL path first: `Geometry.GeometriesPath`/`Folder` must exist even without a vessel | not needed when no STL is read | no spurious error |
+| `sinc_interpolation` with single `V` (k-Wave sensor data) | double × single product: single result, accumulated in single | `float32` result, accumulated in double and rounded once | more accurate; agrees with MATLAB at the single-precision class (oracle: ≤ 1e-5 × max), not 1e-9 |
+| `define_grid`, `define_medium`: missing fields | `SensorOnGrid` absent, `EmbedVessel` absent or `Medium.Vessel` absent → error | `sensor_on_grid=None`; `EmbedVessel` absent = false; `Medium.Vessel` only read when the mask has vessel voxels | lenient where MATLAB fails; no effect on results |
+| NaN in `max`/`min` (integration delays, Custom orientation check, travel times) | `max`/`min` skip NaN | `np.nanmax`/`np.nanmin` | same semantics (all-NaN → NaN) |
+| `get_transducer_integration_*`, `compute_travel_times` | modify and return the struct | return an updated copy (`copy_struct`); `run_param` is a dict | value semantics, as MATLAB |
