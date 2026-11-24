@@ -438,3 +438,13 @@ def test_das_reconstruction_general_linear_images_scatterer(tmp_path) -> None:
     ix, iy = np.unravel_index(np.argmax(IMG[:, :, 0]), IMG.shape[:2])
     pix = C / 2.5e6 / 4
     assert abs(x[ix] - 5e-3) < 3 * pix and abs(y[iy] - 0.9e-3) < 2 * pix
+
+
+@pytest.fixture(autouse=True)
+def _fresh_das_cache():
+    """Tests must not depend on DAS matrices cached by other tests."""
+    from pyproteus.reconstruction import clear_das_matrix_cache
+
+    clear_das_matrix_cache()
+    yield
+    clear_das_matrix_cache()

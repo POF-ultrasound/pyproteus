@@ -465,8 +465,8 @@ tir = (0:round(1e-6*{fs_tr})-1)/{fs_tr};
 Transducer.ReceiveImpulseResponse = exp(-(tir - 0.4e-6).^2/(0.2e-6)^2);
 Transducer.ElementHeight = 5e-3;
 Transducer.ElevationFocus = {efocus};
-Geometry.Domain.Xmin = 0; Geometry.Domain.Xmax = 8e-3;
-Geometry.Domain.Ymin = -2.4e-3; Geometry.Domain.Ymax = 2.4e-3;
+Geometry.Domain.Xmin = {xmin_ref}; Geometry.Domain.Xmax = 8e-3;
+Geometry.Domain.Ymin = {ymin_ref}; Geometry.Domain.Ymax = {ymax_ref};
 Medium.SpeedOfSound = 1540; Medium.AttenuationA = 0.5; Medium.AttenuationB = 1.1;
 save('{path}', 'Acquisition', 'SimulationParameters', 'Transmit', 'Transducer', ...
     'Geometry', 'Medium');
@@ -474,10 +474,29 @@ clear Acquisition SimulationParameters Transmit Transducer Geometry Medium tt ti
 """
 
 
-def settings_script(template: str, fs_tx: str = "40e6", fs_tr: str = "40e6", **kw) -> str:
+def settings_script(
+    template: str,
+    fs_tx: str = "40e6",
+    fs_tr: str = "40e6",
+    ymin: str = "-3.1e-3",
+    ymax: str = "2.9e-3",
+    ymin_ref: str = "-2.4e-3",
+    ymax_ref: str = "2.4e-3",
+    xmin_ref: str = "0",
+    **kw,
+) -> str:
     """Fill a settings script; sampling rates of Transmit and Transducer default to 40 MHz
     (the simulation runs at 40 MHz in every case)."""
-    return template.format(fs_tx=fs_tx, fs_tr=fs_tr, **kw)
+    return template.format(
+        fs_tx=fs_tx,
+        fs_tr=fs_tr,
+        ymin=ymin,
+        ymax=ymax,
+        ymin_ref=ymin_ref,
+        ymax_ref=ymax_ref,
+        xmin_ref=xmin_ref,
+        **kw,
+    )
 
 
 def scatterer_rf(nelem: int, nt: int, scatterers, rng) -> np.ndarray:
@@ -677,7 +696,7 @@ Transducer.ReceiveImpulseResponse = exp(-(tir - 0.4e-6).^2/(0.2e-6)^2);
 Transducer.ElementHeight = 5e-3;
 Transducer.ElevationFocus = {efocus};
 Geometry.Domain.Xmin = {xmin}; Geometry.Domain.Xmax = 9e-3;
-Geometry.Domain.Ymin = -3.1e-3; Geometry.Domain.Ymax = 2.9e-3;
+Geometry.Domain.Ymin = {ymin}; Geometry.Domain.Ymax = {ymax};
 Medium.SpeedOfSound = 1540; Medium.AttenuationA = 0.5; Medium.AttenuationB = 1.1;
 {extra}
 """
@@ -695,7 +714,7 @@ INIT_CASES = [
 ]
 
 
-def make_general_settings(eng, case) -> None:
+def make_general_settings(eng, case, **domain) -> None:
     config, nelem, radius, focus, angle, hybrid, efocus, xmin, extra = case[:9]
     fs_tx, fs_tr = case[9:] if len(case) > 9 else ("40e6", "40e6")
     eng.eval(
@@ -703,6 +722,7 @@ def make_general_settings(eng, case) -> None:
             GENERAL_SETTINGS_M,
             fs_tx=fs_tx,
             fs_tr=fs_tr,
+            **domain,
             config=config,
             nelem=nelem,
             radius=radius,
@@ -747,9 +767,15 @@ def test_initialize_das_parameters(matlab_engine, case) -> None:
         nargout=0,
     )
     S = python_settings(eng)
-    recon, trans, tx = initialize_das_parameters(
-        S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, nelem, Nt
-    )
+    args = (S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, nelem, Nt)
+    recon, trans, tx = initialize_das_parameters(*args, proteus_compat=True)
+    # Default (D-21): lateral axis over [Ymin, Ymax] instead of centred on 0.
+    rd = initialize_das_parameters(*args)[0]
+    d = S.Geometry.Domain
+    step = rd.c / S.Transmit.CenterFrequency / 4
+    np.testing.assert_array_equal(rd.y, colon(d.Ymin, step, d.Ymax))
+    np.testing.assert_array_equal(rd.x, recon.x)
+    assert rd.y[0] == d.Ymin != recon.y[0]
     for name in ("x", "y", "t"):
         expected = vec(eng.eval(f"R.{name}", nargout=1))
         assert_float(getattr(recon, name), expected, atol=1e-15 * np.max(np.abs(expected)))
@@ -819,10 +845,12 @@ GENERAL_DAS_CASES = [
     GENERAL_DAS_CASES,
     ids=lambda c: c[0] + str(c[1]) if isinstance(c, tuple) else str(c),
 )
-def test_das_reconstruction_general(matlab_engine, tmp_path, dtype, version, case) -> None:
+def test_das_reconstruction_general(
+    matlab_engine, tmp_path, dtype, version, case, domain=None, compat=True
+) -> None:
     eng = matlab_engine
     eng.eval("rng(0, 'twister');", nargout=0)
-    make_general_settings(eng, case)
+    make_general_settings(eng, case, **(domain or {}))
     settings = tmp_path / "settings.mat"
     eng.eval(
         f"save('{settings}', 'Acquisition', 'SimulationParameters', 'Transmit', "
@@ -851,7 +879,8 @@ def test_das_reconstruction_general(matlab_engine, tmp_path, dtype, version, cas
     x_m, y_m = vec(eng.workspace["pyp_x__"]), vec(eng.workspace["pyp_y__"])
     eng.eval("clear pyp_I__ pyp_x__ pyp_y__", nargout=0)
 
-    IMG, x, y = das_reconstruction_general(data, settings)
+    # Asymmetric domain and (case 4) transmit apodization: PROTEUS mode.
+    IMG, x, y = das_reconstruction_general(data, settings, proteus_compat=compat)
     assert_float(x, x_m, atol=1e-15)
     assert_float(y, y_m, atol=1e-15)
     assert IMG.shape == IMG_m.shape
@@ -864,3 +893,66 @@ def test_das_reconstruction_general(matlab_engine, tmp_path, dtype, version, cas
         assert err <= SINGLE_IMAGE_ATOL
     for f in range(IMG.shape[2]):
         assert np.argmax(IMG[:, :, f]) == np.argmax(IMG_m[:, :, f])
+
+
+@pytest.mark.parametrize("case", [INIT_CASES[0], INIT_CASES[2]], ids=["Linear16", "Curved17"])
+def test_das_reconstruction_general_default_symmetric(matlab_engine, tmp_path, case) -> None:
+    """Symmetric domain, no transmit apodization: the D-21 default equals MATLAB."""
+    test_das_reconstruction_general(
+        matlab_engine, tmp_path, np.float64, "v7", case,
+        domain={"ymin": "-3e-3", "ymax": "3e-3"}, compat=False,
+    )  # fmt: skip
+
+
+def test_das_reconstruction_asymmetric_domain(matlab_engine, tmp_path) -> None:
+    """Reference beamformer, asymmetric domain: MATLAB with proteus_compat=True; the
+    default lateral axis spans [Ymin, Ymax]."""
+    eng = matlab_engine
+    data = tmp_path / "rf"
+    data.mkdir()
+    settings = tmp_path / "settings.mat"
+    eng.eval(
+        settings_script(
+            SETTINGS_M, scheme="Standard", hybrid="true", focus="Inf", efocus="20e-3",
+            path=settings, ymin_ref="-2.9e-3", ymax_ref="1.7e-3",
+        ),
+        nargout=0,
+    )  # fmt: skip
+    rf = scatterer_rf(16, 520, [(5e-3, -1.5e-3)], np.random.default_rng(9))
+    write_frames(eng, data, {"Frame_1.mat": [rf]}, "v7")
+    eng.eval(f"[pyp_I__, ~, pyp_y__] = DAS_reconstruction('{data}', '{settings}');", nargout=0)
+    IMG_m = from_matlab(eng.workspace["pyp_I__"])[:, :, None]
+    y_m = vec(eng.workspace["pyp_y__"])
+    eng.eval("clear pyp_I__ pyp_y__", nargout=0)
+    IMG, _, y = das_reconstruction(data, settings, proteus_compat=True)
+    assert_float(y, y_m, atol=1e-15)
+    np.testing.assert_allclose(10 ** (IMG / 20), 10 ** (IMG_m / 20), rtol=FLOAT_REL, atol=1e-12)
+    IMG_d, _, y_d = das_reconstruction(data, settings)
+    assert y_d[0] == -2.9e-3 and y_d[-1] <= 1.7e-3 < y_d[-1] + (y_d[1] - y_d[0])
+    iy = np.unravel_index(np.argmax(IMG_d[:, :, 0]), IMG_d.shape[:2])[1]
+    assert abs(y_d[iy] - (-1.5e-3)) < 2 * (y_d[1] - y_d[0])
+
+
+def test_das_reconstruction_real_settings_xmin(matlab_engine, tmp_path) -> None:
+    """Reference beamformer with PROTEUS's usual Xmin = -2 lambda: the default
+    (axis from max(Xmin, 0), D-21 (amended)) equals MATLAB."""
+    eng = matlab_engine
+    data = tmp_path / "rf"
+    data.mkdir()
+    settings = tmp_path / "settings.mat"
+    eng.eval(
+        settings_script(
+            SETTINGS_M, scheme="Standard", hybrid="true", focus="Inf", efocus="20e-3",
+            path=settings, xmin_ref="-1.232e-3",
+        ),
+        nargout=0,
+    )  # fmt: skip
+    rf = scatterer_rf(16, 520, [(4e-3, 0.5e-3)], np.random.default_rng(10))
+    write_frames(eng, data, {"Frame_1.mat": [rf]}, "v7")
+    eng.eval(f"[pyp_I__, pyp_x__] = DAS_reconstruction('{data}', '{settings}');", nargout=0)
+    IMG_m = from_matlab(eng.workspace["pyp_I__"])[:, :, None]
+    x_m = vec(eng.workspace["pyp_x__"])
+    eng.eval("clear pyp_I__ pyp_x__", nargout=0)
+    IMG, x, _ = das_reconstruction(data, settings)
+    assert_float(x, x_m, atol=1e-15)
+    np.testing.assert_allclose(10 ** (IMG / 20), 10 ** (IMG_m / 20), rtol=FLOAT_REL, atol=1e-12)

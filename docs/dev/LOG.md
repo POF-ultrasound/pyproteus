@@ -2,6 +2,11 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-24 — DAS D-21 defaults, empty-frame warning, matrix cache (m1-das)
+- D-21 (developer, amended after review): pixel axes span the domain, with the reference beamformer's depth axis from `max(Xmin, 0)` (`pixel_axes`; was Q-103), and the general beamformer masks pixels insonified only by switched-off elements (`apod != 0`, binary, no `apod²` weighting; `transmit_apodization_weight`; was Q-104) by default; `proteus_compat=True` restores PROTEUS on `das_reconstruction`, `das_reconstruction_general`, `initialize_das_parameters`, `compute_das_matrix_general`. Q-103/Q-104 moved to PARITY divergences.
+- D-15: `DasEmptyFrameWarning` for all-zero frames (P7, MATLAB's NaN kept); DAS matrix cache keyed by the inputs (P8).
+- Oracle: symmetric/unapodized cases unchanged with the default (new `test_das_reconstruction_general_default_symmetric`); asymmetric and apodized cases with `proteus_compat=True` (89 oracle tests). Oracle `test_das_reconstruction_real_settings_xmin` (Xmin = -2λ equals MATLAB). Unit `test_das_d21.py`: axes (Xmin < 0 and > 0), tapered/random apod = no change, ray-origin geometry (plane, steered, focused before/after focus, diverging), uniform apod = no change, masked half, asymmetric-domain scatterer, warning, cache.
+
 ## 2026-11-24 — Q-100 point-scatterer investigation (m1-das)
 - MATLAB PROTEUS `main_RF` on a copy of the oracle (temp output folders), real k-Wave C++ binary (D-10), one small bubble; RF of 1 µm minus 0.5 µm runs isolates the echo. Residual of the DAS time axis: −23 … −29 ns across one grid cell at 5 mm (hybrid), −27 ns full at 5 mm, +9 / +7 ns at 7 mm. Depth-dependent and larger than the 4 ns Q-100 term → inconclusive; Q-100 kept, B-101 opened (with the pulse-shape, resonance and element-height confounds found in review). Scripts and driver in `tools/investigations/`.
 
