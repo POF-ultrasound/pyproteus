@@ -9,7 +9,7 @@ Reference: PROTEUS v1.1.0 · team: 1 developer + Claude Code · reviewed twice a
 
 ## Summary
 
-1. **Faithful port first, improvements after.** pyproteus 1.0 reproduces every simulation mode of MATLAB PROTEUS v1.1.0, quirks included. Renaming, refactoring and bug fixes come in 1.x.
+1. **Same results, better implementation (D-15).** pyproteus 1.0 reproduces every simulation mode of MATLAB PROTEUS v1.1.0 within the D-13 tolerances; that behaviour is the only reference we have. It is not an exact copy: where PROTEUS's implementation is limiting (toolbox and package dependencies, workflow, data handling, memory use, speed, usability), the Python version may do it differently, as long as results stay within tolerance. Result-changing quirks are still reproduced by default and logged; fixes come in 1.x unless the developer decides otherwise.
 2. **MATLAB is the test oracle and stays untouched.** Tests call the original MATLAB functions through the MATLAB Engine for Python and compare with the port on the same inputs. Frozen reference files keep the comparison in CI without MATLAB.
 3. **Silent MATLAB-vs-NumPy differences are the main risk** (rounding of halves, sort stability, extrapolation, column-major order). Dedicated helpers on day one, a lint rule, and test inputs that hit ties on purpose.
 4. **Same random streams:** the simulation path only uses `rand`/`randi`; seeding NumPy's MT19937 the documented way gives the same draws (checked with seed 42). Results are compared at the float tolerance, not bit for bit.
