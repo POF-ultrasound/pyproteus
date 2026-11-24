@@ -2,15 +2,24 @@
 
 * ``get_gas_properties``
 * ``compute_polydisperse_distribution`` (with a ``linspace`` helper)
+* ``compute_gaussian_distribution``
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 
 from pyproteus.config.models import Gas
 
-__all__ = ["compute_polydisperse_distribution", "get_gas_properties", "linspace"]
+__all__ = [
+    "compute_gaussian_distribution",
+    "compute_polydisperse_distribution",
+    "gaussian_distribution",
+    "get_gas_properties",
+    "linspace",
+]
 
 # ------------------------------------------------------------------------- gas
 
@@ -80,3 +89,36 @@ def compute_polydisperse_distribution() -> tuple[np.ndarray, np.ndarray]:
     P = P / np.sum(P)
     R = R * 1e-6
     return R, P
+
+
+def gaussian_distribution(mean_radius: float, pdi: float) -> tuple[np.ndarray, np.ndarray]:
+    """Gaussian size distribution on 1000 radii from 0.5 to 6 um (1×1000 rows, in m).
+
+    Standard deviation ``mean_radius*pdi/100``; probabilities normalised to sum 1.
+    ``pdi = 0`` gives NaN probabilities, as in MATLAB (Q-84).
+    """
+    N = 1e3  # number of points (the polydisperse fit uses N + 1, Q-84)
+    Rmin = 0.5e-6
+    Rmax = 6e-6
+    R = linspace(Rmin, Rmax, int(N))
+    sR = mean_radius * pdi / 100  # standard deviation (m)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        P = np.exp(-((R - mean_radius) ** 2) / (2 * sR**2))
+        P = P / np.sum(P)
+    return R, P
+
+
+def compute_gaussian_distribution(microbubble: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Port of ``compute_gaussian_distribution.m``: ``(R, P)`` from
+    ``Microbubble.Distribution.MeanRadius`` [m] and ``PDI`` [%] (see
+    :func:`gaussian_distribution`)."""
+    dist = getattr(microbubble, "Distribution", None)
+    if dist is None:
+        raise ValueError("Microbubble has no field Distribution")
+    values = []
+    for name in ("MeanRadius", "PDI"):
+        v = getattr(dist, name, None)
+        if v is None:
+            raise ValueError(f"Microbubble.Distribution has no field {name}")
+        values.append(float(np.asarray(v, dtype=np.float64).reshape(())))
+    return gaussian_distribution(*values)

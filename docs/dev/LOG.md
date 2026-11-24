@@ -2,6 +2,11 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-24 — M1 compute_gaussian_distribution (m1-leaves)
+- `pyproteus.microbubble.compute_gaussian_distribution` (+ `gaussian_distribution(mean_radius, pdi)` on plain numbers), next to `compute_polydisperse_distribution`. Only PROTEUS's regression helpers call it (GUI distribution option).
+- Oracle test `tests/oracle/test_microbubble_distribution.py` (8 radii × 8 PDIs incl. 0 and negative, defaults, Hypothesis; 300-batch sweep passed), D-13 float class. Q-84 (1000 vs 1001 radii, PDI = 0 → NaN).
+- Closes the M1 GUIfunctions leaves section.
+
 ## 2026-11-23 — M1 grid, medium, transducer integration (m1-grid-medium)
 - New `src/pyproteus/acoustic/` (`grid.py`: `optimize_grid_size`, `largest_prime_factor`, `define_grid` → frozen `Grid`/`PML` dataclasses; `signals.py`: `evaluate_delta_function`, `sinc_interpolation`, `resample_signal`; `transducer_integration.py`: `get_transducer_integration_points`, `get_transducer_integration_delays`, `compute_travel_times`) and in `src/pyproteus/medium/`: `random_truncated_normal` (explicit `MatlabRNG`, SciPy `erfc`/`erfcinv`), `voxelize_media_points` (0-based `VoxelizedPoints`), `define_medium` (non-STL path; `vessel=` mask injectable until M4).
 - Oracle tests compare on settings built by MATLAB (`reset_*` + derived fields, read back through `config.load_settings_mat`) plus tie cases. All integer quantities agree 100 %; floats far inside 1e-9 (truncated normal ≤ 2.8e-13 rel, resampling ≤ 1.3e-15 × max). Sweep at `PYPROTEUS_ORACLE_EXAMPLES=300`: 129 passed (independent functions); after merging `get_element_geometry` from main, integration points and `define_medium` oracle tests pass too.

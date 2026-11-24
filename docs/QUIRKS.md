@@ -76,3 +76,10 @@ Format:
 - Behaviour: the (b, a) form of the 6th-order bandpass is ill-conditioned when the band is narrow relative to the sampling rate; MATLAB's impulse response is then off by 1–2 % of its maximum (0.5–0.6 MHz at 250 MHz; 1–2 MHz at 1 GHz) by up to 1.0e-8 for the catalogue bands (P4-1) and 1.5e-8 for other wide bands tested (B-80).
 - pyproteus deliberately does **not** reproduce this (D-17): `pyproteus.transducer.estimate_impulse_response` uses second-order sections, accurate to ~1e-14 (catalogue bands) and ~3e-12 (narrow bands) of the exact response.
 - Test: `tests/oracle/test_transmit_signals.py::test_impulse_response_vs_reference` (gated), `::test_impulse_response_vs_matlab` (catalogue bands gated at 1e-7, narrow bands reported).
+
+## Q-84 — the Gaussian size distribution: 1000 radii, NaN for PDI = 0
+- MATLAB: `GUIfunctions/compute_gaussian_distribution.m`.
+- Behaviour: 1000 radii from 0.5 to 6 µm, while `compute_polydisperse_distribution` uses 1001 over the same range. `PDI = 0` gives a zero standard deviation and NaN probabilities (0/0) without an error; a mean radius far outside the range underflows every probability to 0, also giving NaN. The sign of `PDI` is irrelevant.
+- Ported in: `pyproteus.microbubble.gaussian_distribution` (same behaviour, NumPy warnings silenced).
+- Test: `tests/oracle/test_microbubble_distribution.py::test_fixed_cases`, `tests/unit/test_microbubble_distribution.py`.
+- Planned fix (proposal for after parity): validate `PDI > 0` and share one radius grid between the distributions.
