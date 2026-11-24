@@ -74,10 +74,12 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 - [x] `sinc_interpolation`, `resample_signal` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 
 ### Delay-and-sum
-- [ ] `das_transmit_distance`, `initialize_das_parameters`
-- [ ] `compute_das_matrix`, `compute_das_matrix_general` (sample indices: exact)
-- [ ] `DAS_reconstruction`, `DAS_reconstruction_general`
-- [ ] `load_RF_data`
+- [x] `das_transmit_distance`
+- [x] `initialize_das_parameters`
+- [x] `compute_das_matrix`, `compute_das_matrix_general` (sample indices: statistical, D-13; measured 100 %)
+- [x] `DAS_reconstruction`
+- [x] `DAS_reconstruction_general`
+- [x] `load_RF_data`
 
 ### Done when
 - [ ] All of the above within their comparison class on reference settings and tie cases

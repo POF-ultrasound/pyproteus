@@ -132,6 +132,12 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Behaviour: MATLAB and pyproteus both give 0 vessel voxels (the renal tree gives 4710 of 23.7 M). The default mouse-brain simulation has no vessel in the medium.
 - Impact: PROTEUS behaviour, reproduced. `vessel_mask`/`define_medium` now warn (`EmptyVesselWarning`, naming dx; D-15). Reported to the main session, which flags it to the developer.
 
+## B-100 — General DAS matrix: pixel at axial coordinate −0 (observation, outside the classes)
+- Where: `compute_das_matrix_general` with a pixel at `x = -0.0` exactly above an element at `x_el = 0`, `y = y_el`.
+- Symptom: found by the randomised oracle test: MATLAB keeps that (pixel, element) entry, pyproteus drops it.
+- Cause: `atan2(0, -0) = pi` in IEEE 754 / NumPy, so the angle exceeds the threshold. The sign of zero is not part of the D-13 classes (as B-20); not investigated further in MATLAB (D-12).
+- Workaround: none needed; the randomised test normalises `-0.0` to `+0.0` (`tests/oracle/test_das.py::general_case`). A pixel exactly on an element is degenerate anyway.
+
 ## B-90 — MATLAB `VOXELISE` errors when a mesh bound is equidistant from two grid lines (observation, for M4)
 - Where: `mesh-voxelisation/Mesh_voxelisation/VOXELISE.m` (`VOXELISEinternal`, `meshXminp`...`meshYmaxp = find(abs(gridCO - meshmin) == min(...))`), called by `define_medium.m` with `EmbedVessel`.
 - Symptom: a facet bound exactly half-way between two grid coordinates gives two indices, and the ray loop `for loopY = meshYminp:meshYmaxp` fails with "Colon operands must be real scalars". Found with a synthetic box STL in `tests/oracle/test_medium_define.py` (faces now 0.3 dx past a node).

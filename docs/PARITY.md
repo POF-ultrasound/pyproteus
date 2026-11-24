@@ -30,6 +30,7 @@ permutation of exact inputs (documented semantics, not float noise).
 | `interp1(...,'nearest')` | `interp1(..., "nearest")` | exact (selects sample values) | `test_numerics_interp.py` | ✅ |
 | `griddedInterpolant(x,v)` (linear, linear extrapolation) | `gridded_interpolant` | float (B-70) | `test_numerics_interp.py` | ✅ |
 | `pchip`, `interp1(...,'pchip')`, `griddedInterpolant(...,'pchip')` | `pchip`, `interp1`, `gridded_interpolant` (textbook Hermite, Fritsch–Butland/Moler slopes) | float (B-71 with NaN/±Inf samples) | `test_numerics_interp.py` | ✅ |
+| `a:d:b` (colon operator) | `colon` | float values; length equal except `b` within ~4 eps of a grid point below it (own count rule, see note) | `tests/oracle/test_das.py::test_colon` | ✅ |
 | `ifft(X,n,dim,'symmetric')` | `ifft_symmetric` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `hilbert(x)` (vectors along length, matrices along columns) | `hilbert` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `conv(u,v,shape)`, `convn(A,B,shape)` | `conv`, `convn` | exact on small integers, else float | `test_numerics_signal.py` | ✅ |
@@ -224,7 +225,45 @@ Divergences from MATLAB (D-15):
 | `VOXELISE` errors ("Colon operands must be real scalars") when a mesh bound is equidistant from two grid lines (B-90, logged in BUGS.md by m1-grid-medium, PR #18) | no error: the port does not restrict rays to the nearest-grid-line range (that range never excludes a ray a facet can cross) | robustness; result equals MATLAB's once the tie is broken by 1e-9 (`test_mesh_bound_halfway_between_grid_lines`) |
 | a scalar grid argument is a voxel count (auto grid); a one-point `Grid.z` (Nz = 1) is therefore misread (error, or an empty vessel when z = 0) | every grid argument is coordinates; a one-point axis is one plane | PROTEUS always means coordinates; m1-grid-medium supports Nz = 1 |
 | grid coordinates in any order | must be non-decreasing (`ValueError`) | binary search per axis; PROTEUS grids are increasing |
-| mask built in the medium module | `vessel_mask(...)` in `pyproteus.geometry`, passed to `define_medium(vessel=...)` | geometry separate from medium (agreed with m1-grid-medium); bool `(Nx, Ny, Nz)`, `[ix, iy, iz]` |
+| STL read and voxelised inline in `define_medium.m` | `pyproteus.geometry.vessel_mask(...)`, called by `define_medium` (or a precomputed mask via `vessel=`) | geometry separate from medium (agreed with m1-grid-medium); bool `(Nx, Ny, Nz)`, `[ix, iy, iz]` |
+
+## Delay-and-sum (`pyproteus.reconstruction`, M1)
+
+Classes per D-13. Sample indices are compared per (pixel, element) entry of the
+DAS matrix (MATLAB returns `find(M)`); weights where both sides keep the same
+sample at the float class. Tie cases use dyadic coordinates with `c = Fs = 1`,
+so `(t_del - t(1))*Fs` hits exact .5 values on both sides (half away from zero).
+
+| MATLAB | Python | Class | Oracle test (`tests/oracle/test_das.py`) | Status |
+|---|---|---|---|---|
+| `das_transmit_distance` (linear, curved; plane, diverging, focused, focus 0; steered) | `das_transmit_distance` | float | `test_das_transmit_distance` | ✅ |
+| `compute_das_matrix` (plane, diverging; even/odd elements; `X ≤ 0`, `X = 0`; samples off both ends of the record, asserted present; exact .5 ties inside and at -0.5 / Nt-0.5) | `compute_das_matrix` | statistical (measured 100 %: 5.28 M entries on a λ/5, 64-element image; all tie cases exact) | `test_compute_das_matrix_*` | ✅ |
+| `compute_das_matrix_general` (linear, curved; plane, steered, diverging, focused, curved diverging; cosine/binary; `axis_delay`; defaults) | `compute_das_matrix_general` | statistical (measured 100 % incl. 500 Hypothesis cases); weights float | `test_compute_das_matrix_general*` | ✅ (B-100: `-0` pixel) |
+| `load_RF_data` (v7 and v7.3, single and double, all pulsing schemes, frame order) | `load_rf_data`, `iter_rf_frames` | exact | `test_load_rf_data*` | ✅ |
+| TGC expression of `DAS_reconstruction` | `time_gain_compensation` | float where MATLAB's TGC is valid (`max(t) > \|min(t)\|`); D-18 divergence otherwise | `test_time_gain_compensation`, `test_time_gain_compensation_q101_fixed`, `test_das_reconstruction_q101_regime` | ✅ |
+| `DAS_reconstruction` (double RF; v7.3 + pulse inversion + diverging + full-simulation k-Wave correction; single RF) | `das_reconstruction` | float on the linear image `10^(IMG/20)` for double RF (measured 4.4e-16); single RF ≤ 1e-6 abs (measured 5.5e-8; class accepted by the developer, D-18); short record (samples past the end) | `test_das_reconstruction` | ✅ |
+| `initialize_das_parameters` (linear even/odd, curved; steered, diverging, focused; lens/k-Wave variants; `Transmit.Apodization`; errors; delay-mismatch warning) | `initialize_das_parameters` (warning: `DasDelayMismatchWarning`) | float (axes, time axis, element geometry); exact length of axes | `test_initialize_das_parameters*` | ✅ |
+| `DAS_reconstruction_general` (linear 16/15 elements, curved 17/16; plane, steered diverging, focused; v7/v7.3; single RF) | `das_reconstruction_general` | as `DAS_reconstruction` (measured ≤ 6.7e-16 double, 9.8e-8 single) | `test_das_reconstruction_general` | ✅ |
+
+Result-changing divergence (developer decision D-18):
+
+- **TGC normalisation (was Q-101).** MATLAB divides by `max(sqrt(t))` over the complex roots; when `|min(t)| ≥ max(t)` (time to peak + lens delay longer than the record after it) that maximum is imaginary and the whole image is NaN. pyproteus divides by `sqrt(max(t))`. Identical to MATLAB whenever MATLAB's output is valid (oracle-tested at the float class, including `t(1) = -0.98·t(end)`); in the degenerate regime MATLAB's TGC and image are checked to be degenerate and pyproteus' to be the real-root formula and a finite image.
+
+Design differences with MATLAB (D-15; results within the classes above):
+
+- **DAS matrix built in pixel blocks.** MATLAB forms dense `Npixels`-by-`Nelem` delays, indices, angles and weights for the whole image before `sparse`. pyproteus builds the matrix in blocks of pixels (`block_size`, default 16384), so peak memory is the sparse matrix plus a few `block_size*Nelem` arrays. Output is a `scipy.sparse.csr_array` (`cupyx.scipy.sparse` has the same type for a later GPU path). Each (pixel, element) pair maps to one column, so the duplicate accumulation of MATLAB `sparse` cannot occur (asserted in the oracle test), and zero weights are not stored (MATLAB drops them too).
+- **Frames streamed.** `iter_rf_frames` reads each `Frame*.mat` once, only the `RF` variable; `das_reconstruction` beamforms blocks of frames as they are read. MATLAB reads the first file twice and holds all frames plus the complex `Nt*Nelem`-by-`Nframes` matrix. `load_rf_data` still returns the stacked array for callers that want it.
+- **No transpose.** The column order of the DAS matrix (`sample + Nt*element`) is the C-order flattening of an `Nelem`-by-`Nt` frame, so RF goes into `M @ ...` without MATLAB's `permute`.
+- **Double precision throughout.** MATLAB keeps `single` RF (the PROTEUS default) in `single` through the TGC and `hilbert`; pyproteus computes in double. Effect: single-precision rounding of the input chain (5.5e-8 of the image peak on the test case).
+- **Settings object accepted.** `das_reconstruction(folder, settings)` takes a settings `.mat` path (as MATLAB) or a `Settings` object.
+- **Frame axis always present.** With one frame, `load_rf_data`, `das_reconstruction` and `das_reconstruction_general` return `(..., 1)` arrays; MATLAB drops the trailing singleton.
+- **Missing fields raise.** `transducer.azimuth` (general matrix) and `SimulationParameters.HybridSimulation` are required (`ValueError`), as MATLAB errors on them; a silent default would give NaN weights or the wrong k-Wave correction.
+- **Frame file names are matched case-sensitively** (`Frame*.mat`); MATLAB `dir` on a case-insensitive file system (macOS, Windows) would also list `frame_1.MAT`.
+
+Notes:
+
+- `numerics.colon` (pixel axes; shared with `define_grid`): MATLAB documents `a:d:b = [a, a+d, ..., a+m*d]`, `m = fix((b-a)/d)`. The count rule is our own (not probed): `(b-a)/d` below an integer by less than `4·eps·max(|q|, max(|a|,|b|)/|d|, 1)` (its rounding error) counts as that integer, so `0:0.1:0.3` has 4 elements and `0:1:3-1e-14` has 3. A `b` within that window below a grid point may give one more element than MATLAB.
+- The randomised general-matrix test excludes `-0.0` coordinates (B-100).
 
 ## Grid, medium, transducer integration (`pyproteus.acoustic`, `pyproteus.medium`, M1)
 
