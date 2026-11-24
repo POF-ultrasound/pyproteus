@@ -10,11 +10,18 @@ function R = q100_point_scatterer(oracle_copy, kwave_path, binary_dir, cases, ou
 % two-way travel time. Residual 0 = the DAS time axis is right; residual
 % -1/Transmit.SamplingRate = the 1-based time to peak is an off-by-one.
 %
-% The bubble is small (resonance far above the transmit band) and driven
-% at low pressure, so it scatters linearly and nearly in phase (radiated
-% pressure ~ second time derivative of a symmetric pulse: envelope peak
-% unchanged). Medium: homogeneous, no inhomogeneity, no absorption (the
-% k-space scheme is then free of numerical dispersion).
+% The bubbles are small (resonance above the transmit band) and driven at
+% low pressure. Their radiated pressure is roughly the second time
+% derivative of the incident pulse; the two-way pulse is NOT symmetric, so
+% this alone moves the envelope peak by about -9 ns (measured on d2V vs V),
+% and the bubble's resonance adds a group delay of a few ns: both are
+% confounds of the same size as the 4 ns Q-100 term (see B-101). Medium:
+% homogeneous, no inhomogeneity, no absorption (BonA = 6 is kept, so k-Wave
+% runs nonlinear; negligible at 10 kPa).
+%
+% The per-run residual printed below is clutter-dominated and NOT the
+% result: only the radius difference analysed by q100_analyse.py is valid.
+% Driver with the case lists: q100_run.py.
 %
 % cases: struct array with fields name, depth [m], radius [m], hybrid,
 % fs_transmit [Hz] (Transmit/Transducer rate), ppw, height (element
@@ -28,12 +35,18 @@ function R = q100_point_scatterer(oracle_copy, kwave_path, binary_dir, cases, ou
 oracle = '/Users/theodoremichel/Repos/TWENTE/Ultrasound/PROTEUS-cleaning/PROTEUS-oracle';
 assert(~strcmp(char(java.io.File(oracle_copy).getCanonicalPath()), ...
     char(java.io.File(oracle).getCanonicalPath())), ...
-    'Pass a COPY of the oracle: this script writes PATHS files into its root.');
+    'Pass a COPY of the oracle, never the oracle itself.');
+% Without PROTEUS_LOCAL_PATHS support, ProteusTestEnvironment would
+% temporarily replace the checkout's tracked PATHS.mat: refuse that.
+assert(contains(fileread(fullfile(oracle_copy,'path_setup.m')), 'PROTEUS_LOCAL_PATHS'), ...
+    'This PROTEUS copy has no PROTEUS_LOCAL_PATHS support.');
 setenv('PROTEUS_KWAVE_PATH', kwave_path);
 addpath(fullfile(oracle_copy,'tests'));
 env = ProteusTestEnvironment;
 env.setup();
-cleanup = onCleanup(@() env.teardown()); %#ok<NASGU>
+% The fixture's teardowns (path, env var, temp folder) run when env is
+% deleted, at function exit (also on error).
+cleanup = onCleanup(@() delete(env)); %#ok<NASGU>
 P = env.PATHS;
 
 % Use the real k-Wave C++ solver: drop the test double, point BinaryPath
@@ -149,7 +162,7 @@ for k = 1:numel(cases)
     R(k).residual_std = std(R(k).residual);
     R(k).in_tx_samples = R(k).residual_mean*Sx.Transmit.SamplingRate;
     R(k).in_sim_samples = R(k).residual_mean*Fs;
-    fprintf('%s: residual %.3g ns (std %.2g ns) = %.2f transmit samples = %.3f sim samples (echo/clutter >= %.1f)\n', ...
+    fprintf('%s (single run, clutter-dominated, NOT the result): residual %.3g ns (std %.2g ns) = %.2f transmit samples = %.3f sim samples (echo/clutter >= %.1f)\n', ...
         C.name, 1e9*R(k).residual_mean, 1e9*R(k).residual_std, ...
         R(k).in_tx_samples, R(k).in_sim_samples, R(k).echo_to_late_clutter);
 end
