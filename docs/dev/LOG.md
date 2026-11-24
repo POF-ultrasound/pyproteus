@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-23 — STL voxelisation moved forward from M4 (m1-voxelise)
+- `src/pyproteus/geometry/`: `read_stl`/`identify_stl_format` (port of `READ_stl.m`), `voxelise` (port of `VOXELISE.m`, vectorised over facet/ray pairs, same formulas), `place_vessel_mesh` and `vessel_mask` (the vessel block of `define_medium.m`). Mask contract as m1-grid-medium's `define_medium(vessel=)`: bool `(Nx, Ny, Nz)`, `[ix, iy, iz]`. BSD notice in the module headers and `LICENSES/mesh-voxelisation-BSD.txt` (the licence has a non-endorsement clause: BSD-3 style, PROTEUS calls it BSD-2); `pyproject.toml` ships `LICENSES/*`.
+- STLs extracted from Zenodo 10573662 (`renal_tree_no_vtu.zip`, `mouse_brain_no_vtu.zip`, members only, CRC checked) into a scratch folder; tests read them via `PYPROTEUS_GEOMETRIES_PATH`. m1-grid-medium registers them in pooch (PR #18).
+- Oracle tests (`tests/oracle/test_geometry_voxelise.py`, 14): all masks 100 % equal to MATLAB (renal tree/mouse brain default and fine odd grids, sample.stl × 7 ray directions, vertex/edge/open-mesh/border/tilted/oversized/tie synthetic cases); `READ_stl` exact; `define_medium` downstream 0 rel. error. Unit tests `tests/unit/test_geometry.py` (16).
+- D-15 library check: trimesh `contains` matches on watertight meshes but is 150× slower and runs out of time/memory on the renal tree; the mouse brain mesh is not watertight. Direct port kept, no new dependency (PARITY.md).
+- Found: B-110 (grid extension on one axis), B-111 (absolute 1e-14 area threshold), B-112 (default mouse brain mask is empty). B-90 (tie error) handled robustly, divergence in PARITY.md.
+- Review (fresh agent): no behavioural divergence found; tests strengthened after its mutation run (mask tolerance over inside voxels, correction order, border/corner padding, silhouette vertices, degenerate facet), licence relabelled BSD-3-Clause with `license = "MIT AND BSD-3-Clause"`, one-point grid axes accepted, STL format detection for < 84-byte files and NUL padding, latin-1 ASCII reading.
+- 2026-11-24, after #18 merged (main session's request): `define_medium` voxelises the STL itself via `vessel_mask` when `EmbedVessel` and no `vessel=` (`GeometriesPath` from `geometries_path=` or `Geometry.GeometriesPath`); `NotImplementedError` removed. `EmptyVesselWarning` when an embedded vessel covers no grid point (B-112, D-15). New oracle test runs the default settings end to end in Python on the renal tree (4710 vessel voxels = MATLAB). #18's define_medium oracle tests now check the Python-voxelised medium against MATLAB (box STL, both shipped geometries).
+
 ## 2026-11-23 — direction and cluster GPU (main session)
 - D-15: pyproteus is a step towards a better PROTEUS, not an exact copy; challenge PROTEUS implementation choices when results stay within tolerance. ROADMAP summary and CLAUDE.md updated. D-16: cluster GPU is a Quadro RTX 6000 (CC 7.5, 24 GB): CUDA binary usable.
 

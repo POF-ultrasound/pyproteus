@@ -1,9 +1,10 @@
 """Oracle tests: ``define_medium`` (non-STL path, curved coupling region, vessel mask).
 
 Background maps are seeded truncated-normal draws → D-13 float class
-(≤ 1e-9 rel). The vessel mask comes from MATLAB's own ``VOXELISE`` on a small
-synthetic STL (the STL reader/voxeliser are M4) and is passed to the Python
-port, so the vessel property assignment is checked against MATLAB too.
+(≤ 1e-9 rel). The vessel: Python reads and voxelises the STL itself
+(``pyproteus.geometry``) and must give MATLAB's ``VOXELISE`` mask on a small
+synthetic STL and on the shipped geometries; MATLAB's mask passed as
+``vessel=`` checks the property assignment on its own.
 """
 
 from __future__ import annotations
@@ -242,10 +243,12 @@ def test_define_medium_vessel_from_matlab_voxelise(
     )
     assert len(set(expected.shape)) == 3 and expected.any() and not expected.all()
     np.testing.assert_array_equal(ref_v, expected)  # orientation: [ix, iy, iz]
-    with pytest.raises(NotImplementedError, match="M4"):
-        medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(5))
+    # Python reads and voxelises the STL itself (Geometry.GeometriesPath, PR #19) ...
+    kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(5))
+    _compare(ref, kw, vessel, ref_v, "box vessel (pyproteus.geometry)")
+    # ... or takes a precomputed mask
     kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(5), vessel=ref_v)
-    _compare(ref, kw, vessel, ref_v, "box vessel")
+    _compare(ref, kw, vessel, ref_v, "box vessel (vessel=)")
 
 
 def assert_registry_hash(path: Path, name: str) -> None:
@@ -298,7 +301,8 @@ def test_define_medium_shipped_geometries(
         )
     ref, ref_v, s, grid = _voxelise_in_matlab(eng, "pyp_S7__", tmp_path, seed=2)
     assert ref_v.any(), "the vessel must cover part of the grid"
-    with pytest.raises(NotImplementedError, match="M4"):
-        medium.define_medium(grid, s.Medium, s.Geometry, s.Transducer, rng=nm.rng(2))
+    # end to end: Python reads, places and voxelises the shipped STL (PR #19)
+    kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, s.Transducer, rng=nm.rng(2))
+    _compare(ref, kw, vessel, ref_v, f"{folder} (pyproteus.geometry)")
     kw, vessel = medium.define_medium(grid, s.Medium, s.Geometry, rng=nm.rng(2), vessel=ref_v)
-    _compare(ref, kw, vessel, ref_v, folder)
+    _compare(ref, kw, vessel, ref_v, f"{folder} (vessel=)")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from os import PathLike
 from typing import Any
 
 import numpy as np
@@ -23,6 +24,7 @@ def define_medium(
     *,
     rng: MatlabRNG,
     vessel: np.ndarray | None = None,
+    geometries_path: str | PathLike[str] | None = None,
 ) -> tuple[dict[str, Any], np.ndarray]:
     """Port of ``define_medium.m``: k-Wave medium maps and the vessel mask.
 
@@ -38,11 +40,14 @@ def define_medium(
     region behind the array. Vessel voxels take ``Medium.Vessel`` sound speed,
     density and B/A.
 
-    Vessel (``Geometry.EmbedVessel``): MATLAB voxelises the STL geometry
-    (``READ_stl``/``VOXELISE``, M4). Until that is ported, pass the mask as
-    ``vessel`` (bool ``Nx × Ny × Nz``); without it ``NotImplementedError`` is
-    raised. With ``EmbedVessel`` false, ``vessel`` must be None and the mask is
-    all false.
+    Vessel (``Geometry.EmbedVessel``): the STL file
+    ``GeometriesPath/Folder/STLfile`` is read, placed and voxelised on the grid
+    (:func:`pyproteus.geometry.vessel_mask`, ports of ``READ_stl``/``VOXELISE``).
+    ``geometries_path`` is MATLAB's ``Geometry.GeometriesPath`` (used when not
+    given). A precomputed mask can be passed as ``vessel`` (bool
+    ``Nx × Ny × Nz``) instead; then no file is read. An empty embedded vessel
+    warns (:class:`pyproteus.geometry.EmptyVesselWarning`, B-112). With
+    ``EmbedVessel`` false, ``vessel`` must be None and the mask is all false.
 
     Divergences (D-15, docs/PARITY.md): ``alpha_coeff`` is a read-only
     broadcast view of one value (MATLAB: a full array of a constant), and
@@ -69,10 +74,17 @@ def define_medium(
     embed = bool(np.asarray(_get(geometry, "EmbedVessel", False)).reshape(-1)[0])
     if embed:
         if vessel is None:
-            raise NotImplementedError(
-                "Geometry.EmbedVessel needs STL voxelisation (READ_stl/VOXELISE, milestone M4); "
-                "pass the vessel mask with vessel=..."
-            )
+            from pyproteus.geometry import vessel_mask
+
+            path = _nonempty_path(geometries_path)
+            if path is None:
+                path = _nonempty_path(_get(geometry, "GeometriesPath", None))
+            if path is None:
+                raise ValueError(
+                    "Geometry.EmbedVessel needs the STL folder: pass geometries_path= "
+                    "(MATLAB Geometry.GeometriesPath) or a precomputed vessel= mask"
+                )
+            vessel = vessel_mask(grid.x, grid.y, grid.z, geometry, path, _stacklevel=3)
         vessel = np.asarray(vessel)
         if vessel.shape != shape or vessel.dtype != bool:
             raise ValueError(f"vessel must be a bool array of shape {shape}")
@@ -103,3 +115,11 @@ def define_medium(
     if abs(out["alpha_power"] - 1) < 0.1:
         out["alpha_mode"] = "no_dispersion"
     return out, vessel
+
+
+def _nonempty_path(value: Any) -> str | None:
+    """A path as text; None, ``''`` and MATLAB's empty ``[]`` count as missing."""
+    if value is None or np.size(value) == 0:
+        return None
+    text = str(np.asarray(value, dtype=object).reshape(-1)[0])
+    return text or None

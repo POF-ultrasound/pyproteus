@@ -117,6 +117,21 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Impact: ~1 ulp per operation, far inside the tolerance classes (D-12/D-13/D-14).
 - Action: none; no code acts on this.
 
+## B-110 — `VOXELISE` extends the grid along one axis only (quirk, reproduced)
+- Where: `VOXELISE.m`, "Check that the output grid is large enough to cover the mesh" (`if ... elseif ... elseif`).
+- Behaviour: when the mesh extends beyond the grid, a grid line at the mesh bound is added (and cropped afterwards) only along the first traced axis that needs it; the other axes are left short. The extra line only changes which neighbouring rays the odd-crossing corrections see.
+- Handling: reproduced in `pyproteus.geometry.voxelisation.voxelise`; `test_mesh_larger_than_grid` (`xyz`, `yz`, `z`) agrees exactly. Irrelevant for PROTEUS, whose grids contain the vessel.
+
+## B-111 — `VOXELISE` drops facets with a projected area below an absolute 1e-14 (quirk, reproduced)
+- Where: `VOXELISEinternal`, `if abs(planecoC) < 1e-14, planecoC = 0`.
+- Behaviour: the threshold is in the mesh's length unit squared (m² in PROTEUS, after `STLunit` scaling), so facets with a projected area under ~5e-15 m² give no crossing; the ray becomes odd and is filled from its neighbours. Unit-dependent, but such a facet is almost never crossed by a ray.
+- Handling: reproduced (same threshold). Candidate for a relative threshold after parity.
+
+## B-112 — default settings voxelise the mouse brain arteriole to an empty mask (observation)
+- Where: `define_medium` with `make_default_settings(PATHS, 'mouse_brain')`: grid spacing c/(f0·6) ≈ 103 µm; the arteriole's bounding box is 0.3 × 0.3 × 1.2 mm with vessels thinner than a voxel.
+- Behaviour: MATLAB and pyproteus both give 0 vessel voxels (the renal tree gives 4710 of 23.7 M). The default mouse-brain simulation has no vessel in the medium.
+- Impact: PROTEUS behaviour, reproduced. `vessel_mask`/`define_medium` now warn (`EmptyVesselWarning`, naming dx; D-15). Reported to the main session, which flags it to the developer.
+
 ## B-100 — General DAS matrix: pixel at axial coordinate −0 (observation, outside the classes)
 - Where: `compute_das_matrix_general` with a pixel at `x = -0.0` exactly above an element at `x_el = 0`, `y = y_el`.
 - Symptom: found by the randomised oracle test: MATLAB keeps that (pixel, element) entry, pyproteus drops it.
@@ -127,4 +142,5 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Where: `mesh-voxelisation/Mesh_voxelisation/VOXELISE.m` (`VOXELISEinternal`, `meshXminp`...`meshYmaxp = find(abs(gridCO - meshmin) == min(...))`), called by `define_medium.m` with `EmbedVessel`.
 - Symptom: a facet bound exactly half-way between two grid coordinates gives two indices, and the ray loop `for loopY = meshYminp:meshYmaxp` fails with "Colon operands must be real scalars". Found with a synthetic box STL in `tests/oracle/test_medium_define.py` (faces now 0.3 dx past a node).
 - Impact: real meshes rarely hit an exact tie; the M4 port should pick one index (first) and note the difference.
+- Resolved (2026-11-24, PR #19): `pyproteus.geometry.voxelise` does not use this nearest-grid-line range (it never excludes a ray a facet can cross), so ties raise no error; result equals MATLAB's once the tie is broken (`test_mesh_bound_halfway_between_grid_lines`). Divergence in PARITY.md (Geometry).
 
