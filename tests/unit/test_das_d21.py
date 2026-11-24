@@ -30,16 +30,20 @@ def linear(n, pitch=0.3e-3):
 # ------------------------------------------------------------------ P5 axes
 def test_pixel_axes_default_and_compat() -> None:
     dom = {"Xmin": 0.5e-3, "Xmax": 5e-3, "Ymin": -3.1e-3, "Ymax": 2.0e-3}
-    x, y = pixel_axes(dom, 0.2e-3, x_start_compat=0.0, proteus_compat=False)
-    assert x[0] == 0.5e-3 and y[0] == -3.1e-3 and y[-1] <= 2.0e-3
-    xc, yc = pixel_axes(dom, 0.2e-3, x_start_compat=0.0, proteus_compat=True)
+    x, y = pixel_axes(dom, 0.2e-3, reference=True, proteus_compat=False)
+    assert x[0] == 0.5e-3 and y[0] == -3.1e-3 and y[-1] <= 2.0e-3  # Xmin > 0 honoured
+    xc, yc = pixel_axes(dom, 0.2e-3, reference=True, proteus_compat=True)
     assert xc[0] == 0.0 and yc[0] == -2.55e-3
-    # Symmetric domain, Xmin = 0: identical.
-    dom = {"Xmin": 0.0, "Xmax": 5e-3, "Ymin": -2.4e-3, "Ymax": 2.4e-3}
-    a = pixel_axes(dom, 0.123e-3, x_start_compat=0.0, proteus_compat=False)
-    b = pixel_axes(dom, 0.123e-3, x_start_compat=0.0, proteus_compat=True)
-    for u, v in zip(a, b, strict=True):
-        np.testing.assert_array_equal(u, v)
+    # Real PROTEUS settings: Xmin = -2 lambda < 0, symmetric. Reference: from 0,
+    # identical to PROTEUS; general: from Xmin, also identical.
+    dom = {"Xmin": -1.232e-3, "Xmax": 5e-3, "Ymin": -2.4e-3, "Ymax": 2.4e-3}
+    for ref in (True, False):
+        a = pixel_axes(dom, 0.123e-3, reference=ref, proteus_compat=False)
+        b = pixel_axes(dom, 0.123e-3, reference=ref, proteus_compat=True)
+        for u, v in zip(a, b, strict=True):
+            np.testing.assert_array_equal(u, v)
+    assert pixel_axes(dom, 0.123e-3, reference=True, proteus_compat=False)[0][0] == 0.0
+    assert pixel_axes(dom, 0.123e-3, reference=False, proteus_compat=False)[0][0] == -1.232e-3
 
 
 # ------------------------------------------------------- P6 transmit weight
@@ -191,14 +195,14 @@ def test_transmit_weight_curved_plane_wave_uses_center() -> None:
         np.full(3, 10e-3), np.array([-12e-3, 0.0, 12e-3]), tr,
         {"focus": np.inf, "steer": 0.0, "apod": apod},
     )  # fmt: skip
-    np.testing.assert_array_equal(w, [1, 0, 2])
+    np.testing.assert_array_equal(w, [1, 0, 1])  # binary mask
 
 
 def test_transmit_weight_scalar_apod_and_focus_pixel() -> None:
     x_el, y_el = linear(8)
     tr = {"x_el": x_el, "y_el": y_el}
     w = transmit_apodization_weight(np.ones(3), np.zeros(3), tr, {"focus": 5e-3, "apod": 0.5})
-    np.testing.assert_array_equal(w, 0.5)
+    np.testing.assert_array_equal(w, 1.0)
     apod = (y_el > 0).astype(float)
     w = transmit_apodization_weight(
         np.array([5e-3]), np.array([0.0]), tr, {"focus": 5e-3, "steer": 0.0, "apod": apod}
@@ -225,3 +229,33 @@ def test_general_cache_key_covers_apod_and_domain(tmp_path, monkeypatch) -> None
     S.Geometry.Domain.Ymax = 2.0e-3
     das_reconstruction_general(data, S)
     assert len(calls) == 3
+
+
+def test_tapered_apod_gives_no_apod_squared_striping(tmp_path) -> None:
+    """A taper without zeros leaves the image as PROTEUS's (no apod**2 weighting);
+    a random positive apodization too (no stripes along the rays)."""
+    from tests.unit.test_reconstruction import general_settings
+
+    data, S = general_settings(tmp_path, config="Linear")
+    for apod in (0.2 + 0.8 * np.hanning(16), np.random.default_rng(4).uniform(0.1, 1, 16)):
+        S.Transmit.Apodization = apod.reshape(1, -1)
+        a = das_reconstruction_general(data, S)[0]
+        b = das_reconstruction_general(data, S, proteus_compat=True)[0]
+        np.testing.assert_array_equal(a, b)
+
+
+def test_reference_beamformer_xmin(tmp_path) -> None:
+    """Reference beamformer: Xmin < 0 (real settings) equals PROTEUS; Xmin > 0 is honoured."""
+    from pyproteus.config.readers import load_settings_mat
+    from tests.unit.test_reconstruction import write_case
+
+    data, path, _ = write_case(tmp_path)
+    S = load_settings_mat(path)
+    S.Geometry.Domain.Xmin = -1.232e-3
+    a, xa, _ = das_reconstruction(data, S)
+    b, xb, _ = das_reconstruction(data, S, proteus_compat=True)
+    np.testing.assert_array_equal(xa, xb)
+    np.testing.assert_array_equal(a, b)
+    S.Geometry.Domain.Xmin = 2e-3
+    _, xc, _ = das_reconstruction(data, S)
+    assert xc[0] == 2e-3 and xc.size < xb.size

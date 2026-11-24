@@ -152,22 +152,23 @@ def das_transmit_distance(X: ArrayLike, Y: ArrayLike, transducer: Any, transmit:
 def transmit_apodization_weight(
     X: ArrayLike, Y: ArrayLike, transducer: Any, transmit: Any
 ) -> np.ndarray | None:
-    """Transmit apodization seen by each pixel (D-21; PROTEUS ignores it, see PARITY).
+    """Transmit insonification mask of each pixel (D-21 (amended); PROTEUS ignores it).
 
-    Each pixel takes the apodization of the element its transmit ray comes
-    from: the element nearest to the pixel's position across the beam for a
-    plane wave (``-x sin(steer) + y cos(steer)``), or the element in the
-    pixel's direction seen from the virtual source / focus (for a focused
-    wave, beyond the focus the ray comes from the opposite side). Pixels
-    outside the aperture take the apodization of the edge element, so a
-    uniform apodization gives weight 1 everywhere (results unchanged), and
-    pixels insonified only by switched-off elements get 0. Ties (a pixel
-    exactly between two elements) go to the lower element index; a pixel at
-    the focus itself (all rays meet) gets ``max(apod)``. A scalar ``apod``
-    applies to every element, as in PROTEUS's source definition.
+    Each pixel looks up the element its transmit ray comes from: the element
+    nearest to the pixel's position across the beam for a plane wave
+    (``-x sin(steer) + y cos(steer)``), or the element in the pixel's
+    direction seen from the virtual source / focus (for a focused wave,
+    beyond the focus the ray comes from the opposite side); pixels outside
+    the aperture take the edge element. The result is 1 if that element
+    fires (``apod != 0``) and 0 otherwise: a binary mask, not an amplitude
+    weight, because the simulated RF already carries the transmit amplitude
+    (weighting again would give ``apod**2``). Any apodization without zeros
+    therefore leaves the image unchanged. Ties go to the lower element index;
+    a pixel at the focus itself (all rays meet) gets 1 if any element fires.
+    A scalar ``apod`` applies to every element.
 
-    Returns an array with the broadcast shape of ``X`` and ``Y``, or ``None``
-    when ``transmit`` has no ``apod``.
+    Returns an array of 0.0/1.0 with the broadcast shape of ``X`` and ``Y``,
+    or ``None`` when ``transmit`` has no ``apod``.
     """
     apod = _field(transmit, "apod")
     if apod is None:
@@ -179,6 +180,7 @@ def transmit_apodization_weight(
         apod = np.full(x_el.size, apod[0])
     if apod.size != x_el.size:
         raise ValueError(f"transmit apod has {apod.size} values for {x_el.size} elements")
+    fires = (apod != 0).astype(np.float64)
     center = float(_field(transducer, "center", -np.inf))
     F = float(_field(transmit, "focus", np.inf))
     steer = float(_field(transmit, "steer", 0.0))
@@ -194,15 +196,14 @@ def transmit_apodization_weight(
             beyond = ((Fy - Y) * np.sin(steer) + (Fx - X) * np.cos(steer)) < 0
             phi_px = phi_px + np.pi * beyond
         dist = np.abs(np.angle(np.exp(1j * (phi_px - phi_el))))
-        at_focus = np.hypot(X[..., 0] - Fx, Y[..., 0] - Fy) <= 1e-9 * abs(F)
-        if F > 0 and np.any(at_focus):
-            w = apod[np.argmin(dist, axis=-1)]
-            return np.where(at_focus, np.max(apod), w)
-    else:
-        u_el = -x_el * np.sin(steer) + y_el * np.cos(steer)
-        u_px = -X * np.sin(steer) + Y * np.cos(steer)
-        dist = np.abs(u_px - u_el)
-    return apod[np.argmin(dist, axis=-1)]
+        w = fires[np.argmin(dist, axis=-1)]
+        if F > 0:
+            at_focus = np.hypot(X[..., 0] - Fx, Y[..., 0] - Fy) <= 1e-9 * abs(F)
+            w = np.where(at_focus, fires.max(), w)
+        return w
+    u_el = -x_el * np.sin(steer) + y_el * np.cos(steer)
+    u_px = -X * np.sin(steer) + Y * np.cos(steer)
+    return fires[np.argmin(np.abs(u_px - u_el), axis=-1)]
 
 
 def _assemble(rows: list, cols: list, vals: list, shape: tuple[int, int]) -> sp.csr_array:
@@ -360,9 +361,10 @@ def compute_das_matrix_general(
     MATLAB field names. ``interpolation``: ``'nearest'`` (default, MATLAB) or
     ``'linear'`` (D-20), as in :func:`compute_das_matrix`.
 
-    The transmit apodization ``transmit.apod`` (if present) weights each pixel
-    (:func:`transmit_apodization_weight`, D-21). ``proteus_compat=True``
-    ignores it, as PROTEUS does (``docs/PARITY.md``, D-21).
+    The transmit apodization ``transmit.apod`` (if present) masks the pixels
+    insonified only by switched-off elements (:func:`transmit_apodization_weight`,
+    D-21 (amended)). ``proteus_compat=True``
+    ignores it, as PROTEUS does (``docs/PARITY.md``, D-21 (amended)).
     """
     x = _row(_field(recon, "x"))
     y = _row(_field(recon, "y"))

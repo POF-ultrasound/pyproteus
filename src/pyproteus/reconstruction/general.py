@@ -61,9 +61,9 @@ def initialize_das_parameters(
     RF data with ``Nelem`` elements and ``Nt`` samples per element:
 
     * ``Recon``: pixel axes ``x = Xmin:lambda/4:Xmax`` (axial) and
-      ``y = Ymin:lambda/4:Ymax`` (lateral; D-21), or PROTEUS's
+      ``y = Ymin:lambda/4:Ymax`` (lateral; D-21 (amended)), or PROTEUS's
       ``-width/2:lambda/4:width/2`` with ``proteus_compat=True`` (PARITY
-      D-21), ``c``, the corrected time axis (time to peak, lens, k-Wave
+      D-21 (amended)), ``c``, the corrected time axis (time to peak, lens, k-Wave
       grid; :func:`das_time_axis`), ``Fs``,
       ``alpha_th`` (``pi/6`` curved, ``pi/3`` linear), cosine apodization;
     * ``Trans``: element positions and normals (``get_element_geometry``),
@@ -82,7 +82,7 @@ def initialize_das_parameters(
     pixel_size = c / f0 / 4
 
     domain = _field(geometry, "Domain")
-    x, y = pixel_axes(domain, pixel_size, x_start_compat=None, proteus_compat=proteus_compat)
+    x, y = pixel_axes(domain, pixel_size, reference=False, proteus_compat=proteus_compat)
 
     configuration = _field(transducer, "Configuration")
     if configuration not in ("Linear", "Curved"):
@@ -146,9 +146,9 @@ def das_reconstruction_general(
     size ``lambda/4``, image from ``Geometry.Domain.Xmin``, cosine apodization.
     Returns ``IMG`` (``Nx``-by-``Ny``-by-``Nframes``, dB) and ``x``, ``y`` [m].
     ``interpolation``: ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20).
-    By default the axes span the domain and the transmit apodization weights
-    the pixels (D-21); ``proteus_compat=True`` restores PROTEUS's behaviour
-    (PARITY D-21). ``cache``: reuse the DAS matrix of an identical call.
+    By default the axes span the domain and the transmit apodization masks
+    the pixels (D-21 (amended)); ``proteus_compat=True`` restores PROTEUS's behaviour
+    (PARITY D-21 (amended)). ``cache``: reuse the DAS matrix of an identical call.
     """
     S = _settings(filename_parameters)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))

@@ -187,23 +187,26 @@ def beamform_frames(
 
 
 def pixel_axes(
-    domain: Any, pixel_size: float, *, x_start_compat: float | None, proteus_compat: bool
+    domain: Any, pixel_size: float, *, reference: bool, proteus_compat: bool
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Axial and lateral pixel axes over ``Geometry.Domain`` (D-21).
+    """Axial and lateral pixel axes over ``Geometry.Domain`` (D-21 (amended)).
 
-    Default: ``x = Xmin:d:Xmax``, ``y = Ymin:d:Ymax``. ``proteus_compat=True``
-    gives PROTEUS's axes (PARITY D-21): ``x`` from ``x_start_compat`` (0 for the
-    reference beamformer, ``None`` = ``Xmin``) and ``y`` centred on 0 over the
-    domain width, ``-width/2:d:width/2``. Identical for ``Xmin = 0`` (or the
-    general beamformer) and a symmetric domain ``Ymin = -Ymax``.
+    Default: lateral ``y = Ymin:d:Ymax``; axial ``x = Xmin:d:Xmax`` for the
+    general beamformer and ``x = max(Xmin, 0):d:Xmax`` for the reference one
+    (``reference=True``; PROTEUS settings have ``Xmin`` ≈ -2λ, above the array
+    face). ``proteus_compat=True`` gives PROTEUS's axes: ``y`` centred on 0
+    over the domain width, ``-width/2:d:width/2``, and ``x`` from 0
+    (reference) or ``Xmin`` (general). The defaults equal PROTEUS for a
+    symmetric domain whenever ``Xmin ≤ 0`` (reference) or always (general).
     """
     xmin, xmax = float(_field(domain, "Xmin")), float(_field(domain, "Xmax"))
     ymin, ymax = float(_field(domain, "Ymin")), float(_field(domain, "Ymax"))
     if proteus_compat:
         width = ymax - ymin
-        x0 = xmin if x_start_compat is None else x_start_compat
+        x0 = 0.0 if reference else xmin
         return colon(x0, pixel_size, xmax), colon(-width / 2, pixel_size, width / 2)
-    return colon(xmin, pixel_size, xmax), colon(ymin, pixel_size, ymax)
+    x0 = max(xmin, 0.0) if reference else xmin
+    return colon(x0, pixel_size, xmax), colon(ymin, pixel_size, ymax)
 
 
 #: DAS matrices cached by their inputs (D-15, P8): the matrix depends only on
@@ -290,9 +293,9 @@ def das_reconstruction(
 
     Returns the log-compressed image ``IMG`` (``Nx``-by-``Ny``-by-``Nframes``,
     dB, axial-by-lateral) and the axial ``x`` and lateral ``y`` pixel
-    coordinates [m]. Pixel size ``lambda/5``; axes ``Xmin:d:Xmax`` and
-    ``Ymin:d:Ymax`` (D-21), or with ``proteus_compat=True`` PROTEUS's
-    ``0:d:Xmax`` and ``-width/2:d:width/2`` (PARITY D-21). ``interpolation``:
+    coordinates [m]. Pixel size ``lambda/5``; axes ``max(Xmin, 0):d:Xmax`` and
+    ``Ymin:d:Ymax`` (D-21 (amended)), or with ``proteus_compat=True`` PROTEUS's
+    ``0:d:Xmax`` and ``-width/2:d:width/2`` (PARITY D-21 (amended)). ``interpolation``:
     ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20). ``cache``: reuse
     the DAS matrix of an identical previous call (no result change).
     """
@@ -311,9 +314,7 @@ def das_reconstruction(
     focus = float(S.Transmit.LateralFocus)
 
     pixel_size = c / f0 / 5
-    x, y = pixel_axes(
-        S.Geometry.Domain, pixel_size, x_start_compat=0.0, proteus_compat=proteus_compat
-    )
+    x, y = pixel_axes(S.Geometry.Domain, pixel_size, reference=True, proteus_compat=proteus_compat)
 
     t = das_time_axis(Nt, S.SimulationParameters, S.Transducer, S.Transmit, c)
     tgc = time_gain_compensation(t, S.Medium, f0, c)

@@ -465,7 +465,7 @@ tir = (0:round(1e-6*{fs_tr})-1)/{fs_tr};
 Transducer.ReceiveImpulseResponse = exp(-(tir - 0.4e-6).^2/(0.2e-6)^2);
 Transducer.ElementHeight = 5e-3;
 Transducer.ElevationFocus = {efocus};
-Geometry.Domain.Xmin = 0; Geometry.Domain.Xmax = 8e-3;
+Geometry.Domain.Xmin = {xmin_ref}; Geometry.Domain.Xmax = 8e-3;
 Geometry.Domain.Ymin = {ymin_ref}; Geometry.Domain.Ymax = {ymax_ref};
 Medium.SpeedOfSound = 1540; Medium.AttenuationA = 0.5; Medium.AttenuationB = 1.1;
 save('{path}', 'Acquisition', 'SimulationParameters', 'Transmit', 'Transducer', ...
@@ -482,12 +482,20 @@ def settings_script(
     ymax: str = "2.9e-3",
     ymin_ref: str = "-2.4e-3",
     ymax_ref: str = "2.4e-3",
+    xmin_ref: str = "0",
     **kw,
 ) -> str:
     """Fill a settings script; sampling rates of Transmit and Transducer default to 40 MHz
     (the simulation runs at 40 MHz in every case)."""
     return template.format(
-        fs_tx=fs_tx, fs_tr=fs_tr, ymin=ymin, ymax=ymax, ymin_ref=ymin_ref, ymax_ref=ymax_ref, **kw
+        fs_tx=fs_tx,
+        fs_tr=fs_tr,
+        ymin=ymin,
+        ymax=ymax,
+        ymin_ref=ymin_ref,
+        ymax_ref=ymax_ref,
+        xmin_ref=xmin_ref,
+        **kw,
     )
 
 
@@ -923,3 +931,28 @@ def test_das_reconstruction_asymmetric_domain(matlab_engine, tmp_path) -> None:
     assert y_d[0] == -2.9e-3 and y_d[-1] <= 1.7e-3 < y_d[-1] + (y_d[1] - y_d[0])
     iy = np.unravel_index(np.argmax(IMG_d[:, :, 0]), IMG_d.shape[:2])[1]
     assert abs(y_d[iy] - (-1.5e-3)) < 2 * (y_d[1] - y_d[0])
+
+
+def test_das_reconstruction_real_settings_xmin(matlab_engine, tmp_path) -> None:
+    """Reference beamformer with PROTEUS's usual Xmin = -2 lambda: the default
+    (axis from max(Xmin, 0), D-21 (amended)) equals MATLAB."""
+    eng = matlab_engine
+    data = tmp_path / "rf"
+    data.mkdir()
+    settings = tmp_path / "settings.mat"
+    eng.eval(
+        settings_script(
+            SETTINGS_M, scheme="Standard", hybrid="true", focus="Inf", efocus="20e-3",
+            path=settings, xmin_ref="-1.232e-3",
+        ),
+        nargout=0,
+    )  # fmt: skip
+    rf = scatterer_rf(16, 520, [(4e-3, 0.5e-3)], np.random.default_rng(10))
+    write_frames(eng, data, {"Frame_1.mat": [rf]}, "v7")
+    eng.eval(f"[pyp_I__, pyp_x__] = DAS_reconstruction('{data}', '{settings}');", nargout=0)
+    IMG_m = from_matlab(eng.workspace["pyp_I__"])[:, :, None]
+    x_m = vec(eng.workspace["pyp_x__"])
+    eng.eval("clear pyp_I__ pyp_x__", nargout=0)
+    IMG, x, _ = das_reconstruction(data, settings)
+    assert_float(x, x_m, atol=1e-15)
+    np.testing.assert_allclose(10 ** (IMG / 20), 10 ** (IMG_m / 20), rtol=FLOAT_REL, atol=1e-12)
