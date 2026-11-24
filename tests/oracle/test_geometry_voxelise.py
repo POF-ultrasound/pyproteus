@@ -28,7 +28,13 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
-from pyproteus.geometry import place_vessel_mesh, read_stl, vessel_mask, voxelise
+from pyproteus.geometry import (
+    EmptyVesselWarning,
+    place_vessel_mesh,
+    read_stl,
+    vessel_mask,
+    voxelise,
+)
 from tests.oracle.helpers import from_matlab, put, row, to_matlab
 
 SAMPLE_STL = Path("mesh-voxelisation/Mesh_voxelisation/sample.stl")
@@ -424,7 +430,11 @@ def test_shipped_geometry_default_grid(eng: Any, geometries_path: Path, folder: 
     gx, gy, gz = G["grid"]
     eng.eval(_PLACE_IN_MATLAB, nargout=0)
     expected = matlab_voxelise(eng, gx, gy, gz, "pyp_V")
-    actual = vessel_mask(gx, gy, gz, G, geometries_path)
+    if expected.any():
+        actual = vessel_mask(gx, gy, gz, G, geometries_path)
+    else:  # mouse brain: vessel thinner than dx (B-112) -> warning (D-15)
+        with pytest.warns(EmptyVesselWarning, match="thinner than the grid spacing"):
+            actual = vessel_mask(gx, gy, gz, G, geometries_path)
     compare_masks(actual, expected, f"{folder} default grid {actual.shape}")
 
 
@@ -486,3 +496,58 @@ def test_define_medium_downstream(eng: Any, geometries_path: Path) -> None:
     assert nv > 1000 and mask.sum() > 1000
     assert vdiff <= (1 - MIN_EQUAL) * nv
     assert np.all(err <= 1e-9), err
+
+
+def python_default_pipeline(folder: str, geometries_path: Path, rng_seed: int = 1):
+    """Default settings to medium in Python only, as MainGUI + write_to_file + define_grid +
+    define_medium (``update_derived_settings``: Margin, compute_simulation_domain)."""
+    from pyproteus import acoustic, medium
+    from pyproteus import numerics as nm
+    from pyproteus.config.defaults import default_settings
+    from pyproteus.transducer.domain import compute_simulation_domain
+
+    S = default_settings(folder)
+    c, f0 = float(S.Medium.SpeedOfSound), float(S.Transmit.CenterFrequency)
+    S.Geometry.Domain.Margin = 2 * c / f0
+    S.Geometry = compute_simulation_domain(S.Geometry, S.Transducer, S.Transmit)
+    sp = S.SimulationParameters
+    sp.GridSize = c / (f0 * float(sp.PointsPerWavelength))
+    grid = acoustic.define_grid(sp, S.Geometry)
+    kw, vessel = medium.define_medium(
+        grid,
+        S.Medium,
+        S.Geometry,
+        S.Transducer,
+        rng=nm.rng(rng_seed),
+        geometries_path=geometries_path,
+    )
+    return S, grid, kw, vessel
+
+
+def test_default_pipeline_end_to_end_renal_tree(eng: Any, geometries_path: Path) -> None:
+    """Default settings run end to end in Python (settings, domain, grid, define_medium
+    reading and voxelising the STL); the vessel equals MATLAB's define_medium output.
+
+    Python's grid keeps the last domain point MATLAB's odd PML padding drops (D-19), so
+    MATLAB's grid is Python's without its last index per axis; the vessel is far from it.
+    """
+    S, grid, kw, vessel = python_default_pipeline("renal_tree", geometries_path)
+    _matlab_geometry(eng, "renal_tree", geometries_path)
+    eng.eval(
+        "rng(1,'twister'); [~, pyp_v] = define_medium(pyp_Grid, pyp_S.Medium, pyp_G);"
+        "pyp_idx = uint32(find(pyp_v)); pyp_sz = size(pyp_v); clear pyp_v;",
+        nargout=0,
+    )
+    shape = tuple(from_matlab(eng.workspace["pyp_sz"]).astype(int).ravel())
+    expected = _from_indices(eng, shape)
+    gm = [from_matlab(eng.eval(f"pyp_Grid.{a}", nargout=1)).reshape(-1) for a in "xyz"]
+    common = tuple(slice(0, n) for n in shape)
+    for a, m in zip((grid.x, grid.y, grid.z), gm, strict=True):
+        np.testing.assert_allclose(np.asarray(a).reshape(-1)[: m.size], m, rtol=0, atol=1e-15)
+    outside = vessel.copy()
+    outside[common] = False
+    assert not outside.any()
+    compare_masks(vessel[common], expected, "default pipeline renal_tree (Python vs MATLAB)")
+    assert expected.sum() > 1000
+    vc = float(S.Medium.Vessel.SpeedOfSound)
+    np.testing.assert_array_equal(kw["sound_speed"][vessel], vc)

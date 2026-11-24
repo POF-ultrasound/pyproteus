@@ -10,6 +10,7 @@ move to ``Geometry.Center`` and voxelise on the simulation grid.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
 from os import PathLike
 from pathlib import Path
@@ -22,6 +23,7 @@ from pyproteus.geometry.stl import identify_stl_format, read_stl
 from pyproteus.geometry.voxelisation import voxelise
 
 __all__ = [
+    "EmptyVesselWarning",
     "identify_stl_format",
     "place_vessel_mesh",
     "read_stl",
@@ -29,6 +31,10 @@ __all__ = [
     "vessel_mask",
     "voxelise",
 ]
+
+
+class EmptyVesselWarning(UserWarning):
+    """An embedded vessel covers no grid point (vessel thinner than the grid spacing)."""
 
 
 def _get(obj: Any, name: str) -> Any:
@@ -70,9 +76,24 @@ def vessel_mask(
     Returns a boolean ``(Nx, Ny, Nz)`` array, ``mask[i, j, k]`` for grid point
     ``(x[i], y[j], z[k])`` (MATLAB ``vessel(i+1, j+1, k+1)``). With
     ``Geometry.EmbedVessel`` false the mask is all false and no file is read.
+
+    Warns (:class:`EmptyVesselWarning`) when the embedded vessel covers no grid
+    point, e.g. the mouse brain arteriole on PROTEUS's default grid (B-112);
+    MATLAB silently simulates without a vessel.
     """
     shape = tuple(np.asarray(g).size for g in (grid_x, grid_y, grid_z))
-    if not bool(_get(geometry, "EmbedVessel")):
+    if not bool(np.asarray(_get(geometry, "EmbedVessel")).reshape(-1)[0]):
         return np.zeros(shape, dtype=bool)
     mesh = place_vessel_mesh(read_stl(stl_path(geometry, geometries_path)), geometry)
-    return voxelise(grid_x, grid_y, grid_z, mesh)
+    mask = voxelise(grid_x, grid_y, grid_z, mesh)
+    if not mask.any():
+        steps = [np.diff(np.asarray(g, dtype=float).reshape(-1)) for g in (grid_x, grid_y, grid_z)]
+        dx = max((float(d.max()) for d in steps if d.size), default=float("nan"))
+        warnings.warn(
+            f"The vessel ({_get(geometry, 'Folder')}/{_get(geometry, 'STLfile')}) covers no grid "
+            f"point: it is thinner than the grid spacing (dx = {dx * 1e6:.1f} µm). The medium "
+            "has no vessel; refine the grid (PointsPerWavelength) to resolve it.",
+            EmptyVesselWarning,
+            stacklevel=2,
+        )
+    return mask

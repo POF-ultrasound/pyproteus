@@ -130,7 +130,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 ## B-112 — default settings voxelise the mouse brain arteriole to an empty mask (observation)
 - Where: `define_medium` with `make_default_settings(PATHS, 'mouse_brain')`: grid spacing c/(f0·6) ≈ 103 µm; the arteriole's bounding box is 0.3 × 0.3 × 1.2 mm with vessels thinner than a voxel.
 - Behaviour: MATLAB and pyproteus both give 0 vessel voxels (the renal tree gives 4710 of 23.7 M). The default mouse-brain simulation has no vessel in the medium.
-- Impact: PROTEUS behaviour, reproduced. Worth telling users (finer `PointsPerWavelength` or a dedicated grid); reported to the main session.
+- Impact: PROTEUS behaviour, reproduced. `vessel_mask`/`define_medium` now warn (`EmptyVesselWarning`, naming dx; D-15). Reported to the main session, which flags it to the developer.
 
 ## B-90 — MATLAB `VOXELISE` errors when a mesh bound is equidistant from two grid lines (observation, for M4)
 - Where: `mesh-voxelisation/Mesh_voxelisation/VOXELISE.m` (`VOXELISEinternal`, `meshXminp`...`meshYmaxp = find(abs(gridCO - meshmin) == min(...))`), called by `define_medium.m` with `EmbedVessel`.

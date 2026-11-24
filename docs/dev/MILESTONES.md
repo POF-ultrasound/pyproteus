@@ -68,7 +68,7 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 ### Grid, medium, transducer
 - [x] `define_grid`, `optimize_grid_size` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 - [x] `random_truncated_normal` (float class ≤ 1e-9, `erfcinv` via SciPy) (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
-- [x] `define_medium`, `voxelize_media_points` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation in M4)
+- [x] `define_medium`, `voxelize_media_points` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation via `pyproteus.geometry` since 2026-11-24, PR #19)
 - [x] `get_transducer_integration_points`, `get_transducer_integration_delays` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation in M4)
 - [x] `compute_travel_times`, `evaluate_delta_function` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 - [x] `sinc_interpolation`, `resample_signal` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
