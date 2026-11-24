@@ -209,3 +209,13 @@ def test_linear_matches_its_definition() -> None:
     expected[ok] = rf[i0] * (1 - w) + rf[np.minimum(i0 + 1, Nt - 1)] * w
     np.testing.assert_allclose(M @ rf, expected, rtol=1e-13, atol=1e-13)
     assert ok.sum() > 200 and (~ok).sum() > 0
+
+
+@pytest.fixture(autouse=True)
+def _fresh_das_cache():
+    """Tests must not depend on DAS matrices cached by other tests."""
+    from pyproteus.reconstruction import clear_das_matrix_cache
+
+    clear_das_matrix_cache()
+    yield
+    clear_das_matrix_cache()

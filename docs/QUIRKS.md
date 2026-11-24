@@ -57,6 +57,7 @@ Format:
 - The k-Wave correction (`+dx/(2c) + dt` hybrid, `+dx/(2c) + 3/2·dt` full, with `dt` the simulation step) is undocumented. Only if all three rates are equal could its `+dt` absorb the extra index; with the default rates the two terms differ (4 ns vs ≈ 20 ns), so a compensation is unlikely and a plain off-by-one is the most probable reading.
 - Ported in: `pyproteus.reconstruction.time_to_peak` (reproduced, with both rates as in MATLAB).
 - Test: `tests/oracle/test_das.py::test_das_reconstruction`, `test_initialize_das_parameters` (time axis at the float class; cases with 250/250/40 MHz and 250/100/40 MHz rates).
+- Point-scatterer run of MATLAB PROTEUS (2026-11-24, `tools/investigations/`, B-101): the end-to-end DAS timing error is depth dependent (≈ −26 ns at 5 mm, ≈ +8 ns at 7 mm, hybrid and full alike; stable within ±3 ns across a grid cell), larger than the 4 ns at stake. Inconclusive for this term.
 - Planned fix: decided after the M3 point-scatterer depth check (milestone added by the main session): a point scatterer at a known depth imaged through the simulator, with a linear scatterer (a small density or sound-speed contrast) so a bubble's resonance phase is not mistaken for a timing offset. If it is an off-by-one, use `(I-1)/Fs` and resample the `V_ref` components to a common rate; the k-Wave terms get their own documented derivation.
 
 ## Q-102 — Reference DAS apodization keeps pixels at or above the array surface
@@ -65,20 +66,6 @@ Format:
 - Ported in: `pyproteus.reconstruction.compute_das_matrix`.
 - Test: `tests/oracle/test_das.py::test_compute_das_matrix_realistic` (axial grid with `X < 0` and `X = 0`), `tests/unit/test_reconstruction.py::test_compute_das_matrix_matches_brute_force`.
 - Planned fix (1.x, developer D-18: keep in 1.0): use `abs(X)` or drop pixels with `X ≤ 0` (the general beamformer uses `atan2` with a threshold on `|alpha|`).
-
-## Q-103 — DAS lateral axis is centred on 0, whatever the domain's lateral bounds
-- MATLAB: `delay-and-sum/DAS_reconstruction.m:37-41` (`y = -width/2:pixelSize:width/2`), `initialize_das_parameters.m:31-35`.
-- Behaviour: only the domain width `Ymax - Ymin` is used; an asymmetric domain (e.g. `Ymin = -3.1 mm`, `Ymax = 2.9 mm`) is imaged over `[-3.0, 3.0] mm`. The reference beamformer also starts the axial axis at 0 instead of `Xmin`.
-- Ported in: `pyproteus.reconstruction.das_reconstruction`, `initialize_das_parameters`.
-- Test: `tests/oracle/test_das.py::test_initialize_das_parameters`, `test_das_reconstruction_general` (asymmetric domain).
-- Planned fix: span `[Ymin, Ymax]` (and start at `Xmin` in the reference beamformer).
-
-## Q-104 — transmit apodization never reaches the general beamformer
-- MATLAB: `delay-and-sum/initialize_das_parameters.m:110-121` builds `Tx.apod`; `compute_das_matrix_general.m` never reads it.
-- Behaviour: elements switched off in transmit still define the transmit model (as documented, `t = 0` is the first element over all elements) and no apodization weighting is applied to the image.
-- Ported in: `DasTransmit.apod` is filled and ignored, as in MATLAB.
-- Test: `tests/oracle/test_das.py::test_initialize_das_parameters` (`Transmit.Apodization` case).
-- Planned fix: use `Tx.apod` (e.g. drop pixels outside the insonified region) or remove the field.
 
 ## Q-80 — any `Configuration` other than exactly `'Curved'` gives a linear array
 - MATLAB: `GUIfunctions/get_element_geometry.m` (`is_curved`: `strcmp(Transducer.Configuration,'Curved')`).

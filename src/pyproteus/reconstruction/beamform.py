@@ -19,7 +19,11 @@ Design (D-15, ``docs/PARITY.md``):
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import hashlib
+import threading
+import warnings
+from collections import OrderedDict
+from collections.abc import Callable, Iterable
 from os import PathLike
 from typing import Any
 
@@ -114,12 +118,28 @@ def time_gain_compensation(t: np.ndarray, medium: Any, f0: float, c: float) -> n
     return tgc
 
 
+class DasEmptyFrameWarning(UserWarning):
+    """A frame has no signal (peak magnitude 0): its log-compressed image is all NaN."""
+
+
 def log_compress(img: np.ndarray) -> np.ndarray:
-    """``20*log10(|IMG| ./ max(|IMG|,[],[1 2]))`` per frame (last axis)."""
+    """``20*log10(|IMG| ./ max(|IMG|,[],[1 2]))`` per frame (last axis).
+
+    A frame whose peak is 0 gives NaN everywhere, as in MATLAB (0/0), and a
+    :class:`DasEmptyFrameWarning` (D-15; MATLAB is silent).
+    """
     env = np.abs(img)
     with np.errstate(divide="ignore", invalid="ignore"):
         peak = np.max(env, axis=(0, 1), keepdims=True)
-        return 20 * np.log10(env / peak)
+        out = 20 * np.log10(env / peak)
+    empty = np.flatnonzero(peak.reshape(-1) == 0)
+    if empty.size:
+        warnings.warn(
+            f"frame(s) {empty.tolist()} have no signal (peak 0): image all NaN",
+            DasEmptyFrameWarning,
+            stacklevel=2,
+        )
+    return out
 
 
 def beamform_frames(
@@ -166,6 +186,76 @@ def beamform_frames(
     return np.concatenate(out, axis=1)
 
 
+def pixel_axes(
+    domain: Any, pixel_size: float, *, reference: bool, proteus_compat: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """Axial and lateral pixel axes over ``Geometry.Domain`` (D-21 (amended)).
+
+    Default: lateral ``y = Ymin:d:Ymax``; axial ``x = Xmin:d:Xmax`` for the
+    general beamformer and ``x = max(Xmin, 0):d:Xmax`` for the reference one
+    (``reference=True``; PROTEUS settings have ``Xmin`` ≈ -2λ, above the array
+    face). ``proteus_compat=True`` gives PROTEUS's axes: ``y`` centred on 0
+    over the domain width, ``-width/2:d:width/2``, and ``x`` from 0
+    (reference) or ``Xmin`` (general). The defaults equal PROTEUS for a
+    symmetric domain whenever ``Xmin ≤ 0`` (reference) or always (general).
+    """
+    xmin, xmax = float(_field(domain, "Xmin")), float(_field(domain, "Xmax"))
+    ymin, ymax = float(_field(domain, "Ymin")), float(_field(domain, "Ymax"))
+    if proteus_compat:
+        width = ymax - ymin
+        x0 = 0.0 if reference else xmin
+        return colon(x0, pixel_size, xmax), colon(-width / 2, pixel_size, width / 2)
+    x0 = max(xmin, 0.0) if reference else xmin
+    return colon(x0, pixel_size, xmax), colon(ymin, pixel_size, ymax)
+
+
+#: DAS matrices cached by their inputs (D-15, P8): the matrix depends only on
+#: the settings and the RF size, so repeated reconstructions reuse it.
+#: The cached matrices stay in memory after the call (up to DAS_CACHE_SIZE of
+#: them; a large image can take hundreds of MB): pass ``cache=False`` or call
+#: :func:`clear_das_matrix_cache` to release them. Thread-safe.
+_DAS_CACHE: OrderedDict[str, Any] = OrderedDict()
+_DAS_CACHE_LOCK = threading.Lock()
+DAS_CACHE_SIZE = 2
+
+
+def _cache_key(*parts: Any) -> str:
+    h = hashlib.sha256()
+    for part in parts:
+        if isinstance(part, np.ndarray) or (isinstance(part, list | tuple) and part):
+            a = np.ascontiguousarray(np.asarray(part, dtype=np.float64))
+            h.update(repr(a.shape).encode())
+            h.update(a.tobytes())
+        else:
+            h.update(repr(part).encode())
+        h.update(b"|")
+    return h.hexdigest()
+
+
+def cached_das_matrix(key: str, build: Callable[[], Any], cache: bool = True) -> Any:
+    """``build()`` memoised by ``key`` (at most :data:`DAS_CACHE_SIZE` matrices)."""
+    if not cache:
+        return build()
+    with _DAS_CACHE_LOCK:
+        M = _DAS_CACHE.get(key)
+        if M is not None:
+            _DAS_CACHE.move_to_end(key)
+            return M
+    M = build()  # outside the lock: concurrent misses may build twice
+    with _DAS_CACHE_LOCK:
+        _DAS_CACHE[key] = M
+        _DAS_CACHE.move_to_end(key)
+        while len(_DAS_CACHE) > DAS_CACHE_SIZE:
+            _DAS_CACHE.popitem(last=False)
+    return M
+
+
+def clear_das_matrix_cache() -> None:
+    """Drop the cached DAS matrices."""
+    with _DAS_CACHE_LOCK:
+        _DAS_CACHE.clear()
+
+
 def _settings(filename_parameters: str | PathLike[str] | Settings) -> Settings:
     if isinstance(filename_parameters, Settings):
         return filename_parameters
@@ -191,6 +281,8 @@ def das_reconstruction(
     filename_parameters: str | PathLike[str] | Settings,
     *,
     interpolation: str = "nearest",
+    proteus_compat: bool = False,
+    cache: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``[IMG, x, y] = DAS_reconstruction(folder, filename_parameters)``.
 
@@ -201,9 +293,11 @@ def das_reconstruction(
 
     Returns the log-compressed image ``IMG`` (``Nx``-by-``Ny``-by-``Nframes``,
     dB, axial-by-lateral) and the axial ``x`` and lateral ``y`` pixel
-    coordinates [m]. Pixel size ``lambda/5``, ``x = 0:pixelSize:Xmax``,
-    ``y = -width/2:pixelSize:width/2``. ``interpolation``: ``'nearest'``
-    (default, MATLAB) or ``'linear'`` sample interpolation (D-20).
+    coordinates [m]. Pixel size ``lambda/5``; axes ``max(Xmin, 0):d:Xmax`` and
+    ``Ymin:d:Ymax`` (D-21 (amended)), or with ``proteus_compat=True`` PROTEUS's
+    ``0:d:Xmax`` and ``-width/2:d:width/2`` (PARITY D-21 (amended)). ``interpolation``:
+    ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20). ``cache``: reuse
+    the DAS matrix of an identical previous call (no result change).
     """
     S = _settings(filename_parameters)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))
@@ -220,14 +314,16 @@ def das_reconstruction(
     focus = float(S.Transmit.LateralFocus)
 
     pixel_size = c / f0 / 5
-    domain = S.Geometry.Domain
-    width = float(domain.Ymax) - float(domain.Ymin)
-    x = colon(0.0, pixel_size, float(domain.Xmax))
-    y = colon(-width / 2, pixel_size, width / 2)
+    x, y = pixel_axes(S.Geometry.Domain, pixel_size, reference=True, proteus_compat=proteus_compat)
 
     t = das_time_axis(Nt, S.SimulationParameters, S.Transducer, S.Transmit, c)
     tgc = time_gain_compensation(t, S.Medium, f0, c)
-    M = compute_das_matrix(t, y, x, y_el, c, Fs, focus, interpolation=interpolation)
+    key = _cache_key("reference", t, y, x, y_el, c, Fs, focus, interpolation)
+    M = cached_das_matrix(
+        key,
+        lambda: compute_das_matrix(t, y, x, y_el, c, Fs, focus, interpolation=interpolation),
+        cache,
+    )
 
     img = beamform_frames(frames, tgc, M)  # (Ny*Nx) x Nframes, lateral first
     img = img.reshape(x.size, y.size, -1)  # C order: [ix, iy] <- iy + Ny*ix

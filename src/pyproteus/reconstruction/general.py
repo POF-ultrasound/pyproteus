@@ -14,15 +14,17 @@ from typing import Any
 import numpy as np
 
 from pyproteus.config.models import Settings
-from pyproteus.numerics import colon
 from pyproteus.transducer import get_element_geometry, is_curved
 
 from .beamform import (
+    _cache_key,
     _peek,
     _settings,
     beamform_frames,
+    cached_das_matrix,
     das_time_axis,
     log_compress,
+    pixel_axes,
     time_gain_compensation,
 )
 from .das import (
@@ -50,6 +52,8 @@ def initialize_das_parameters(
     geometry: Any,
     Nelem: int,
     Nt: int,
+    *,
+    proteus_compat: bool = False,
 ) -> tuple[DasRecon, DasTransducer, DasTransmit]:
     """``[Recon, Trans, Tx] = initialize_das_parameters(Medium, SimulationParameters, ...)``.
 
@@ -57,8 +61,10 @@ def initialize_das_parameters(
     RF data with ``Nelem`` elements and ``Nt`` samples per element:
 
     * ``Recon``: pixel axes ``x = Xmin:lambda/4:Xmax`` (axial) and
-      ``y = -width/2:lambda/4:width/2`` (lateral), ``c``, the corrected time
-      axis (time to peak, lens, k-Wave grid; :func:`das_time_axis`), ``Fs``,
+      ``y = Ymin:lambda/4:Ymax`` (lateral; D-21 (amended)), or PROTEUS's
+      ``-width/2:lambda/4:width/2`` with ``proteus_compat=True`` (PARITY
+      D-21 (amended)), ``c``, the corrected time axis (time to peak, lens, k-Wave
+      grid; :func:`das_time_axis`), ``Fs``,
       ``alpha_th`` (``pi/6`` curved, ``pi/3`` linear), cosine apodization;
     * ``Trans``: element positions and normals (``get_element_geometry``),
       centre and radius of curvature;
@@ -76,9 +82,7 @@ def initialize_das_parameters(
     pixel_size = c / f0 / 4
 
     domain = _field(geometry, "Domain")
-    width = float(_field(domain, "Ymax")) - float(_field(domain, "Ymin"))
-    x = colon(float(_field(domain, "Xmin")), pixel_size, float(_field(domain, "Xmax")))
-    y = colon(-width / 2, pixel_size, width / 2)
+    x, y = pixel_axes(domain, pixel_size, reference=False, proteus_compat=proteus_compat)
 
     configuration = _field(transducer, "Configuration")
     if configuration not in ("Linear", "Curved"):
@@ -131,6 +135,8 @@ def das_reconstruction_general(
     filename_parameters: str | PathLike[str] | Settings,
     *,
     interpolation: str = "nearest",
+    proteus_compat: bool = False,
+    cache: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``[IMG, x, y] = DAS_reconstruction_general(folder, filename_parameters)``.
 
@@ -140,6 +146,9 @@ def das_reconstruction_general(
     size ``lambda/4``, image from ``Geometry.Domain.Xmin``, cosine apodization.
     Returns ``IMG`` (``Nx``-by-``Ny``-by-``Nframes``, dB) and ``x``, ``y`` [m].
     ``interpolation``: ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20).
+    By default the axes span the domain and the transmit apodization masks
+    the pixels (D-21 (amended)); ``proteus_compat=True`` restores PROTEUS's behaviour
+    (PARITY D-21 (amended)). ``cache``: reuse the DAS matrix of an identical call.
     """
     S = _settings(filename_parameters)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))
@@ -149,10 +158,29 @@ def das_reconstruction_general(
     Nelem, Nt = first.shape
 
     recon, trans, tx = initialize_das_parameters(
-        S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, Nelem, Nt
+        S.Medium,
+        S.SimulationParameters,
+        S.Transducer,
+        S.Transmit,
+        S.Geometry,
+        Nelem,
+        Nt,
+        proteus_compat=proteus_compat,
     )
     tgc = time_gain_compensation(recon.t, S.Medium, float(S.Transmit.CenterFrequency), recon.c)
-    M = compute_das_matrix_general(recon, trans, tx, interpolation=interpolation)
+    key = _cache_key(
+        "general", recon.x, recon.y, recon.c, recon.t, recon.Fs, recon.alpha_th,
+        recon.apodization, trans.x_el, trans.y_el, trans.azimuth, trans.center,
+        trans.radius, tx.focus, tx.steer, tx.apod, tx.axis_delay, interpolation,
+        proteus_compat,
+    )  # fmt: skip
+    M = cached_das_matrix(
+        key,
+        lambda: compute_das_matrix_general(
+            recon, trans, tx, interpolation=interpolation, proteus_compat=proteus_compat
+        ),
+        cache,
+    )
 
     img = beamform_frames(frames, tgc, M)  # (Nx*Ny) x Nframes, axial first
     img = img.reshape(recon.y.size, recon.x.size, -1).transpose(1, 0, 2)

@@ -18,10 +18,13 @@ for the oracle status and the design differences with MATLAB (D-15).
 """
 
 from .beamform import (
+    DasEmptyFrameWarning,
     beamform_frames,
+    clear_das_matrix_cache,
     das_reconstruction,
     das_time_axis,
     log_compress,
+    pixel_axes,
     time_gain_compensation,
     time_to_peak,
 )
@@ -32,6 +35,7 @@ from .das import (
     compute_das_matrix,
     compute_das_matrix_general,
     das_transmit_distance,
+    transmit_apodization_weight,
 )
 from .general import (
     DasDelayMismatchWarning,
@@ -43,10 +47,12 @@ from .rf_data import PULSING_SCHEMES, frame_files, iter_rf_frames, load_rf_data
 __all__ = [
     "PULSING_SCHEMES",
     "DasDelayMismatchWarning",
+    "DasEmptyFrameWarning",
     "DasRecon",
     "DasTransducer",
     "DasTransmit",
     "beamform_frames",
+    "clear_das_matrix_cache",
     "compute_das_matrix",
     "compute_das_matrix_general",
     "das_reconstruction",
@@ -58,6 +64,8 @@ __all__ = [
     "iter_rf_frames",
     "load_rf_data",
     "log_compress",
+    "pixel_axes",
     "time_gain_compensation",
     "time_to_peak",
+    "transmit_apodization_weight",
 ]
