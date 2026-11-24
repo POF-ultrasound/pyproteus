@@ -50,3 +50,35 @@ Exact comparison stays where it falls out naturally (loaded data, integer settin
 
 ## D-14 — Replace code tuned by probing MATLAB (2026-11-22)
 Supersedes D-8. The pchip coefficient grouping chosen to match MATLAB bit for bit, and the interp1 rules for flat segments and Inf/NaN neighbours found by probing, are replaced by standard textbook or SciPy forms, keeping only documented MATLAB semantics (NaN outside the range, shape-preserving end slopes, ...). Those oracle tests move to the D-13 float class. ulp-level observations (B-31, B-32) stay as notes, with no code to replicate them. Who: developer.
+
+## D-15 — pyproteus is a better PROTEUS, not an exact copy (2026-11-23)
+Maximise behavioural similarity to MATLAB PROTEUS v1.1.0 (the only reference so far), within the D-13 tolerances, but do not idealize PROTEUS or copy its implementation where a different Python design is better. Sessions and reviewers should challenge PROTEUS choices — toolbox and package dependencies, workflow, data handling and file formats, memory use, performance, API and usability — and use the better design when results stay within tolerance. Record each such divergence in `docs/PARITY.md` (what differs, why, how parity is still checked). Changes that alter results (including quirk fixes) are proposed to the main session for a developer decision and otherwise land in 1.x. Who: developer.
+
+## D-16 — University cluster GPU (2026-11-23)
+Quadro RTX 6000 (compute capability 7.5, driver 620.70.06, 24 GB). Meets the k-Wave CUDA binary's CC ≥ 7.5 requirement, so the release GPU test uses the C++/CUDA binary; the CuPy fallback is not needed for this cluster. 24 GB bounds the medium case (`pyproteus estimate`, M5). Who: developer (measurement).
+
+## D-17 — Impulse response: accurate SOS instead of PROTEUS's (b,a) path (2026-11-23)
+PROTEUS's `estimate_impulse_response` (`butter(3,Wn,'bandpass')` in (b,a) form, then `impz`) is ill-conditioned for poles near z = 1. Against an exact zpk partial-fraction reference, MATLAB is off by about 1e-8 for the default P4-1 and by 1–2 % for narrow bands. pyproteus uses SciPy second-order sections (≤ 5e-14 from the reference). Tests: vs the reference at 1e-12; vs MATLAB at 1e-7 relative to max|IR| for catalogue-like bands. Narrow-band MATLAB errors are logged as a PROTEUS bug (B-80) and not reproduced (QUIRKS). `PressureSignal` and the IR/PressureSignal defaults inherit this class. Who: developer (first result-changing improvement under D-15).
+
+## D-18 — Delay-and-sum quirks (2026-11-23)
+- Q-101 (TGC divides by `max(sqrt(t))` over complex values, giving an all-NaN image when |t(1)| > t(end)): fixed now with the real/magnitude maximum; results unchanged wherever MATLAB's output is valid.
+- Q-102 (reference apodization keeps pixels at X ≤ 0): reproduced; fix in 1.x.
+- Q-100 (image one sample deep from the 1-based `I/Fs` time-to-peak): first check that it is a genuine off-by-one inside MATLAB PROTEUS and not an indexing artefact of the port; if genuine, reproduce and fix in 1.x.
+- Single-precision RF (PROTEUS default) images: compared at ≤ 1e-6 abs on the linear image, since single precision cannot meet 1e-9.
+Who: developer (Q-100..Q-102); main session (single-precision class).
+
+## D-19 — Grid PML split and shipped geometries (2026-11-23)
+- Q-90: `define_grid(..., pml_rounding="ceil"|"floor")`. PROTEUS's `ceil` drops the odd point from the core grid (and empties a one-point axis); `floor` keeps it. Revised 2026-11-24: both shipped geometries have odd padding on all three axes, so `floor` would change every default k-Wave grid (renal tree core 446×298×178 → 448×300×180). Default is therefore `"ceil"` (MATLAB-identical) until 1.0; `"floor"` is available now and becomes the default in 1.x.
+- The shipped STL geometries (Zenodo record 10573662) are downloaded into a gitignored folder and registered with pooch, so the default-geometry tests run.
+Who: developer.
+
+## D-20 — Optional linear interpolation in delay-and-sum (2026-11-24)
+Both beamformers get `interpolation="linear"` (between RF samples; removes the .5-tie sensitivity of nearest-sample lookup and improves the point-spread function, Perrot et al. 2021). Default stays `"nearest"` for parity; switch the default in 1.x. Linear mode is tested against analytical/high-resolution references, not MATLAB. Who: developer.
+
+## D-21 — Delay-and-sum improvements P5–P8 (2026-11-24)
+From the PR #17 review, done now:
+- P5: pixel axes span the domain (lateral `Ymin:…:Ymax`, reference beamformer starts at `Xmin`), fixing Q-103.
+- P6: `compute_das_matrix_general` applies `Tx.apod`, fixing Q-104.
+- P7: `log_compress` warns on all-zero frames instead of returning silent NaN.
+- P8: the DAS matrix is cached per settings and RF size.
+P5 and P6 are the default; a `proteus_compat=True` keyword restores PROTEUS behaviour for parity tests. Results are unchanged for symmetric domains and unapodized transmits. Who: developer (P5, P6); main session under D-15 (P7, P8, no result change).
