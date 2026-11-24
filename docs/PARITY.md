@@ -245,6 +245,11 @@ so `(t_del - t(1))*Fs` hits exact .5 values on both sides (half away from zero).
 | `DAS_reconstruction_general` (linear 16/15 elements, curved 17/16; plane, steered diverging, focused; v7/v7.3; single RF) | `das_reconstruction_general` | as `DAS_reconstruction` (measured ≤ 6.7e-16 double, 9.8e-8 single) | `test_das_reconstruction_general` | ✅ |
 | — (not in PROTEUS) | `interpolation="linear"` option of `compute_das_matrix`, `compute_das_matrix_general`, `das_reconstruction`, `das_reconstruction_general` (D-20; default `"nearest"` = MATLAB) | analytical, not MATLAB: one-element interpolation error ≤ `max|f''|·dt²/8` (measured 0.016 vs 0.14 for nearest on a 2.5 MHz pulse at 40 MHz); 32-element PSF within 2 % of DAS on the continuous RF and ≥ 4× closer than nearest; equal to nearest on on-sample delays | `tests/unit/test_das_linear.py` | ✅ |
 
+Result-changing defaults (developer decision D-21; `proteus_compat=True` restores PROTEUS):
+
+- **Pixel axes span the domain (was Q-103).** PROTEUS images `-width/2:d:width/2` laterally whatever `Ymin`/`Ymax` are, and the reference beamformer starts at `x = 0` instead of `Xmin`. pyproteus uses `Xmin:d:Xmax` and `Ymin:d:Ymax` (`pixel_axes`). Identical for a symmetric domain with `Xmin = 0` (reference) — checked against MATLAB with the default (`test_das_reconstruction_general_default_symmetric`, reference cases); asymmetric domains match MATLAB with `proteus_compat=True` (`test_das_reconstruction_asymmetric_domain`, `test_initialize_das_parameters`, `test_das_reconstruction_general`), and the default images the scatterer where it is (`tests/unit/test_das_d21.py`).
+- **Transmit apodization weights the pixels (was Q-104).** PROTEUS builds `Tx.apod` and never uses it. `compute_das_matrix_general` now multiplies each pixel's weights by the apodization of the element its transmit ray comes from (`transmit_apodization_weight`: across-beam position for a plane wave, direction from the virtual source / focus otherwise, edge element outside the aperture). A uniform apodization gives weight 1 everywhere, so unapodized transmits are unchanged (checked against MATLAB); pixels insonified only by switched-off elements get no contribution (unit tests).
+
 Option beyond MATLAB (developer decision D-20):
 
 - **Linear sample interpolation.** `interpolation="linear"` splits each (pixel, element) weight `v` between samples `floor(s)` and `floor(s)+1` (`v·(1-w)`, `v·w`, `s = (t_del - t(1))·Fs`), kept when `0 ≤ s ≤ Nt-1` (a slightly smaller range than nearest's `-0.5 ≤ s < Nt-0.5`). Removes the sensitivity of nearest-sample DAS to .5 ties and improves the point-spread function (Perrot et al. 2021); at most twice the non-zeros. Default stays `"nearest"` (MATLAB, oracle-tested) until 1.x, where it becomes `"linear"`.
@@ -262,6 +267,8 @@ Design differences with MATLAB (D-15; results within the classes above):
 - **Settings object accepted.** `das_reconstruction(folder, settings)` takes a settings `.mat` path (as MATLAB) or a `Settings` object.
 - **Frame axis always present.** With one frame, `load_rf_data`, `das_reconstruction` and `das_reconstruction_general` return `(..., 1)` arrays; MATLAB drops the trailing singleton.
 - **Missing fields raise.** `transducer.azimuth` (general matrix) and `SimulationParameters.HybridSimulation` are required (`ValueError`), as MATLAB errors on them; a silent default would give NaN weights or the wrong k-Wave correction.
+- **Empty frames warn.** `log_compress` gives MATLAB's all-NaN image for a frame with no signal and also emits `DasEmptyFrameWarning` (MATLAB is silent).
+- **DAS matrix cache.** `das_reconstruction` and `das_reconstruction_general` reuse the matrix of an identical previous call (key: hash of every input of the matrix; at most 2 kept; `cache=False`, `clear_das_matrix_cache()`). No result change.
 - **Frame file names are matched case-sensitively** (`Frame*.mat`); MATLAB `dir` on a case-insensitive file system (macOS, Windows) would also list `frame_1.MAT`.
 
 Notes:

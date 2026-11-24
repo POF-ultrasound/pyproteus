@@ -44,6 +44,7 @@ __all__ = [
     "compute_das_matrix",
     "compute_das_matrix_general",
     "das_transmit_distance",
+    "transmit_apodization_weight",
 ]
 
 #: Pixels per block when building a DAS matrix (bounds the dense intermediates
@@ -146,6 +147,53 @@ def das_transmit_distance(X: ArrayLike, Y: ArrayLike, transducer: Any, transmit:
     return (
         Y * np.sin(steer) + X * np.cos(steer) - np.min(y_el * np.sin(steer) + x_el * np.cos(steer))
     )
+
+
+def transmit_apodization_weight(
+    X: ArrayLike, Y: ArrayLike, transducer: Any, transmit: Any
+) -> np.ndarray | None:
+    """Transmit apodization seen by each pixel (D-21; PROTEUS ignores it, Q-104).
+
+    Each pixel takes the apodization of the element its transmit ray comes
+    from: the element nearest to the pixel's position across the beam for a
+    plane wave (``-x sin(steer) + y cos(steer)``), or the element in the
+    pixel's direction seen from the virtual source / focus (for a focused
+    wave, beyond the focus the ray comes from the opposite side). Pixels
+    outside the aperture take the apodization of the edge element, so a
+    uniform apodization gives weight 1 everywhere (results unchanged), and
+    pixels insonified only by switched-off elements get 0.
+
+    Returns an array with the broadcast shape of ``X`` and ``Y``, or ``None``
+    when ``transmit`` has no ``apod``.
+    """
+    apod = _field(transmit, "apod")
+    if apod is None:
+        return None
+    apod = _row(apod)
+    x_el = _row(_field(transducer, "x_el"))
+    y_el = _row(_field(transducer, "y_el"))
+    if apod.size != x_el.size:
+        raise ValueError(f"transmit apod has {apod.size} values for {x_el.size} elements")
+    center = float(_field(transducer, "center", -np.inf))
+    F = float(_field(transmit, "focus", np.inf))
+    steer = float(_field(transmit, "steer", 0.0))
+    X = np.asarray(X, dtype=np.float64)[..., None]
+    Y = np.asarray(Y, dtype=np.float64)[..., None]
+    if not np.isfinite(F) and np.isfinite(center):
+        F = center
+    if np.isfinite(F):
+        Fx, Fy = F * np.cos(steer), F * np.sin(steer)
+        phi_el = np.arctan2(y_el - Fy, x_el - Fx)
+        phi_px = np.arctan2(Y - Fy, X - Fx)
+        if F > 0:  # beyond the focus the ray comes from the opposite side
+            beyond = ((Fy - Y) * np.sin(steer) + (Fx - X) * np.cos(steer)) < 0
+            phi_px = phi_px + np.pi * beyond
+        dist = np.abs(np.angle(np.exp(1j * (phi_px - phi_el))))
+    else:
+        u_el = -x_el * np.sin(steer) + y_el * np.cos(steer)
+        u_px = -X * np.sin(steer) + Y * np.cos(steer)
+        dist = np.abs(u_px - u_el)
+    return apod[np.argmin(dist, axis=-1)]
 
 
 def _assemble(rows: list, cols: list, vals: list, shape: tuple[int, int]) -> sp.csr_array:
@@ -286,6 +334,7 @@ def compute_das_matrix_general(
     transmit: Any,
     *,
     interpolation: str = "nearest",
+    proteus_compat: bool = False,
     block_size: int = DEFAULT_BLOCK_SIZE,
 ) -> sp.csr_array:
     """General delay-and-sum matrix (``compute_das_matrix_general.m``).
@@ -301,6 +350,10 @@ def compute_das_matrix_general(
     ``axis_delay`` (default 0). Dataclasses from this module or mappings with
     MATLAB field names. ``interpolation``: ``'nearest'`` (default, MATLAB) or
     ``'linear'`` (D-20), as in :func:`compute_das_matrix`.
+
+    The transmit apodization ``transmit.apod`` (if present) weights each pixel
+    (:func:`transmit_apodization_weight`, D-21). ``proteus_compat=True``
+    ignores it, as PROTEUS does (Q-104).
     """
     x = _row(_field(recon, "x"))
     y = _row(_field(recon, "y"))
@@ -330,6 +383,8 @@ def compute_das_matrix_general(
         "steer": float(_field(transmit, "steer", 0.0)),
     }
     axis_delay = float(_field(transmit, "axis_delay", 0.0))
+    tx_apod = None if proteus_compat else _field(transmit, "apod")
+    tr_apod = dict(tr, x_el=x_el, y_el=y_el)
 
     Nx, Ny, Nt, Nelem = x.size, y.size, t.size, x_el.size
     Npixels = Nx * Ny
@@ -354,6 +409,9 @@ def compute_das_matrix_general(
         if np.isfinite(radius):
             inside = (Y**2 + (X - center) ** 2 < radius**2).reshape(-1)
             v[inside, :] = 0
+        if tx_apod is not None:
+            w_tx = transmit_apodization_weight(X[:, 0], Y[:, 0], tr_apod, {**tx, "apod": tx_apod})
+            v = v * w_tx[:, None]
 
         r, cidx, val = _block_entries(p, s, v, Nt, interpolation)
         rows.append(r)
