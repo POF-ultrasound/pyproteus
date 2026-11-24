@@ -20,7 +20,7 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 - [x] Asymmetric mask test: map source and sensor rows between Fortran (MATLAB) and C order (k-wave-python) (2026-11-20, `tools/tracer_bullet/adapter.py`, B-10)
 - [x] Compare sensor data (target ≤ 1e-5 rel); check additive pressure source scaling (2026-11-20: ≤ 7e-7; source inputs bit-identical)
 - [x] Velocity source (`ux`/`uy`, curved array) case (2026-11-20)
-- [ ] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older (open: needs cluster access, see findings note)
+- [x] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older (2026-11-23: Quadro RTX 6000, CC 7.5, 24 GB; D-16) (open: needs cluster access, see findings note)
 - [x] Note findings in PROTEUS-py Project §Notes (2026-11-20, shared note `tracer-bullet-findings.md`; mirror to Obsidian pending)
 
 ### Repo setup
@@ -68,16 +68,18 @@ Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: po
 ### Grid, medium, transducer
 - [x] `define_grid`, `optimize_grid_size` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 - [x] `random_truncated_normal` (float class ≤ 1e-9, `erfcinv` via SciPy) (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
-- [x] `define_medium`, `voxelize_media_points` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation in M4)
-- [x] `get_transducer_integration_points`, `get_transducer_integration_delays` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation in M4)
+- [x] `define_medium`, `voxelize_media_points` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation via `pyproteus.geometry` since 2026-11-24, PR #19)
+- [x] `get_transducer_integration_points`, `get_transducer_integration_delays` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 - [x] `compute_travel_times`, `evaluate_delta_function` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 - [x] `sinc_interpolation`, `resample_signal` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 
 ### Delay-and-sum
-- [ ] `das_transmit_distance`, `initialize_das_parameters`
-- [ ] `compute_das_matrix`, `compute_das_matrix_general` (sample indices: exact)
-- [ ] `DAS_reconstruction`, `DAS_reconstruction_general`
-- [ ] `load_RF_data`
+- [x] `das_transmit_distance`
+- [x] `initialize_das_parameters`
+- [x] `compute_das_matrix`, `compute_das_matrix_general` (sample indices: statistical, D-13; measured 100 %)
+- [x] `DAS_reconstruction`
+- [x] `DAS_reconstruction_general`
+- [x] `load_RF_data`
 
 ### Done when
 - [ ] All of the above within their comparison class on reference settings and tie cases
@@ -131,6 +133,7 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [ ] `main_pressure_field`
 
 ### Done when
+- [ ] Point scatterer at a known depth, imaged through the hybrid and full paths: settles DAS quirk Q-100 (one-sample depth offset vs the k-Wave staggered-grid correction; D-18)
 - [ ] Hybrid and full paths match MATLAB on tiny and small cases (CPU)
 - [ ] Medium case on GPU
 
@@ -151,8 +154,8 @@ Plan: port order steps 10-11. Streamlines use nearest-voxel velocity: compare st
 - [ ] Ground-truth frame output; reading MATLAB ground-truth frames
 
 ### Geometry
-- [ ] Reference geometries (renal tree, mouse brain) from Zenodo via pooch
-- [ ] Port `VOXELISE` (keep BSD-2 notice)
+- [ ] Reference geometries (renal tree, mouse brain) from Zenodo via pooch (m1-grid-medium, PR #18)
+- [x] Port `VOXELISE` (keep the notice; the licence is BSD-3-Clause) (2026-11-23, moved into M1: `pyproteus.geometry`, also `READ_stl` and the `define_medium` vessel block; 100 % voxel parity)
 
 ### Done when
 - [ ] Streamlines: paths agree until the first voxel flip, and the distributions match (D-13)
@@ -194,6 +197,13 @@ Cluster tooling (Slurm templates, containers) and `pyproteus sweep` moved out of
 - [ ] Trusted publishing to PyPI; tag `v1.0.0`
 - [ ] Announce (IUS, k-Wave forum, mailing lists); label good first issues
 - [ ] MATLAB PROTEUS README points to pyproteus; archive mode announced
+
+## Post-parity improvements (1.x backlog)
+
+- [ ] `define_grid` default `pml_rounding="floor"` (D-19)
+- [ ] DAS default `interpolation="linear"` (D-20); fix Q-102 (Q-103, Q-104 done now, D-21)
+- [ ] Estimated impulse response: replace the hard cut at round(5·Fs/df) samples (still 0.3–1.3 % of peak) with a taper or decay-based length
+- [ ] Fix ported quirks listed in `docs/QUIRKS.md` (timer, batch-dependent ODEs, parallel randomness, `alpha_mode` Q-1, ...)
 
 ## 1.1: GUI
 

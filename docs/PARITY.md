@@ -10,7 +10,6 @@ Classes are D-13 (medium tolerance; parity is behaviour and results, not MATLAB'
 - **exact**: only where it falls out naturally (data read from files, documented integer semantics on exact inputs, storage round trips)
 - **ODE**: ≈ 10·RelTol rel + AbsTol abs; **k-Wave** ≤ 1e-5; **end-to-end RF** ≤ 1e-4 (ROADMAP §4)
 
-Rows still marked "bit-identical" predate D-12 and are being moved to these classes.
 
 Status: ✅ oracle test passes, 🟡 partial, ❌ fails / open bug, ⬜ not started.
 
@@ -30,6 +29,7 @@ permutation of exact inputs (documented semantics, not float noise).
 | `interp1(...,'nearest')` | `interp1(..., "nearest")` | exact (selects sample values) | `test_numerics_interp.py` | ✅ |
 | `griddedInterpolant(x,v)` (linear, linear extrapolation) | `gridded_interpolant` | float (B-70) | `test_numerics_interp.py` | ✅ |
 | `pchip`, `interp1(...,'pchip')`, `griddedInterpolant(...,'pchip')` | `pchip`, `interp1`, `gridded_interpolant` (textbook Hermite, Fritsch–Butland/Moler slopes) | float (B-71 with NaN/±Inf samples) | `test_numerics_interp.py` | ✅ |
+| `a:d:b` (colon operator) | `colon` | float values; length equal except `b` within ~4 eps of a grid point below it (own count rule, see note) | `tests/oracle/test_das.py::test_colon` | ✅ |
 | `ifft(X,n,dim,'symmetric')` | `ifft_symmetric` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `hilbert(x)` (vectors along length, matrices along columns) | `hilbert` | float (rel. to signal max) | `test_numerics_signal.py` | ✅ |
 | `conv(u,v,shape)`, `convn(A,B,shape)` | `conv`, `convn` | exact on small integers, else float | `test_numerics_signal.py` | ✅ |
@@ -203,6 +203,73 @@ Class D-13 (PR #10; replaces the old 1e-8 bubble class): per component `max|y_py
 
 Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxStep`, `InitialStep`, `Refine`, `OutputFcn`; `BDF`/`MaxOrder`/`Stats` accepted and ignored; other options raise. Forward and backward; 2-point and many-point `tspan`.
 
+## Geometry (`pyproteus.geometry`, M4 item moved into M1)
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `READ_stl(file)` (ASCII, binary, format detection) | `read_stl`, `identify_stl_format` | exact (data read from files) | `test_geometry_voxelise.py::test_read_stl_*` | ✅ |
+| `VOXELISE(gx, gy, gz, meshXYZ, raydirection)` | `voxelise` | integer (D-13: ≤ 0.1 % of the voxels inside either mask may differ, all on the surface; the threshold is taken over the inside voxels, not the grid, since a vessel is < 0.1 % of the grid); measured 100 % on every case | `test_geometry_voxelise.py` | ✅ |
+| `define_medium.m` vessel block (`READ_stl`, `*STLunit`, `-BoundingBox.Center`, `rotate_stl`, `+Center`, `VOXELISE`) | `place_vessel_mesh`, `vessel_mask` | integer for the mask; downstream `sound_speed`/`density`/`BonA` float (measured 0 rel. error) | `test_geometry_voxelise.py::test_define_medium_downstream` | ✅ |
+
+Cases: renal tree and mouse brain on PROTEUS's default grid (`make_default_settings` + `write_to_file` grid size + `define_grid`; 446×298×178 and 270×298×178) and on odd non-cubic grids resolving the vessels (151×113×207, 101×113×389, unequal spacings, unaligned origin); `sample.stl` (ASCII) on a 37×23×51 grid with 7 ray-direction strings; synthetic boxes with vertices on rays (vertex branch, both outcomes, silhouette vertices, a degenerate NaN-normal facet), face diagonals on rays (edge hits, odd crossings, neighbour corrections), open boxes, a top with a hole (sequential correction order), holes at the grid edge and corner (zero border padding), a tilted box, a mesh larger than the grid (B-110), the B-90 tie. A reviewer's mutation run (reversed or non-sequential corrections, edge padding, vertex grouping cut, vertex branch always/never, empty or shifted mask) is caught by these tests. Shipped STLs come from `PYPROTEUS_GEOMETRIES_PATH` (Zenodo 10573662); those tests skip without it.
+
+Library choice (D-15): **direct port, vectorised, no new dependency.**
+- trimesh (MIT) was evaluated as the established library: `Trimesh.contains` (single-ray parity per point, rtree backend; embree is unavailable on Apple Silicon) matched VOXELISE on the watertight `sample.stl` but took 150× longer (1.5 s vs 0.01 s for 43 k points) and did not finish the renal tree on 300 k points (> 4 min, 9.5 GB). `voxelized().fill()` uses its own grid and a surface-voxel fill, not the grid-point semantics PROTEUS uses. The mouse brain mesh is not watertight (73 boundary/non-manifold edges), exactly where VOXELISE's 3-direction vote and neighbour corrections decide the result and a point-in-mesh test does not reproduce it. numpy-stl (BSD-3) would only replace ~40 lines of STL reading.
+- Licence: the toolbox licence is BSD-3-Clause (third clause names The Christie NHS Foundation Trust); full text in `LICENSES/mesh-voxelisation-BSD.txt`, shipped in sdist and wheel (`license-files`), `license = "MIT AND BSD-3-Clause"` in `pyproject.toml`. ROADMAP §8/§13 call it BSD-2.
+- The port keeps VOXELISE's formulas (edge side tests, plane equation, 1e-12 rounding, vote, correction order) but runs vectorised over (facet, ray) pairs: 0.2 s for the renal tree default grid (MATLAB 0.3 s), 0.35 s for the mouse brain (MATLAB 0.06 s; the arteriole covers no ray at that resolution).
+
+Divergences from MATLAB (D-15):
+
+| MATLAB | pyproteus | Why |
+|---|---|---|
+| `VOXELISE` errors ("Colon operands must be real scalars") when a mesh bound is equidistant from two grid lines (B-90, logged in BUGS.md by m1-grid-medium, PR #18) | no error: the port does not restrict rays to the nearest-grid-line range (that range never excludes a ray a facet can cross) | robustness; result equals MATLAB's once the tie is broken by 1e-9 (`test_mesh_bound_halfway_between_grid_lines`) |
+| a scalar grid argument is a voxel count (auto grid); a one-point `Grid.z` (Nz = 1) is therefore misread (error, or an empty vessel when z = 0) | every grid argument is coordinates; a one-point axis is one plane | PROTEUS always means coordinates; m1-grid-medium supports Nz = 1 |
+| grid coordinates in any order | must be non-decreasing (`ValueError`) | binary search per axis; PROTEUS grids are increasing |
+| STL read and voxelised inline in `define_medium.m` | `pyproteus.geometry.vessel_mask(...)`, called by `define_medium` (or a precomputed mask via `vessel=`) | geometry separate from medium (agreed with m1-grid-medium); bool `(Nx, Ny, Nz)`, `[ix, iy, iz]` |
+
+## Delay-and-sum (`pyproteus.reconstruction`, M1)
+
+Classes per D-13. Sample indices are compared per (pixel, element) entry of the
+DAS matrix (MATLAB returns `find(M)`); weights where both sides keep the same
+sample at the float class. Tie cases use dyadic coordinates with `c = Fs = 1`,
+so `(t_del - t(1))*Fs` hits exact .5 values on both sides (half away from zero).
+
+| MATLAB | Python | Class | Oracle test (`tests/oracle/test_das.py`) | Status |
+|---|---|---|---|---|
+| `das_transmit_distance` (linear, curved; plane, diverging, focused, focus 0; steered) | `das_transmit_distance` | float | `test_das_transmit_distance` | ✅ |
+| `compute_das_matrix` (plane, diverging; even/odd elements; `X ≤ 0`, `X = 0`; samples off both ends of the record, asserted present; exact .5 ties inside and at -0.5 / Nt-0.5) | `compute_das_matrix` | statistical (measured 100 %: 5.28 M entries on a λ/5, 64-element image; all tie cases exact) | `test_compute_das_matrix_*` | ✅ |
+| `compute_das_matrix_general` (linear, curved; plane, steered, diverging, focused, curved diverging; cosine/binary; `axis_delay`; defaults) | `compute_das_matrix_general` | statistical (measured 100 % incl. 500 Hypothesis cases); weights float | `test_compute_das_matrix_general*` | ✅ (B-100: `-0` pixel) |
+| `load_RF_data` (v7 and v7.3, single and double, all pulsing schemes, frame order) | `load_rf_data`, `iter_rf_frames` | exact | `test_load_rf_data*` | ✅ |
+| TGC expression of `DAS_reconstruction` | `time_gain_compensation` | float where MATLAB's TGC is valid (`max(t) > \|min(t)\|`); D-18 divergence otherwise | `test_time_gain_compensation`, `test_time_gain_compensation_q101_fixed`, `test_das_reconstruction_q101_regime` | ✅ |
+| `DAS_reconstruction` (double RF; v7.3 + pulse inversion + diverging + full-simulation k-Wave correction; single RF) | `das_reconstruction` | float on the linear image `10^(IMG/20)` for double RF (measured 4.4e-16); single RF ≤ 1e-6 abs (measured 5.5e-8; class accepted by the developer, D-18); short record (samples past the end) | `test_das_reconstruction` | ✅ |
+| `initialize_das_parameters` (linear even/odd, curved; steered, diverging, focused; lens/k-Wave variants; `Transmit.Apodization`; errors; delay-mismatch warning) | `initialize_das_parameters` (warning: `DasDelayMismatchWarning`) | float (axes, time axis, element geometry); exact length of axes | `test_initialize_das_parameters*` | ✅ |
+| `DAS_reconstruction_general` (linear 16/15 elements, curved 17/16; plane, steered diverging, focused; v7/v7.3; single RF) | `das_reconstruction_general` | as `DAS_reconstruction` (measured ≤ 6.7e-16 double, 9.8e-8 single) | `test_das_reconstruction_general` | ✅ |
+| — (not in PROTEUS) | `interpolation="linear"` option of `compute_das_matrix`, `compute_das_matrix_general`, `das_reconstruction`, `das_reconstruction_general` (D-20; default `"nearest"` = MATLAB) | analytical, not MATLAB: one-element interpolation error ≤ `max|f''|·dt²/8` (measured 0.016 vs 0.14 for nearest on a 2.5 MHz pulse at 40 MHz); 32-element PSF within 2 % of DAS on the continuous RF and ≥ 4× closer than nearest; equal to nearest on on-sample delays | `tests/unit/test_das_linear.py` | ✅ |
+
+Option beyond MATLAB (developer decision D-20):
+
+- **Linear sample interpolation.** `interpolation="linear"` splits each (pixel, element) weight `v` between samples `floor(s)` and `floor(s)+1` (`v·(1-w)`, `v·w`, `s = (t_del - t(1))·Fs`), kept when `0 ≤ s ≤ Nt-1` (a slightly smaller range than nearest's `-0.5 ≤ s < Nt-0.5`). Removes the sensitivity of nearest-sample DAS to .5 ties and improves the point-spread function (Perrot et al. 2021); at most twice the non-zeros. Default stays `"nearest"` (MATLAB, oracle-tested) until 1.x, where it becomes `"linear"`.
+
+Result-changing divergence (developer decision D-18):
+
+- **TGC normalisation (was Q-101).** MATLAB divides by `max(sqrt(t))` over the complex roots; when `|min(t)| ≥ max(t)` (time to peak + lens delay longer than the record after it) that maximum is imaginary and the whole image is NaN. pyproteus divides by `sqrt(max(t))`. Identical to MATLAB whenever MATLAB's output is valid (oracle-tested at the float class, including `t(1) = -0.98·t(end)`); in the degenerate regime MATLAB's TGC and image are checked to be degenerate and pyproteus' to be the real-root formula and a finite image.
+
+Design differences with MATLAB (D-15; results within the classes above):
+
+- **DAS matrix built in pixel blocks.** MATLAB forms dense `Npixels`-by-`Nelem` delays, indices, angles and weights for the whole image before `sparse`. pyproteus builds the matrix in blocks of pixels (`block_size`, default 16384), so peak memory is the sparse matrix plus a few `block_size*Nelem` arrays. Output is a `scipy.sparse.csr_array` (`cupyx.scipy.sparse` has the same type for a later GPU path). Each (pixel, element) pair maps to one column, so the duplicate accumulation of MATLAB `sparse` cannot occur (asserted in the oracle test), and zero weights are not stored (MATLAB drops them too).
+- **Frames streamed.** `iter_rf_frames` reads each `Frame*.mat` once, only the `RF` variable; `das_reconstruction` beamforms blocks of frames as they are read. MATLAB reads the first file twice and holds all frames plus the complex `Nt*Nelem`-by-`Nframes` matrix. `load_rf_data` still returns the stacked array for callers that want it.
+- **No transpose.** The column order of the DAS matrix (`sample + Nt*element`) is the C-order flattening of an `Nelem`-by-`Nt` frame, so RF goes into `M @ ...` without MATLAB's `permute`.
+- **Double precision throughout.** MATLAB keeps `single` RF (the PROTEUS default) in `single` through the TGC and `hilbert`; pyproteus computes in double. Effect: single-precision rounding of the input chain (5.5e-8 of the image peak on the test case).
+- **Settings object accepted.** `das_reconstruction(folder, settings)` takes a settings `.mat` path (as MATLAB) or a `Settings` object.
+- **Frame axis always present.** With one frame, `load_rf_data`, `das_reconstruction` and `das_reconstruction_general` return `(..., 1)` arrays; MATLAB drops the trailing singleton.
+- **Missing fields raise.** `transducer.azimuth` (general matrix) and `SimulationParameters.HybridSimulation` are required (`ValueError`), as MATLAB errors on them; a silent default would give NaN weights or the wrong k-Wave correction.
+- **Frame file names are matched case-sensitively** (`Frame*.mat`); MATLAB `dir` on a case-insensitive file system (macOS, Windows) would also list `frame_1.MAT`.
+
+Notes:
+
+- `numerics.colon` (pixel axes; shared with `define_grid`): MATLAB documents `a:d:b = [a, a+d, ..., a+m*d]`, `m = fix((b-a)/d)`. The count rule is our own (not probed): `(b-a)/d` below an integer by less than `4·eps·max(|q|, max(|a|,|b|)/|d|, 1)` (its rounding error) counts as that integer, so `0:0.1:0.3` has 4 elements and `0:1:3-1e-14` has 3. A `b` within that window below a grid point may give one more element than MATLAB.
+- The randomised general-matrix test excludes `-0.0` coordinates (B-100).
+
 ## Grid, medium, transducer integration (`pyproteus.acoustic`, `pyproteus.medium`, M1)
 
 | MATLAB | Python | Class | Oracle test | Status |
@@ -217,14 +284,14 @@ Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxS
 | `get_transducer_integration_delays` (linear, curved, RCA, Custom; finite/infinite/zero focus) | `acoustic.get_transducer_integration_delays` | float | `test_acoustic_transducer.py` | ✅ |
 | `compute_travel_times` (linear and vertex branches, steered/focused transmits) | `acoustic.compute_travel_times` | float | `test_acoustic_transducer.py`, `test_acoustic_integration_points.py` | ✅ |
 | `get_transducer_integration_points` (linear, curved, RCA incl. odd-N error, Custom incl. orientation warning) | `acoustic.get_transducer_integration_points` | counts exact; points, weights float | `test_acoustic_integration_points.py` | ✅ |
-| `define_medium` (background, `alpha_mode`, curved coupling region, vessel mask from MATLAB `VOXELISE`) | `medium.define_medium(..., rng=, vessel=)` | float | `test_medium_define.py` | ✅ (STL voxelisation: M4) |
+| `define_medium` (background, `alpha_mode`, curved coupling region, vessel from the STL) | `medium.define_medium(..., rng=, geometries_path=, vessel=)` | float (maps); integer (mask, via `pyproteus.geometry`) | `test_medium_define.py`, `test_geometry_voxelise.py::test_default_pipeline_end_to_end_renal_tree` | ✅ |
 
 Notes:
 
 - Everything is compared on settings built by MATLAB itself (`reset_*`, `compute_simulation_domain`, `update_simulation_parameters`, `write_to_file`'s grid size and delays) and read into the Python models from a `.mat` file, plus hand-made tie cases: domain bounds on and half-way between grid nodes, one-point and empty axes, odd/non-cubic grids, `MaxPrime` 2/3/7, single elements, element heights at exact multiples of the elevation spacing, sinc/resample queries outside the sample range and on samples, `floor` ties in the resampled length, voxel ties at `.5`.
 - Integer results (`ceil`/`floor`/`round` of IEEE quotients of identical inputs) agree 100 % in every test; the voxel test still asserts the statistical class (≥ 99.9 %) and prints any difference.
 - `random_truncated_normal` with an infinite cutoff (MATLAB: untruncated `randn`) raises `NotImplementedError`: MATLAB's `randn` algorithm is not documented, so its stream is not reproduced (ROADMAP §5). Default settings use a finite cutoff.
-- `define_medium` with `Geometry.EmbedVessel` (true for both shipped geometries) needs `READ_stl`/`VOXELISE` (M4). Until then the caller passes the vessel mask (`vessel=`); `NotImplementedError` (pointing to M4) is raised only when `EmbedVessel` is true and no mask is given. The oracle test passes MATLAB's `VOXELISE` output for an asymmetric, off-centre box STL and asserts the mask contract M4's voxeliser must meet: `bool`, shape `(Nx, Ny, Nz)`, indexed `[ix, iy, iz]` (checked against the box computed from the grid coordinates, so a transposed or C/Fortran-reshuffled mask fails). `test_define_medium_shipped_geometries` does the same for the renal tree (default settings, 2 points per wavelength) and mouse brain (10 µm grid over its bounding box: its ~15 µm vessels miss every voxel centre of an ultrasound grid) STLs when `PYPROTEUS_GEOMETRIES_PATH` points to them; it checks each file's SHA-256 against `src/pyproteus/io/geometry_registry.txt` and skips without the files (`python -m tools.fetch_geometries` fetches them). The STLs are members of Zenodo 10573662's `*_no_vtu.zip` archives (not in the oracle checkout); both cases pass locally.
+- `define_medium` with `Geometry.EmbedVessel` (true for both shipped geometries) reads `GeometriesPath/Folder/STLfile` and voxelises it with `pyproteus.geometry.vessel_mask` (PR #19); `GeometriesPath` comes from `geometries_path=` or MATLAB's `Geometry.GeometriesPath` field (`ValueError` if neither and no `vessel=`). A precomputed `vessel=` mask is still accepted (no file read). The oracle tests compare the Python-voxelised medium and mask with MATLAB's `define_medium` for an asymmetric, off-centre box STL (orientation checked against the box computed from the grid coordinates) and for the renal tree (default settings, 2 points per wavelength) and mouse brain (10 µm grid over its bounding box: its ~15 µm vessels miss every voxel centre of an ultrasound grid) when `PYPROTEUS_GEOMETRIES_PATH` points to the STLs; each file's SHA-256 is checked against `src/pyproteus/io/geometry_registry.txt` and the tests skip without the files (`python -m tools.fetch_geometries`). The STLs are members of Zenodo 10573662's `*_no_vtu.zip` archives (not in the oracle checkout). `test_default_pipeline_end_to_end_renal_tree` runs the default settings end to end in Python (settings → domain → grid → `define_medium`) and matches MATLAB's vessel (4710 voxels) on the shared grid points (D-19: Python's grid keeps one more point per axis).
 
 Design divergences (D-15; results unchanged unless marked, parity checked as above):
 
@@ -240,7 +307,8 @@ Design divergences (D-15; results unchanged unless marked, parity checked as abo
 | `get_transducer_integration_points` | loop over elements | vectorised over elements | speed for large arrays |
 | `get_transducer_integration_points` | `apodization_Z` branch (`getWin` Tukey) behind a hard-coded `false` | not ported | dead code |
 | `define_medium` `alpha_coeff` (always) and `BonA` (no vessel voxel) | full `Nx×Ny×Nz` arrays of one value | read-only `np.broadcast_to` views: same values, shape and indexing, no memory | two fewer full 3-D double arrays; writing to them raises instead of silently diverging |
-| `define_medium` vessel | reads and voxelises the STL inside `define_medium` | mask passed in (`vessel=`, bool `(Nx, Ny, Nz)`); voxelisation stays outside (M4) | separates geometry from medium; default path testable before M4 (approved by the main session) |
+| `define_medium` vessel | reads and voxelises the STL inside `define_medium` | same by default (`pyproteus.geometry.vessel_mask`); a precomputed mask can be passed (`vessel=`), `GeometriesPath` can be passed (`geometries_path=`) | geometry separate from medium; masks reusable across frames/jobs |
+| `define_medium` with an embedded vessel thinner than the grid spacing (e.g. mouse brain on the default grid, B-112) | silently simulates without a vessel | same result, plus `EmptyVesselWarning` naming dx | usability (D-15, main session); result unchanged |
 | `define_medium` | builds the STL path first: `Geometry.GeometriesPath`/`Folder` must exist even without a vessel | not needed when no STL is read | no spurious error |
 | `sinc_interpolation` with single `V` (k-Wave sensor data) | double × single product: single result, accumulated in single | `float32` result, accumulated in double and rounded once | more accurate; agrees with MATLAB at the single-precision class (oracle: ≤ 1e-5 × max), not 1e-9 |
 | `define_grid`, `define_medium`: missing fields | `SensorOnGrid` absent, `EmbedVessel` absent or `Medium.Vessel` absent → error | `sensor_on_grid=None`; `EmbedVessel` absent = false; `Medium.Vessel` only read when the mask has vessel voxels | lenient where MATLAB fails; no effect on results |
