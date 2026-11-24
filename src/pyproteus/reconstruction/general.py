@@ -129,6 +129,8 @@ def initialize_das_parameters(
 def das_reconstruction_general(
     folder: str | PathLike[str],
     filename_parameters: str | PathLike[str] | Settings,
+    *,
+    interpolation: str = "nearest",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``[IMG, x, y] = DAS_reconstruction_general(folder, filename_parameters)``.
 
@@ -137,6 +139,7 @@ def das_reconstruction_general(
     :func:`compute_das_matrix_general`). Differences with the reference: pixel
     size ``lambda/4``, image from ``Geometry.Domain.Xmin``, cosine apodization.
     Returns ``IMG`` (``Nx``-by-``Ny``-by-``Nframes``, dB) and ``x``, ``y`` [m].
+    ``interpolation``: ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20).
     """
     S = _settings(filename_parameters)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))
@@ -149,7 +152,7 @@ def das_reconstruction_general(
         S.Medium, S.SimulationParameters, S.Transducer, S.Transmit, S.Geometry, Nelem, Nt
     )
     tgc = time_gain_compensation(recon.t, S.Medium, float(S.Transmit.CenterFrequency), recon.c)
-    M = compute_das_matrix_general(recon, trans, tx)
+    M = compute_das_matrix_general(recon, trans, tx, interpolation=interpolation)
 
     img = beamform_frames(frames, tgc, M)  # (Nx*Ny) x Nframes, axial first
     img = img.reshape(recon.y.size, recon.x.size, -1).transpose(1, 0, 2)
