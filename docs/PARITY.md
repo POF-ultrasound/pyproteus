@@ -224,7 +224,7 @@ so `(t_del - t(1))*Fs` hits exact .5 values on both sides (half away from zero).
 
 Option beyond MATLAB (developer decision D-20):
 
-- **Linear sample interpolation.** `interpolation="linear"` splits each (pixel, element) weight `v` between samples `floor(s)` and `floor(s)+1` (`v·(1-w)`, `v·w`, `s = (t_del - t(1))·Fs`), kept when `0 ≤ s ≤ Nt-1`. Removes the sensitivity of nearest-sample DAS to .5 ties and improves the point-spread function (Perrot et al. 2021); at most twice the non-zeros. Default stays `"nearest"` (MATLAB, oracle-tested) until 1.x, where it becomes `"linear"`.
+- **Linear sample interpolation.** `interpolation="linear"` splits each (pixel, element) weight `v` between samples `floor(s)` and `floor(s)+1` (`v·(1-w)`, `v·w`, `s = (t_del - t(1))·Fs`), kept when `0 ≤ s ≤ Nt-1` (a slightly smaller range than nearest's `-0.5 ≤ s < Nt-0.5`). Removes the sensitivity of nearest-sample DAS to .5 ties and improves the point-spread function (Perrot et al. 2021); at most twice the non-zeros. Default stays `"nearest"` (MATLAB, oracle-tested) until 1.x, where it becomes `"linear"`.
 
 Result-changing divergence (developer decision D-18):
 

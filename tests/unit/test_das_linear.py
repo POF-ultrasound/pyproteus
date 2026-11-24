@@ -175,3 +175,37 @@ def test_beamformers_accept_linear(tmp_path) -> None:
     a = das_reconstruction_general(data, Sg, interpolation="linear")[0]
     b = das_reconstruction_general(data, Sg)[0]
     assert a.shape == b.shape and np.isfinite(a).any() and not np.allclose(a, b)
+
+
+def test_linear_lower_edge_and_element_blocks() -> None:
+    """t(1) > 0: a pair with -1 < s < 0 is dropped (floor(s) = -1 would read the
+    previous element's last sample), for every element."""
+    t = np.arange(5) + 0.25  # c = Fs = 1, plane wave: s = |x| + x - 0.25
+    x = np.array([0.0, 0.0625, 0.125, 0.5])  # s = -0.25, -0.125, 0, 0.75
+    M = compute_das_matrix(t, [0.0], x, [0.0, 0.0], 1.0, 1.0, np.inf, interpolation="linear")
+    dense = M.toarray()
+    np.testing.assert_array_equal(dense[0], 0)
+    np.testing.assert_array_equal(dense[1], 0)
+    np.testing.assert_array_equal(dense[2], [1, 0, 0, 0, 0, 1, 0, 0, 0, 0])
+    np.testing.assert_allclose(dense[3], [0.25, 0.75, 0, 0, 0, 0.25, 0.75, 0, 0, 0])
+    assert M.has_sorted_indices
+
+
+def test_linear_matches_its_definition() -> None:
+    """Exact reference: rf[i0]*(1-w) + rf[i0+1]*w at s = (t_del - t(1))*Fs."""
+    rng = np.random.default_rng(3)
+    Nt = 400
+    t = np.arange(Nt) / FS + 1e-7
+    x = rng.uniform(0.05e-3, 7e-3, 300)
+    recon, tr = single_element(x, t)
+    rf = rng.standard_normal(Nt)
+    M = compute_das_matrix_general(recon, tr, {}, interpolation="linear")
+    assert M.has_sorted_indices
+    s = (2 * x / C - t[0]) * FS
+    ok = (s >= 0) & (s <= Nt - 1)
+    i0 = np.floor(s[ok]).astype(int)
+    w = s[ok] - i0
+    expected = np.zeros(x.size)
+    expected[ok] = rf[i0] * (1 - w) + rf[np.minimum(i0 + 1, Nt - 1)] * w
+    np.testing.assert_allclose(M @ rf, expected, rtol=1e-13, atol=1e-13)
+    assert ok.sum() > 200 and (~ok).sum() > 0
