@@ -56,22 +56,22 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 Plan: pyproteus Roadmap §10. Workflow and port order (steps 3-5). Each item: port + oracle test + frozen reference + row in `docs/PARITY.md`.
 
 ### GUIfunctions leaves
-- [ ] `get_voltage_signal`, `get_pressure_signal`
+- [x] `get_voltage_signal`, `get_pressure_signal` (2026-11-23, `pyproteus.transmit`)
 - [ ] `compute_gaussian_distribution`, `compute_polydisperse_distribution`
-- [ ] `estimate_impulse_response`
+- [x] `estimate_impulse_response` (2026-11-23, `pyproteus.transducer.impulse_response`; SciPy SOS, D-17/B-80)
 - [x] `load_transducer_model`, `get_transducer_properties` (2026-11-22, `pyproteus.transducer`, settings PR)
-- [ ] `get_element_geometry` (linear and curved)
-- [ ] `compute_simulation_domain`, `compute_sound_speed_extrema`
-- [ ] `compute_delays`
+- [x] `get_element_geometry` (linear and curved) (2026-11-23, `pyproteus.transducer.geometry`)
+- [x] `compute_simulation_domain`, `compute_sound_speed_extrema` (2026-11-23, `pyproteus.transducer.domain`; extrema in the settings PR)
+- [x] `compute_delays` (2026-11-23, `pyproteus.transducer.delays`)
 - [x] medium/liquid property helpers (`assign_medium_properties`, `assign_liquid_properties`, `get_gas_properties`) (2026-11-22, `pyproteus.medium`, `pyproteus.microbubble`; also `compute_sound_speed_extrema`, `compute_polydisperse_distribution`)
 
 ### Grid, medium, transducer
-- [ ] `define_grid`, `optimize_grid_size`
-- [ ] `random_truncated_normal` (float class ≤ 1e-9, `erfcinv` via SciPy)
-- [ ] `define_medium`, `voxelize_media_points`
-- [ ] `get_transducer_integration_points`, `get_transducer_integration_delays`
-- [ ] `compute_travel_times`, `evaluate_delta_function`
-- [ ] `sinc_interpolation`, `resample_signal`
+- [x] `define_grid`, `optimize_grid_size` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
+- [x] `random_truncated_normal` (float class ≤ 1e-9, `erfcinv` via SciPy) (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
+- [x] `define_medium`, `voxelize_media_points` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation in M4)
+- [x] `get_transducer_integration_points`, `get_transducer_integration_delays` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`; STL voxelisation in M4)
+- [x] `compute_travel_times`, `evaluate_delta_function` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
+- [x] `sinc_interpolation`, `resample_signal` (2026-11-23, `pyproteus.acoustic`/`pyproteus.medium`)
 
 ### Delay-and-sum
 - [ ] `das_transmit_distance`, `initialize_das_parameters`

@@ -19,6 +19,7 @@ from .random import MatlabRNG, rng
 from .rounding import matlab_round
 from .sorting import argsort, first_nonsingleton_axis, sort
 from .spectral import hilbert, ifft_symmetric
+from .trig import cosd, sind
 
 __all__ = [
     "GriddedInterpolant",
@@ -28,6 +29,7 @@ __all__ = [
     "argsort",
     "conv",
     "convn",
+    "cosd",
     "find",
     "first_nonsingleton_axis",
     "gridded_interpolant",
@@ -40,6 +42,7 @@ __all__ = [
     "odeset",
     "pchip",
     "rng",
+    "sind",
     "sort",
     "sub2ind",
 ]

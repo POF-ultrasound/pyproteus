@@ -77,6 +77,7 @@ HYPOTHESIS_PROFILE=oracle pytest -m oracle
 | `ifft(X,[],dim,'symmetric')` | uses only the first half of the spectrum | `numerics.ifft_symmetric` |
 | `hilbert(X)` | MATLAB works along columns (dim 1); SciPy along the last axis | `numerics.hilbert` |
 | `conv`, `convn(A,B)`, `convn(A,B,'same')` | centre of even kernels differs | `numerics.convn` |
+| `sind`, `cosd` | `np.sin(np.deg2rad(x))` is not exact at multiples of 90 (`cos(pi/2) = 6e-17`, not 0) | `numerics.sind`, `numerics.cosd` |
 | `rand`, `randi` with `rng(seed,'twister')` | column-major fill of `rand(m,n)`; `randi` mapping | `numerics.MatlabRNG` |
 | `unique`, `intersect`, `ismember` | output order and index outputs | port case by case, test the indices |
 | 1-based indexing, `end`, `squeeze`, implicit expansion | off-by-one, dropped axes | review shapes; keep MATLAB index values in variables named `*_m1` only when they are 1-based |

@@ -6,12 +6,10 @@ The lookup leaves they call live in :mod:`pyproteus.transducer`,
 Each function returns the struct MATLAB returns, field for field, with the
 same classes (double vs logical) and sizes.
 
-Pending M1 (signal leaves, not ported yet): ``reset_transducer`` does not
-call ``estimate_impulse_response`` (``TransmitImpulseResponse``,
-``ReceiveImpulseResponse`` stay absent for estimated types) and
-``reset_transmit`` does not call ``get_voltage_signal``/``get_pressure_signal``
-(``VoltageSignal``, ``PressureSignal``, ``MechanicalIndex`` stay absent).
-:data:`PENDING_FIELDS` lists them; the oracle test skips exactly these.
+``reset_transducer`` calls :func:`pyproteus.transducer.estimate_impulse_response`
+and ``reset_transmit`` calls :func:`pyproteus.transmit.get_voltage_signal` and
+:func:`pyproteus.transmit.get_pressure_signal`, as in MATLAB.
+:data:`PENDING_FIELDS` is empty (kept for compatibility).
 """
 
 from __future__ import annotations
@@ -54,10 +52,8 @@ __all__ = [
 ]
 
 #: Fields MATLAB sets that need the M1 signal leaves (see module docstring).
-PENDING_FIELDS: dict[str, tuple[str, ...]] = {
-    "Transducer": ("TransmitImpulseResponse", "ReceiveImpulseResponse"),
-    "Transmit": ("VoltageSignal", "PressureSignal", "MechanicalIndex"),
-}
+#: Default fields not ported yet, per settings group (none left since M1).
+PENDING_FIELDS: dict[str, tuple[str, ...]] = {}
 
 
 def reset_acquisition() -> Acquisition:
@@ -137,24 +133,23 @@ def reset_medium() -> Medium:
 def reset_transducer(models_folder: str | PathLike[str] | None = None) -> Transducer:
     """Port of ``reset_transducer.m`` (P4-1).
 
-    For an estimated impulse response MATLAB also calls
-    ``estimate_impulse_response`` (pending M1, :data:`PENDING_FIELDS`).
+    For an estimated impulse response, calls ``estimate_impulse_response``.
     """
-    from pyproteus.transducer import get_transducer_properties
+    from pyproteus.transducer import estimate_impulse_response, get_transducer_properties
 
     T = get_transducer_properties(Transducer(Type="P4-1"), models_folder)
     if T.ImpulseResponseType == "Estimate":
         T.SamplingRate = 250e6
-        # Pending M1: T = estimate_impulse_response(T)
+        T = estimate_impulse_response(T)
     return T
 
 
 def reset_transmit(transducer: Transducer) -> Transmit:
     """Port of ``reset_transmit.m``.
 
-    MATLAB also calls ``get_voltage_signal`` and ``get_pressure_signal``
-    (pending M1, :data:`PENDING_FIELDS`). In the default ``'Pressure'``
-    amplitude mode they do not change ``AcousticPressure``.
+    Calls ``get_voltage_signal`` and ``get_pressure_signal`` (which need the
+    transducer's ``TransmitImpulseResponse`` and ``SamplingRate``). In the
+    default ``'Pressure'`` amplitude mode they do not change ``AcousticPressure``.
     """
     configuration = transducer.Configuration if transducer.isfield("Configuration") else "Linear"
     tx = Transmit(
@@ -167,7 +162,9 @@ def reset_transmit(transducer: Transducer) -> Transmit:
         AmplitudeMode="Pressure",
         VoltageAmplitude=1.0,
     )
-    # Pending M1: tx = get_voltage_signal(tx); tx = get_pressure_signal(tx, transducer)
+    from pyproteus.transmit import get_pressure_signal, get_voltage_signal
+
+    tx = get_pressure_signal(get_voltage_signal(tx), transducer)
     tx.Advanced = False
     tx.LateralFocus = float("inf")
     tx.Angle = 0.0
