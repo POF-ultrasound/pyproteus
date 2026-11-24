@@ -2,6 +2,12 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-24 — define_grid PML rounding default (m1-grid-medium follow-up)
+- D-19 revised (developer, via main): `define_grid(..., pml_rounding="ceil"|"floor")`, default `"ceil"` until 1.0 (MATLAB's grid, Q-90 reproduced), `"floor"` is the fix and becomes the default in 1.x. Q-90 back in QUIRKS.md; PARITY rows updated. Oracle tests: default mode equals MATLAB's grid exactly on every domain case and both default settings; `"floor"` checked against MATLAB with the documented core +2 / PML −1 difference (both padding parities occur).
+- `optimize_grid_size` uses `numerics.colon` (#17). No sind/cosd copies existed in acoustic/ or medium/.
+- Closes the M5 open item of 2026-11-23: MATLAB's grid is now the default, nothing extra is needed for end-to-end parity runs.
+- Reviewer: SIGN-OFF (nits fixed: stale D-19 comments, per-axis parity from the domain point count in the domain oracle test).
+
 ## 2026-11-24 — DAS D-21 defaults, empty-frame warning, matrix cache (m1-das)
 - D-21 (developer, amended after review): pixel axes span the domain, with the reference beamformer's depth axis from `max(Xmin, 0)` (`pixel_axes`; was Q-103), and the general beamformer masks pixels insonified only by switched-off elements (`apod != 0`, binary, no `apod²` weighting; `transmit_apodization_weight`; was Q-104) by default; `proteus_compat=True` restores PROTEUS on `das_reconstruction`, `das_reconstruction_general`, `initialize_das_parameters`, `compute_das_matrix_general`. Q-103/Q-104 moved to PARITY divergences.
 - D-15: `DasEmptyFrameWarning` for all-zero frames (P7, MATLAB's NaN kept); DAS matrix cache keyed by the inputs (P8).

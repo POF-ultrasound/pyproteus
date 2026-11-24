@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from pyproteus.numerics import colon
+
 from ._struct import get as _get
 from ._struct import scalar as _scalar
 
@@ -56,9 +58,8 @@ def optimize_grid_size(n: int, expand_range: Any, max_prime: int) -> int:
     """
     r = np.atleast_1d(np.asarray(expand_range, dtype=float))
     lo, hi = float(r.min()), float(r.max())
-    # MATLAB colon lo:hi = lo + (0:floor(hi - lo)); non-integer sizes raise in factors.
-    # TODO(numerics.colon, PR #17): switch to the shared helper once it is on main.
-    candidates = [n + lo + k for k in range(int(np.floor(hi - lo)) + 1)]
+    # MATLAB N + (lo:hi); non-integer sizes raise in largest_prime_factor.
+    candidates = [n + float(v) for v in colon(lo, 1.0, hi)]
     factors = [largest_prime_factor(m) for m in candidates]
     i = int(np.argmin(factors))  # first minimum, as MATLAB min
     best, fac = int(candidates[i]), factors[i]
@@ -109,23 +110,23 @@ class Grid:
         return (self.Nx, self.Ny, self.Nz)
 
 
-def define_grid(simulation_parameters: Any, geometry: Any, *, pml_rounding: str = "floor") -> Grid:
+def define_grid(simulation_parameters: Any, geometry: Any, *, pml_rounding: str = "ceil") -> Grid:
     """Port of ``define_grid.m``.
 
     Grid points are integer multiples of ``GridSize`` that lie within or on the
     domain boundaries ``Geometry.Domain``. The full grid (core + PML) in each
     direction is ``optimize_grid_size(N, 2*PMLmin, MaxPrime)`` (defaults
     ``PMLmin = 15``, ``MaxPrime = 5``, used when the fields are absent), and
-    the PML takes ``floor((M - N)/2)`` points per side.
+    the PML takes ``ceil((M - N)/2)`` points per side (``pml_rounding``).
 
-    Divergence (D-19, docs/PARITY.md): MATLAB uses ``ceil((M - N)/2)``, so when
-    ``M - N`` is odd its core grid has ``N - 1`` points and drops the last grid
-    point of the domain (a one-point axis becomes empty). Here the core grid
-    has ``N + 1`` points in that case: the whole domain plus one point just
-    beyond ``max`` (PML one point thinner per side, same full size ``M``).
-    With the default settings of both shipped geometries every axis has odd
-    padding. ``pml_rounding="ceil"`` reproduces MATLAB's grid exactly (for
-    parity runs against MATLAB results and references).
+    Quirk Q-90, reproduced by default (D-19): when ``M - N`` is odd the core
+    grid has ``N - 1`` points and drops the last grid point of the domain (a
+    one-point axis becomes empty). The default settings of both shipped
+    geometries pad every axis oddly. ``pml_rounding="floor"`` is the fix:
+    the PML is one point thinner per side and the core has ``N + 1`` points
+    (the whole domain plus one point just beyond ``max``), same full size
+    ``M``. ``"ceil"`` stays the default until 1.0 (MATLAB's grid, for k-Wave/RF
+    parity and MATLAB references); the default flips to ``"floor"`` in 1.x.
 
     Missing ``SensorOnGrid`` gives ``sensor_on_grid=None`` (MATLAB errors).
     """

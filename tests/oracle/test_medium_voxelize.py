@@ -35,7 +35,7 @@ def _grid(eng: Any, dx: float, dom: dict[str, float]) -> acoustic.Grid:
     )
     import tempfile
 
-    with tempfile.TemporaryDirectory() as tmp:  # same grid both sides (define_grid: D-19)
+    with tempfile.TemporaryDirectory() as tmp:  # MATLAB's grid object on both sides
         return grid_from_matlab(matlab_value(eng, "pyp_Grid__", Path(tmp)))
 
 
