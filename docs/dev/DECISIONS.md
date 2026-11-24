@@ -71,3 +71,6 @@ Who: developer (Q-100..Q-102); main session (single-precision class).
 - Q-90: `define_grid` uses `PML = floor((M-N)/2)` instead of PROTEUS's `ceil`, so with odd M-N the extra point stays in the core grid and a one-point axis is not emptied. Grids then differ from MATLAB by one core point in those cases; oracle tests document that difference and compare everything else.
 - The shipped STL geometries (Zenodo record 10573662) are downloaded into a gitignored folder and registered with pooch, so the default-geometry tests run.
 Who: developer.
+
+## D-20 — Optional linear interpolation in delay-and-sum (2026-11-24)
+Both beamformers get `interpolation="linear"` (between RF samples; removes the .5-tie sensitivity of nearest-sample lookup and improves the point-spread function, Perrot et al. 2021). Default stays `"nearest"` for parity; switch the default in 1.x. Linear mode is tested against analytical/high-resolution references, not MATLAB. Who: developer.
