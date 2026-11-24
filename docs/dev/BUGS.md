@@ -144,3 +144,8 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Impact: real meshes rarely hit an exact tie; the M4 port should pick one index (first) and note the difference.
 - Resolved (2026-11-24, PR #19): `pyproteus.geometry.voxelise` does not use this nearest-grid-line range (it never excludes a ray a facet can cross), so ties raise no error; result equals MATLAB's once the tie is broken (`test_mesh_bound_halfway_between_grid_lines`). Divergence in PARITY.md (Geometry).
 
+## B-101 — MATLAB PROTEUS DAS time axis: depth-dependent timing error of a point scatterer (observation, open)
+- Where: `delay-and-sum/initialize_das_parameters.m` / `DAS_reconstruction.m` time axis applied to RF from `main_RF` (hybrid and full paths), oracle 8d37938.
+- Symptom: a small linear bubble on the axis is imaged off its true two-way time by ≈ −26 ns at 5 mm and ≈ +8 ns at 7 mm (16 elements, 1-mm elements, no lens, homogeneous lossless medium, 51 MHz simulation, plane wave); ≈ −53 ns at 5 mm with the default 16-mm elevation aperture. Stable within ±3 ns across one grid cell, so not grid quantisation.
+- Cause: not established. Behaves like near-field/diffraction pulse-shape changes with depth (aperture near field ≈ 9 mm) rather than a constant offset; the Q-100 one-sample term (4 ns) cannot be resolved against it.
+- Next: far-field and multi-depth check once the hybrid path is ported (M3). Scripts: `tools/investigations/q100_point_scatterer.m`, `q100_analyse.py`; note `das-q100-point-scatterer.md` in the coordination notes.
