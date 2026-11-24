@@ -11,6 +11,7 @@ these helpers. Conventions:
 See ``docs/PARITY.md`` for the oracle status of each helper.
 """
 
+from .colon import colon
 from .convolution import conv, convn
 from .indexing import find, ind2sub, sub2ind
 from .interpolation import GriddedInterpolant, gridded_interpolant, interp1, pchip
@@ -27,6 +28,7 @@ __all__ = [
     "ODEResult",
     "ODEStats",
     "argsort",
+    "colon",
     "conv",
     "convn",
     "cosd",
