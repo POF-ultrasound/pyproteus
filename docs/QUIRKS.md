@@ -57,6 +57,7 @@ Format:
 - The k-Wave correction (`+dx/(2c) + dt` hybrid, `+dx/(2c) + 3/2·dt` full, with `dt` the simulation step) is undocumented. Only if all three rates are equal could its `+dt` absorb the extra index; with the default rates the two terms differ (4 ns vs ≈ 20 ns), so a compensation is unlikely and a plain off-by-one is the most probable reading.
 - Ported in: `pyproteus.reconstruction.time_to_peak` (reproduced, with both rates as in MATLAB).
 - Test: `tests/oracle/test_das.py::test_das_reconstruction`, `test_initialize_das_parameters` (time axis at the float class; cases with 250/250/40 MHz and 250/100/40 MHz rates).
+- Point-scatterer run of MATLAB PROTEUS (2026-11-24, `tools/investigations/`, B-101): the end-to-end DAS timing error is depth dependent (≈ −26 ns at 5 mm, ≈ +8 ns at 7 mm, hybrid and full alike; stable within ±3 ns across a grid cell), larger than the 4 ns at stake. Inconclusive for this term.
 - Planned fix: decided after the M3 point-scatterer depth check (milestone added by the main session): a point scatterer at a known depth imaged through the simulator, with a linear scatterer (a small density or sound-speed contrast) so a bubble's resonance phase is not mistaken for a timing offset. If it is an off-by-one, use `(I-1)/Fs` and resample the `V_ref` components to a common rate; the k-Wave terms get their own documented derivation.
 
 ## Q-102 — Reference DAS apodization keeps pixels at or above the array surface

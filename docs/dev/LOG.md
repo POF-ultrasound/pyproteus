@@ -2,6 +2,9 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-24 — Q-100 point-scatterer investigation (m1-das)
+- MATLAB PROTEUS `main_RF` on a copy of the oracle (temp output folders), real k-Wave C++ binary (D-10), one small bubble; RF of 1 µm minus 0.5 µm runs isolates the echo. Residual of the DAS time axis: −23 … −29 ns across one grid cell at 5 mm (hybrid), −27 ns full at 5 mm, +9 / +7 ns at 7 mm. Depth-dependent and larger than the 4 ns Q-100 term → inconclusive; Q-100 kept, B-101 opened (with the pulse-shape, resonance and element-height confounds found in review). Scripts and driver in `tools/investigations/`.
+
 ## 2026-11-24 — M1 compute_gaussian_distribution (m1-leaves)
 - `pyproteus.microbubble.compute_gaussian_distribution` (+ `gaussian_distribution(mean_radius, pdi)` on plain numbers), next to `compute_polydisperse_distribution`. Only PROTEUS's regression helpers call it (GUI distribution option).
 - Oracle test `tests/oracle/test_microbubble_distribution.py` (8 radii × 8 PDIs incl. 0 and negative, defaults, Hypothesis; 300-batch sweep passed), D-13 float class. Q-84 (1000 vs 1001 radii, PDI = 0 → NaN).
