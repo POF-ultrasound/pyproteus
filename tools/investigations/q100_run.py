@@ -63,6 +63,7 @@ def cases(which: str) -> list[dict]:
 def main(work: Path, which: str) -> None:
     import matlab.engine
 
+    work = work.resolve()
     # Never write into the oracle or the PROTEUS checkout (k-Wave lives in it).
     protected = [ORACLE.resolve(), Path(KWAVE).resolve().parents[2]]
     for root in protected:
