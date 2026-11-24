@@ -90,7 +90,12 @@ def matlab_value(eng: Any, expr: str, tmp: Path, name: str = "pyp_val__") -> Any
     return config.loadmat(file)[name]
 
 
-def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> list[str]:
+def assert_grid(
+    grid: acoustic.Grid,
+    ref: dict[str, Any],
+    err_msg: str = "",
+    domain_n: tuple[int, int, int] | None = None,
+) -> list[str]:
     """``define_grid(..., pml_rounding="floor")`` vs MATLAB ``pgrid`` (Q-90 fix, D-19).
 
     Per axis, with ``M - N`` even everything matches. With ``M - N`` odd MATLAB's
@@ -115,6 +120,9 @@ def assert_grid(grid: acoustic.Grid, ref: dict[str, Any], err_msg: str = "") -> 
         assert coords.shape == (n_py,)
         # MATLAB's core is always M - 2*ceil(...), so its parity cannot tell the cases
         # apart; the domain count N (MATLAB: n_ref + 1 when odd) decides via pyproteus.
+        if domain_n is not None:  # independent parity from the domain point count
+            expect_odd = (M - domain_n["xyz".index(ax)]) % 2 == 1
+            assert (n_py != n_ref) == expect_odd, f"{ax}: parity mismatch {err_msg}"
         if n_py == n_ref:  # even padding: identical
             parities.append("even")
             assert pml_py == pml_ref, f"{ax} {err_msg}"
@@ -149,7 +157,7 @@ def grid_from_matlab(ref: dict[str, Any]) -> acoustic.Grid:
     """``acoustic.Grid`` holding MATLAB's ``pgrid`` exactly.
 
     Downstream oracle tests (voxelisation, medium) use it so both sides see the
-    same grid despite the D-19 core-size divergence of ``define_grid``.
+    very same grid object, independent of ``define_grid`` and its ``pml_rounding``.
     """
     pml = ref["PML"]
     return acoustic.Grid(
@@ -292,7 +300,12 @@ def test_define_grid_domains(matlab_engine: Any, tmp_path: Path) -> None:
         args = (config.SimulationParameters(**sp), config.Geometry(Domain=Domain(**domain)))
         assert_grid_exact(acoustic.define_grid(*args), ref, str(case))  # default: MATLAB's grid
         floor = acoustic.define_grid(*args, pml_rounding="floor")  # Q-90 fix (D-19)
-        seen += assert_grid(floor, ref, err_msg=str(case))
+        dx = case["dx"]
+        n_dom = tuple(
+            int(np.floor(hi / dx)) - int(np.ceil(lo / dx)) + 1
+            for lo, hi in (case["X"], case["Y"], case["Z"])
+        )
+        seen += assert_grid(floor, ref, err_msg=str(case), domain_n=n_dom)
     assert "even" in seen and "odd" in seen, seen
 
 

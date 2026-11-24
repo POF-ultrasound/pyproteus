@@ -5,6 +5,8 @@ Newest first. One entry per working session or milestone step: what was done, wh
 ## 2026-11-24 — define_grid PML rounding default (m1-grid-medium follow-up)
 - D-19 revised (developer, via main): `define_grid(..., pml_rounding="ceil"|"floor")`, default `"ceil"` until 1.0 (MATLAB's grid, Q-90 reproduced), `"floor"` is the fix and becomes the default in 1.x. Q-90 back in QUIRKS.md; PARITY rows updated. Oracle tests: default mode equals MATLAB's grid exactly on every domain case and both default settings; `"floor"` checked against MATLAB with the documented core +2 / PML −1 difference (both padding parities occur).
 - `optimize_grid_size` uses `numerics.colon` (#17). No sind/cosd copies existed in acoustic/ or medium/.
+- Closes the M5 open item of 2026-11-23: MATLAB's grid is now the default, nothing extra is needed for end-to-end parity runs.
+- Reviewer: SIGN-OFF (nits fixed: stale D-19 comments, per-axis parity from the domain point count in the domain oracle test).
 
 ## 2026-11-23 — M1 delay-and-sum: review round 1 and D-18 (m1-das)
 - Developer decisions via main (D-18): Q-101 fixed (TGC normalised by `sqrt(max(t))`; identical to MATLAB when MATLAB is valid, both regimes oracle-tested; moved to a PARITY divergence); Q-102 kept until 1.x; single-RF image class ≤ 1e-6 accepted; `colon` moved to `numerics/colon.py`.
