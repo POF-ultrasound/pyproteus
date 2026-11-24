@@ -70,6 +70,8 @@ def vessel_mask(
     grid_z: ArrayLike,
     geometry: Any,
     geometries_path: str | PathLike[str],
+    *,
+    _stacklevel: int = 2,
 ) -> np.ndarray:
     """Vessel mask of ``define_medium.m`` on the grid ``(Grid.x, Grid.y, Grid.z)``.
 
@@ -87,13 +89,21 @@ def vessel_mask(
     mesh = place_vessel_mesh(read_stl(stl_path(geometry, geometries_path)), geometry)
     mask = voxelise(grid_x, grid_y, grid_z, mesh)
     if not mask.any():
-        steps = [np.diff(np.asarray(g, dtype=float).reshape(-1)) for g in (grid_x, grid_y, grid_z)]
-        dx = max((float(d.max()) for d in steps if d.size), default=float("nan"))
-        warnings.warn(
-            f"The vessel ({_get(geometry, 'Folder')}/{_get(geometry, 'STLfile')}) covers no grid "
-            f"point: it is thinner than the grid spacing (dx = {dx * 1e6:.1f} µm). The medium "
-            "has no vessel; refine the grid (PointsPerWavelength) to resolve it.",
-            EmptyVesselWarning,
-            stacklevel=2,
-        )
+        axes = [np.asarray(g, dtype=float).reshape(-1) for g in (grid_x, grid_y, grid_z)]
+        lo, hi = mesh.min(axis=(0, 2)), mesh.max(axis=(0, 2))
+        name = f"{_get(geometry, 'Folder')}/{_get(geometry, 'STLfile')}"
+        if any(h < a.min() or l > a.max() for a, l, h in zip(axes, lo, hi, strict=True)):
+            msg = (
+                f"The vessel ({name}) lies outside the grid: check Geometry.Center, "
+                "Rotation and STLunit. The medium has no vessel."
+            )
+        else:
+            steps = [np.diff(a) for a in axes]
+            dx = max((float(d.max()) for d in steps if d.size), default=float("nan"))
+            msg = (
+                f"The vessel ({name}) covers no grid point: it is thinner than the grid "
+                f"spacing (dx = {dx * 1e6:.1f} µm). The medium has no vessel; refine the grid "
+                "(PointsPerWavelength) to resolve it."
+            )
+        warnings.warn(msg, EmptyVesselWarning, stacklevel=_stacklevel)
     return mask

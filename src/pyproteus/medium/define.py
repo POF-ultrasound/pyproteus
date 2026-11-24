@@ -76,15 +76,15 @@ def define_medium(
         if vessel is None:
             from pyproteus.geometry import vessel_mask
 
-            path = geometries_path
+            path = _nonempty_path(geometries_path)
             if path is None:
-                path = _get(geometry, "GeometriesPath", None)
+                path = _nonempty_path(_get(geometry, "GeometriesPath", None))
             if path is None:
                 raise ValueError(
                     "Geometry.EmbedVessel needs the STL folder: pass geometries_path= "
                     "(MATLAB Geometry.GeometriesPath) or a precomputed vessel= mask"
                 )
-            vessel = vessel_mask(grid.x, grid.y, grid.z, geometry, str(path))
+            vessel = vessel_mask(grid.x, grid.y, grid.z, geometry, path, _stacklevel=3)
         vessel = np.asarray(vessel)
         if vessel.shape != shape or vessel.dtype != bool:
             raise ValueError(f"vessel must be a bool array of shape {shape}")
@@ -115,3 +115,11 @@ def define_medium(
     if abs(out["alpha_power"] - 1) < 0.1:
         out["alpha_mode"] = "no_dispersion"
     return out, vessel
+
+
+def _nonempty_path(value: Any) -> str | None:
+    """A path as text; None, ``''`` and MATLAB's empty ``[]`` count as missing."""
+    if value is None or np.size(value) == 0:
+        return None
+    text = str(np.asarray(value, dtype=object).reshape(-1)[0])
+    return text or None

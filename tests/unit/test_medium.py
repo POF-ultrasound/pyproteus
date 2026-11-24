@@ -144,6 +144,11 @@ def test_define_medium_vessel_mask() -> None:
     g = _grid()
     with pytest.raises(ValueError, match="geometries_path"):
         medium.define_medium(g, _medium(), Geometry(EmbedVessel=True), rng=nm.rng(0))
+    for empty in ("", np.zeros((0, 0))):  # MATLAB '' or [] GeometriesPath: missing
+        with pytest.raises(ValueError, match="geometries_path"):
+            medium.define_medium(
+                g, _medium(), Geometry(EmbedVessel=True, GeometriesPath=empty), rng=nm.rng(0)
+            )
     mask = np.zeros(g.shape, dtype=bool)
     mask[3:6, 2:4, 1] = True
     kw, out_mask = medium.define_medium(
@@ -309,3 +314,16 @@ def test_define_medium_warns_on_empty_vessel(tmp_path) -> None:
             g, _medium(), _stl_geometry(), rng=nm.rng(0), geometries_path=tmp_path
         )
     assert not v.any()
+
+
+def test_define_medium_warns_when_vessel_outside_grid(tmp_path) -> None:
+    """A misplaced vessel (wrong Center/STLunit) is reported as outside the grid, and
+    the warning points at the caller, not at pyproteus."""
+    from pyproteus.geometry import EmptyVesselWarning
+
+    g = _grid()
+    (tmp_path / "box").mkdir()
+    _box_stl(tmp_path / "box" / "box.stl", (9e4, 9e4, 9e4), (9.5e4, 9.5e4, 9.5e4))
+    with pytest.warns(EmptyVesselWarning, match="outside the grid") as rec:
+        medium.define_medium(g, _medium(), _stl_geometry(), rng=nm.rng(0), geometries_path=tmp_path)
+    assert rec[0].filename == __file__
