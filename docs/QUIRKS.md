@@ -108,18 +108,16 @@ Format:
 - pyproteus deliberately does **not** reproduce this (D-17): `pyproteus.transducer.estimate_impulse_response` uses second-order sections, accurate to ~1e-14 (catalogue bands) and ~3e-12 (narrow bands) of the exact response.
 - Test: `tests/oracle/test_transmit_signals.py::test_impulse_response_vs_reference` (gated), `::test_impulse_response_vs_matlab` (catalogue bands gated at 1e-7, narrow bands reported).
 
-<<<<<<< HEAD
-## Q-90 — `define_grid` drops the last grid point when the PML padding is odd
-- MATLAB: `acoustic-module/define_grid.m:80-93` (oracle commit 8d37938).
-- Behaviour: the full size `M = optimize_grid_size(N, 2*PMLmin, MaxPrime)` searches the single candidate `N + 2*PMLmin` and grows from there; the PML is `ceil((M - N)/2)` per side and the core grid becomes `M - 2*PML`. When `M - N` is odd the core grid has `N - 1` points, so the last grid point inside the domain is lost (e.g. `N = 100` → `M = 135`, PML 18, core 99). A domain one grid point thick gives an **empty** axis (`N = 1` → `M = 32`, PML 16, core 0). The default settings of both shipped geometries pad every axis oddly.
-- Ported in: `pyproteus.acoustic.define_grid`, reproduced by default (`pml_rounding="ceil"`, D-19).
-- Test: `tests/unit/test_acoustic.py::test_define_grid_q90_default_drops_a_point`; `tests/oracle/test_acoustic_grid.py::test_define_grid_domains`, `test_define_grid_default_settings` (default mode equals MATLAB's grid exactly).
-- Fix available now: `define_grid(..., pml_rounding="floor")` keeps the odd point in the core (`N + 1` points, PML one thinner, same full size; tests `test_define_grid_floor_keeps_the_domain` and the oracle `"floor"` checks). The default flips to `"floor"` in 1.x (D-19); every downstream index changes for odd-padding axes.
-=======
 ## Q-84 — the Gaussian size distribution: 1000 radii, NaN for PDI = 0
 - MATLAB: `GUIfunctions/compute_gaussian_distribution.m`.
 - Behaviour: 1000 radii from 0.5 to 6 µm, while `compute_polydisperse_distribution` uses 1001 over the same range. `PDI = 0` or `MeanRadius = 0` gives a zero standard deviation and NaN probabilities (0/0) without an error; a mean radius far outside the range underflows every probability to 0, also giving NaN. The sign of `PDI` is irrelevant.
 - Ported in: `pyproteus.microbubble.gaussian_distribution` (same behaviour, NumPy warnings silenced).
 - Test: `tests/oracle/test_microbubble_distribution.py::test_fixed_cases`, `tests/unit/test_microbubble_distribution.py`.
 - Planned fix (proposal for after parity): validate `PDI > 0` and `MeanRadius > 0`, share one radius grid between the distributions, and make the grid (N, Rmin, Rmax) parameters with PROTEUS's values as defaults.
->>>>>>> origin/main
+
+## Q-90 — `define_grid` drops the last grid point when the PML padding is odd
+- MATLAB: `acoustic-module/define_grid.m:80-93` (oracle commit 8d37938).
+- Behaviour: the full size `M = optimize_grid_size(N, 2*PMLmin, MaxPrime)` searches the single candidate `N + 2*PMLmin` and grows from there; the PML is `ceil((M - N)/2)` per side and the core grid becomes `M - 2*PML`. When `M - N` is odd the core grid has `N - 1` points, so the last grid point inside the domain is lost (e.g. `N = 100` → `M = 135`, PML 18, core 99). A domain one grid point thick gives an **empty** axis (`N = 1` → `M = 32`, PML 16, core 0). The default settings of both shipped geometries pad every axis oddly.
+- Ported in: `pyproteus.acoustic.define_grid`, reproduced by default (`pml_rounding="ceil"`, D-19).
+- Test: `tests/unit/test_acoustic.py::test_define_grid_q90_default_drops_a_point`; `tests/oracle/test_acoustic_grid.py::test_define_grid_domains`, `test_define_grid_default_settings` (default mode equals MATLAB's grid exactly).
+- Fix available now: `define_grid(..., pml_rounding="floor")` keeps the odd point in the core (`N + 1` points, PML one thinner, same full size; tests `test_define_grid_floor_keeps_the_domain` and the oracle `"floor"` checks). The default flips to `"floor"` in 1.x (D-19); every downstream index changes for odd-padding axes.
