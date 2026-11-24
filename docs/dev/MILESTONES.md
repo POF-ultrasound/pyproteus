@@ -199,7 +199,7 @@ Cluster tooling (Slurm templates, containers) and `pyproteus sweep` moved out of
 ## Post-parity improvements (1.x backlog)
 
 - [ ] `define_grid` default `pml_rounding="floor"` (D-19)
-- [ ] DAS default `interpolation="linear"` (D-20); fix Q-102, Q-103, Q-104
+- [ ] DAS default `interpolation="linear"` (D-20); fix Q-102 (Q-103, Q-104 done now, D-21)
 - [ ] Estimated impulse response: replace the hard cut at round(5·Fs/df) samples (still 0.3–1.3 % of peak) with a taper or decay-based length
 - [ ] Fix ported quirks listed in `docs/QUIRKS.md` (timer, batch-dependent ODEs, parallel randomness, `alpha_mode` Q-1, ...)
 

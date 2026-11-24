@@ -74,3 +74,11 @@ Who: developer.
 
 ## D-20 — Optional linear interpolation in delay-and-sum (2026-11-24)
 Both beamformers get `interpolation="linear"` (between RF samples; removes the .5-tie sensitivity of nearest-sample lookup and improves the point-spread function, Perrot et al. 2021). Default stays `"nearest"` for parity; switch the default in 1.x. Linear mode is tested against analytical/high-resolution references, not MATLAB. Who: developer.
+
+## D-21 — Delay-and-sum improvements P5–P8 (2026-11-24)
+From the PR #17 review, done now:
+- P5: pixel axes span the domain (lateral `Ymin:…:Ymax`, reference beamformer starts at `Xmin`), fixing Q-103.
+- P6: `compute_das_matrix_general` applies `Tx.apod`, fixing Q-104.
+- P7: `log_compress` warns on all-zero frames instead of returning silent NaN.
+- P8: the DAS matrix is cached per settings and RF size.
+P5 and P6 are the default; a `proteus_compat=True` keyword restores PROTEUS behaviour for parity tests. Results are unchanged for symmetric domains and unapodized transmits. Who: developer (P5, P6); main session under D-15 (P7, P8, no result change).
