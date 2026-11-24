@@ -10,7 +10,6 @@ Classes are D-13 (medium tolerance; parity is behaviour and results, not MATLAB'
 - **exact**: only where it falls out naturally (data read from files, documented integer semantics on exact inputs, storage round trips)
 - **ODE**: ≈ 10·RelTol rel + AbsTol abs; **k-Wave** ≤ 1e-5; **end-to-end RF** ≤ 1e-4 (ROADMAP §4)
 
-Rows still marked "bit-identical" predate D-12 and are being moved to these classes.
 
 Status: ✅ oracle test passes, 🟡 partial, ❌ fails / open bug, ⬜ not started.
 

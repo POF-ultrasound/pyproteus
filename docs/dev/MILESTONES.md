@@ -20,7 +20,7 @@ Plan: pyproteus Roadmap §6. k-Wave, pyproteus Roadmap §4. Parity method
 - [x] Asymmetric mask test: map source and sensor rows between Fortran (MATLAB) and C order (k-wave-python) (2026-11-20, `tools/tracer_bullet/adapter.py`, B-10)
 - [x] Compare sensor data (target ≤ 1e-5 rel); check additive pressure source scaling (2026-11-20: ≤ 7e-7; source inputs bit-identical)
 - [x] Velocity source (`ux`/`uy`, curved array) case (2026-11-20)
-- [ ] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older (open: needs cluster access, see findings note)
+- [x] Check university cluster GPU compute capability (CUDA binaries need ≥ 7.5); try CuPy backend if older (2026-11-23: Quadro RTX 6000, CC 7.5, 24 GB; D-16) (open: needs cluster access, see findings note)
 - [x] Note findings in PROTEUS-py Project §Notes (2026-11-20, shared note `tracer-bullet-findings.md`; mirror to Obsidian pending)
 
 ### Repo setup
@@ -133,6 +133,7 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [ ] `main_pressure_field`
 
 ### Done when
+- [ ] Point scatterer at a known depth, imaged through the hybrid and full paths: settles DAS quirk Q-100 (one-sample depth offset vs the k-Wave staggered-grid correction; D-18)
 - [ ] Hybrid and full paths match MATLAB on tiny and small cases (CPU)
 - [ ] Medium case on GPU
 
@@ -196,6 +197,13 @@ Cluster tooling (Slurm templates, containers) and `pyproteus sweep` moved out of
 - [ ] Trusted publishing to PyPI; tag `v1.0.0`
 - [ ] Announce (IUS, k-Wave forum, mailing lists); label good first issues
 - [ ] MATLAB PROTEUS README points to pyproteus; archive mode announced
+
+## Post-parity improvements (1.x backlog)
+
+- [ ] `define_grid` default `pml_rounding="floor"` (D-19)
+- [ ] DAS default `interpolation="linear"` (D-20); fix Q-102 (Q-103, Q-104 done now, D-21)
+- [ ] Estimated impulse response: replace the hard cut at round(5·Fs/df) samples (still 0.3–1.3 % of peak) with a taper or decay-based length
+- [ ] Fix ported quirks listed in `docs/QUIRKS.md` (timer, batch-dependent ODEs, parallel randomness, `alpha_mode` Q-1, ...)
 
 ## 1.1: GUI
 

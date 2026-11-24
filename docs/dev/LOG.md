@@ -8,6 +8,9 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - Closes the M5 open item of 2026-11-23: MATLAB's grid is now the default, nothing extra is needed for end-to-end parity runs.
 - Reviewer: SIGN-OFF (nits fixed: stale D-19 comments, per-axis parity from the domain point count in the domain oracle test).
 
+## 2026-11-23 — direction and cluster GPU (main session)
+- D-15: pyproteus is a step towards a better PROTEUS, not an exact copy; challenge PROTEUS implementation choices when results stay within tolerance. ROADMAP summary and CLAUDE.md updated. D-16: cluster GPU is a Quadro RTX 6000 (CC 7.5, 24 GB): CUDA binary usable.
+
 ## 2026-11-23 — M1 delay-and-sum: review round 1 and D-18 (m1-das)
 - Developer decisions via main (D-18): Q-101 fixed (TGC normalised by `sqrt(max(t))`; identical to MATLAB when MATLAB is valid, both regimes oracle-tested; moved to a PARITY divergence); Q-102 kept until 1.x; single-RF image class ≤ 1e-6 accepted; `colon` moved to `numerics/colon.py`.
 - Q-100 checked: the RF time axis is 0-based throughout PROTEUS (source, k-Wave `t_array`, `compute_RF` convolution, DAS); the port adds no shift. `I/Fs` is one sample late in isolation but adds linearly to the undocumented k-Wave correction (`+dt` / `+3/2 dt`), so it may be part of that empirical compensation. Kept as reproduced, decision deferred to an end-to-end point-scatterer check in M3.
