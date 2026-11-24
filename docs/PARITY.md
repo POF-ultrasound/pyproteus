@@ -220,6 +220,11 @@ so `(t_del - t(1))*Fs` hits exact .5 values on both sides (half away from zero).
 | `DAS_reconstruction` (double RF; v7.3 + pulse inversion + diverging + full-simulation k-Wave correction; single RF) | `das_reconstruction` | float on the linear image `10^(IMG/20)` for double RF (measured 4.4e-16); single RF ≤ 1e-6 abs (measured 5.5e-8; class accepted by the developer, D-18); short record (samples past the end) | `test_das_reconstruction` | ✅ |
 | `initialize_das_parameters` (linear even/odd, curved; steered, diverging, focused; lens/k-Wave variants; `Transmit.Apodization`; errors; delay-mismatch warning) | `initialize_das_parameters` (warning: `DasDelayMismatchWarning`) | float (axes, time axis, element geometry); exact length of axes | `test_initialize_das_parameters*` | ✅ |
 | `DAS_reconstruction_general` (linear 16/15 elements, curved 17/16; plane, steered diverging, focused; v7/v7.3; single RF) | `das_reconstruction_general` | as `DAS_reconstruction` (measured ≤ 6.7e-16 double, 9.8e-8 single) | `test_das_reconstruction_general` | ✅ |
+| — (not in PROTEUS) | `interpolation="linear"` option of `compute_das_matrix`, `compute_das_matrix_general`, `das_reconstruction`, `das_reconstruction_general` (D-20; default `"nearest"` = MATLAB) | analytical, not MATLAB: one-element interpolation error ≤ `max|f''|·dt²/8` (measured 0.016 vs 0.14 for nearest on a 2.5 MHz pulse at 40 MHz); 32-element PSF within 2 % of DAS on the continuous RF and ≥ 4× closer than nearest; equal to nearest on on-sample delays | `tests/unit/test_das_linear.py` | ✅ |
+
+Option beyond MATLAB (developer decision D-20):
+
+- **Linear sample interpolation.** `interpolation="linear"` splits each (pixel, element) weight `v` between samples `floor(s)` and `floor(s)+1` (`v·(1-w)`, `v·w`, `s = (t_del - t(1))·Fs`), kept when `0 ≤ s ≤ Nt-1`. Removes the sensitivity of nearest-sample DAS to .5 ties and improves the point-spread function (Perrot et al. 2021); at most twice the non-zeros. Default stays `"nearest"` (MATLAB, oracle-tested) until 1.x, where it becomes `"linear"`.
 
 Result-changing divergence (developer decision D-18):
 

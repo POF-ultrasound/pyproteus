@@ -189,6 +189,8 @@ def _peek(frames):
 def das_reconstruction(
     folder: str | PathLike[str],
     filename_parameters: str | PathLike[str] | Settings,
+    *,
+    interpolation: str = "nearest",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``[IMG, x, y] = DAS_reconstruction(folder, filename_parameters)``.
 
@@ -200,7 +202,8 @@ def das_reconstruction(
     Returns the log-compressed image ``IMG`` (``Nx``-by-``Ny``-by-``Nframes``,
     dB, axial-by-lateral) and the axial ``x`` and lateral ``y`` pixel
     coordinates [m]. Pixel size ``lambda/5``, ``x = 0:pixelSize:Xmax``,
-    ``y = -width/2:pixelSize:width/2``.
+    ``y = -width/2:pixelSize:width/2``. ``interpolation``: ``'nearest'``
+    (default, MATLAB) or ``'linear'`` sample interpolation (D-20).
     """
     S = _settings(filename_parameters)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))
@@ -224,7 +227,7 @@ def das_reconstruction(
 
     t = das_time_axis(Nt, S.SimulationParameters, S.Transducer, S.Transmit, c)
     tgc = time_gain_compensation(t, S.Medium, f0, c)
-    M = compute_das_matrix(t, y, x, y_el, c, Fs, focus)
+    M = compute_das_matrix(t, y, x, y_el, c, Fs, focus, interpolation=interpolation)
 
     img = beamform_frames(frames, tgc, M)  # (Ny*Nx) x Nframes, lateral first
     img = img.reshape(x.size, y.size, -1)  # C order: [ix, iy] <- iy + Ny*ix

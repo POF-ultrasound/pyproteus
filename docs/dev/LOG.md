@@ -2,6 +2,12 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-24 — DAS linear interpolation option (m1-das, D-20)
+- PR #17 merged (c52f3ef) after reviewer round 3 sign-off; CI re-runs needed for macOS jobs that never got a runner and one Windows k-Wave download timeout (not code).
+- D-20: `interpolation="linear"` for `compute_das_matrix`, `compute_das_matrix_general`, `das_reconstruction`, `das_reconstruction_general`; default `"nearest"` (MATLAB, oracle tests unchanged: 86 pass). Shared `_block_entries` builds both.
+- Tests against analytical references (`tests/unit/test_das_linear.py`): interpolation error bound (measured 0.016 vs 0.14 nearest), PSF vs DAS on the continuous RF (< 2 %, ≥ 4× better than nearest), on-sample delays equal nearest, weight split/adjacency/element blocks, record edges, beamformer option.
+- Q-100 wording: unresolved, decided after the M3 point-scatterer check (main session).
+
 ## 2026-11-23 — M1 delay-and-sum: review round 1 and D-18 (m1-das)
 - Developer decisions via main (D-18): Q-101 fixed (TGC normalised by `sqrt(max(t))`; identical to MATLAB when MATLAB is valid, both regimes oracle-tested; moved to a PARITY divergence); Q-102 kept until 1.x; single-RF image class ≤ 1e-6 accepted; `colon` moved to `numerics/colon.py`.
 - Q-100 checked: the RF time axis is 0-based throughout PROTEUS (source, k-Wave `t_array`, `compute_RF` convolution, DAS); the port adds no shift. `I/Fs` is one sample late in isolation but adds linearly to the undocumented k-Wave correction (`+dt` / `+3/2 dt`), so it may be part of that empirical compensation. Kept as reproduced, decision deferred to an end-to-end point-scatterer check in M3.

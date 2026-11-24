@@ -156,9 +156,53 @@ def _assemble(rows: list, cols: list, vals: list, shape: tuple[int, int]) -> sp.
     else:
         r = c = np.zeros(0, dtype=np.int64)
         v = np.zeros(0)
-    # Rows come in increasing order and columns per row are unique, so the
-    # COO -> CSR conversion neither sums nor reorders values.
-    return sp.coo_array((v, (r, c)), shape=shape).tocsr()
+    # Each (row, column) appears once, so the COO -> CSR conversion sums
+    # nothing (MATLAB ``sparse`` accumulation never applies).
+    M = sp.coo_array((v, (r, c)), shape=shape).tocsr()
+    M.sort_indices()
+    return M
+
+
+INTERPOLATIONS = ("nearest", "linear")
+
+
+def _check_interpolation(interpolation: str) -> None:
+    if interpolation not in INTERPOLATIONS:
+        raise ValueError(f"interpolation must be one of {INTERPOLATIONS}, not {interpolation!r}")
+
+
+def _block_entries(
+    p: np.ndarray, s: np.ndarray, v: np.ndarray, Nt: int, interpolation: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Sparse entries of one pixel block.
+
+    ``s`` is the fractional 0-based sample position ``(t_del - t(1))*Fs`` and
+    ``v`` the weight of each (pixel, element) pair (0 where apodized away).
+
+    * ``'nearest'`` (MATLAB): one entry at ``round(s)`` (half away from zero),
+      kept if ``0 <= round(s) < Nt``.
+    * ``'linear'`` (D-20): weights ``v*(1-w)`` at ``floor(s)`` and ``v*w`` at
+      ``floor(s)+1``, ``w = s - floor(s)``, kept if ``0 <= s <= Nt-1`` (both
+      samples inside the record); zero weights are not stored.
+    """
+    if interpolation == "nearest":
+        j = matlab_round(s)
+        keep = (j >= 0) & (j < Nt) & (v != 0)
+        pix, el = np.nonzero(keep)  # row-major: pixel order, then element order
+        return p[pix], j[pix, el].astype(np.int64) + el * Nt, v[pix, el]
+    with np.errstate(invalid="ignore"):
+        keep = (s >= 0) & (s <= Nt - 1) & (v != 0)
+    pix, el = np.nonzero(keep)
+    sk = s[pix, el]
+    i0 = np.floor(sk)
+    w = sk - i0
+    vk = v[pix, el]
+    i0 = i0.astype(np.int64)
+    rows = np.concatenate([p[pix], p[pix]])
+    cols = np.concatenate([i0 + el * Nt, i0 + 1 + el * Nt])
+    vals = np.concatenate([vk * (1 - w), vk * w])
+    nz = vals != 0  # w = 0 (on a sample, incl. s = Nt-1) leaves one entry
+    return rows[nz], cols[nz], vals[nz]
 
 
 def _blocks(n: int, block_size: int):
@@ -176,6 +220,7 @@ def compute_das_matrix(
     Fs: float,
     focus: float,
     *,
+    interpolation: str = "nearest",
     block_size: int = DEFAULT_BLOCK_SIZE,
 ) -> sp.csr_array:
     """Reference delay-and-sum matrix for a linear array (``compute_das_matrix.m``).
@@ -190,6 +235,10 @@ def compute_das_matrix(
     ``X = 0`` keeps the element at its own lateral position (0/0 → NaN, which
     is not above the threshold) and pixels at ``X < 0`` keep every element
     (negative angle) — see ``docs/QUIRKS.md``.
+
+    ``interpolation``: ``'nearest'`` (default, MATLAB) or ``'linear'``
+    (D-20: weights split between the two samples around the delay; the
+    default becomes ``'linear'`` in 1.x).
     """
     t = _row(t)
     y = _row(y)
@@ -199,6 +248,7 @@ def compute_das_matrix(
     Fs = float(Fs)
     focus = float(focus)
     alpha_th = np.pi / 3
+    _check_interpolation(interpolation)
 
     if np.isfinite(focus) and focus >= 0:
         raise ValueError("Only negative focus and infinite focus supported.")
@@ -220,13 +270,13 @@ def compute_das_matrix(
                 )
             else:
                 t_del = np.sqrt((Y - y_el) ** 2 + X**2) / c + X / c
-            j = matlab_round((t_del - t[0]) * Fs)  # 0-based sample index
+            s = (t_del - t[0]) * Fs  # fractional 0-based sample position
             alpha = np.arctan(np.abs(y_el - Y) / X)
-        keep = (j >= 0) & (j < Nt) & ~(alpha > alpha_th)
-        pix, el = np.nonzero(keep)  # row-major: pixel order, then element order
-        rows.append(p[pix])
-        cols.append(j[pix, el].astype(np.int64) + el * Nt)
-        vals.append(np.ones(pix.size))
+        v = (~(alpha > alpha_th)).astype(np.float64)
+        r, cidx, val = _block_entries(p, s, v, Nt, interpolation)
+        rows.append(r)
+        cols.append(cidx)
+        vals.append(val)
     return _assemble(rows, cols, vals, (Npixels, Nt * Nelem))
 
 
@@ -235,6 +285,7 @@ def compute_das_matrix_general(
     transducer: Any,
     transmit: Any,
     *,
+    interpolation: str = "nearest",
     block_size: int = DEFAULT_BLOCK_SIZE,
 ) -> sp.csr_array:
     """General delay-and-sum matrix (``compute_das_matrix_general.m``).
@@ -248,7 +299,8 @@ def compute_das_matrix_general(
     ``azimuth``, ``center``/``radius`` (default ``-Inf``/``Inf``: linear).
     ``transmit``: ``focus`` (default ``Inf``), ``steer`` (default 0),
     ``axis_delay`` (default 0). Dataclasses from this module or mappings with
-    MATLAB field names.
+    MATLAB field names. ``interpolation``: ``'nearest'`` (default, MATLAB) or
+    ``'linear'`` (D-20), as in :func:`compute_das_matrix`.
     """
     x = _row(_field(recon, "x"))
     y = _row(_field(recon, "y"))
@@ -256,6 +308,7 @@ def compute_das_matrix_general(
     t = _row(_field(recon, "t"))
     Fs = float(_field(recon, "Fs"))
     alpha_th = float(_field(recon, "alpha_th"))
+    _check_interpolation(interpolation)
     apodization = _field(recon, "apodization", "cosine")
     if apodization not in ("cosine", "binary"):
         raise ValueError(f"Unknown apodization '{apodization}'.")
@@ -290,7 +343,7 @@ def compute_das_matrix_general(
         d_in = das_transmit_distance(X, Y, tr, tx)
         d_back = np.sqrt((Y - y_el) ** 2 + (X - x_el) ** 2)
         t_del = d_back / c + d_in / c + axis_delay
-        j = matlab_round((t_del - t[0]) * Fs)  # 0-based sample index
+        s = (t_del - t[0]) * Fs  # fractional 0-based sample position
 
         alpha = np.arctan2(Y - y_el, X - x_el) - azimuth
         if apodization == "cosine":
@@ -302,9 +355,8 @@ def compute_das_matrix_general(
             inside = (Y**2 + (X - center) ** 2 < radius**2).reshape(-1)
             v[inside, :] = 0
 
-        keep = (j >= 0) & (j < Nt) & (v != 0)
-        pix, el = np.nonzero(keep)
-        rows.append(p[pix])
-        cols.append(j[pix, el].astype(np.int64) + el * Nt)
-        vals.append(v[pix, el])
+        r, cidx, val = _block_entries(p, s, v, Nt, interpolation)
+        rows.append(r)
+        cols.append(cidx)
+        vals.append(val)
     return _assemble(rows, cols, vals, (Npixels, Nt * Nelem))
