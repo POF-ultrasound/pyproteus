@@ -68,7 +68,7 @@ PROTEUS's `estimate_impulse_response` (`butter(3,Wn,'bandpass')` in (b,a) form, 
 Who: developer (Q-100..Q-102); main session (single-precision class).
 
 ## D-19 — Grid PML split and shipped geometries (2026-11-23)
-- Q-90: `define_grid` uses `PML = floor((M-N)/2)` instead of PROTEUS's `ceil`, so with odd M-N the extra point stays in the core grid and a one-point axis is not emptied. Grids then differ from MATLAB by one core point in those cases; oracle tests document that difference and compare everything else.
+- Q-90: `define_grid(..., pml_rounding="ceil"|"floor")`. PROTEUS's `ceil` drops the odd point from the core grid (and empties a one-point axis); `floor` keeps it. Revised 2026-11-24: both shipped geometries have odd padding on all three axes, so `floor` would change every default k-Wave grid (renal tree core 446×298×178 → 448×300×180). Default is therefore `"ceil"` (MATLAB-identical) until 1.0; `"floor"` is available now and becomes the default in 1.x.
 - The shipped STL geometries (Zenodo record 10573662) are downloaded into a gitignored folder and registered with pooch, so the default-geometry tests run.
 Who: developer.
 
