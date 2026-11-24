@@ -7,11 +7,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 
-from pyproteus.config.models import Gas
+from pyproteus.config.models import Gas, Microbubble
 
 __all__ = [
     "compute_gaussian_distribution",
@@ -108,7 +106,7 @@ def gaussian_distribution(mean_radius: float, pdi: float) -> tuple[np.ndarray, n
     return R, P
 
 
-def compute_gaussian_distribution(microbubble: Any) -> tuple[np.ndarray, np.ndarray]:
+def compute_gaussian_distribution(microbubble: Microbubble) -> tuple[np.ndarray, np.ndarray]:
     """Port of ``compute_gaussian_distribution.m``: ``(R, P)`` from
     ``Microbubble.Distribution.MeanRadius`` [m] and ``PDI`` [%] (see
     :func:`gaussian_distribution`)."""

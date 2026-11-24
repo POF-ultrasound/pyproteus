@@ -1,7 +1,8 @@
 """Oracle tests: ``compute_gaussian_distribution`` against MATLAB.
 
-D-13 float class: ``|a - e| <= 1e-9*|e| + 1e-14*max|e|`` (``R`` from ``linspace``,
-``P`` from ``exp`` and ``sum``); NaN positions equal (PDI = 0, Q-84).
+D-13 float class, relative everywhere: ``|a - e| <= 1e-9*|e| + 1e-300`` (``P`` spans
+hundreds of decades, so no max-based floor); exact zeros and NaN positions equal
+(PDI = 0 or MeanRadius = 0, Q-84). Measured: <= 1.1e-15 relative.
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ def assert_float(actual: Any, expected: Any, err_msg: str) -> None:
     if not fin.any():
         return
     err = np.abs(a[fin] - e[fin])
-    bound = 1e-9 * np.abs(e[fin]) + 1e-14 * np.max(np.abs(e[fin]))
+    assert np.array_equal(a[fin] == 0, e[fin] == 0), f"zero positions differ {err_msg}"
+    bound = 1e-9 * np.abs(e[fin]) + 1e-300
     assert np.all(err <= bound), f"max excess {np.max(err - bound):.3g} {err_msg}"
 
 
@@ -50,7 +52,7 @@ def check(eng: Any, cases: list[tuple[float, float]]) -> None:
 
 # Mean radius on a grid node (k = 499: 0.5e-6 + 499*5.5e-6/999), at the ends,
 # outside the range (tails underflow), tiny; PDI typical, tiny, huge, negative, zero.
-R0 = [1e-6, 2.5e-6, 0.5e-6 + 499 * 5.5e-6 / 999, 0.5e-6, 6e-6, 10e-6, 0.1e-6, 3.3e-6]
+R0 = [0.0, 1e-6, 2.5e-6, 0.5e-6 + 499 * 5.5e-6 / 999, 0.5e-6, 6e-6, 10e-6, 0.1e-6, 3.3e-6]
 PDI = [5.0, 10.0, 37.5, 100.0, 0.1, -10.0, 0.0, 1e4]
 
 

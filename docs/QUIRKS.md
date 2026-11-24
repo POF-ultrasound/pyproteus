@@ -79,7 +79,7 @@ Format:
 
 ## Q-84 — the Gaussian size distribution: 1000 radii, NaN for PDI = 0
 - MATLAB: `GUIfunctions/compute_gaussian_distribution.m`.
-- Behaviour: 1000 radii from 0.5 to 6 µm, while `compute_polydisperse_distribution` uses 1001 over the same range. `PDI = 0` gives a zero standard deviation and NaN probabilities (0/0) without an error; a mean radius far outside the range underflows every probability to 0, also giving NaN. The sign of `PDI` is irrelevant.
+- Behaviour: 1000 radii from 0.5 to 6 µm, while `compute_polydisperse_distribution` uses 1001 over the same range. `PDI = 0` or `MeanRadius = 0` gives a zero standard deviation and NaN probabilities (0/0) without an error; a mean radius far outside the range underflows every probability to 0, also giving NaN. The sign of `PDI` is irrelevant.
 - Ported in: `pyproteus.microbubble.gaussian_distribution` (same behaviour, NumPy warnings silenced).
 - Test: `tests/oracle/test_microbubble_distribution.py::test_fixed_cases`, `tests/unit/test_microbubble_distribution.py`.
-- Planned fix (proposal for after parity): validate `PDI > 0` and share one radius grid between the distributions.
+- Planned fix (proposal for after parity): validate `PDI > 0` and `MeanRadius > 0`, share one radius grid between the distributions, and make the grid (N, Rmin, Rmax) parameters with PROTEUS's values as defaults.
