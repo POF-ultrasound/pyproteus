@@ -207,7 +207,12 @@ def _fft_length(nt: int, r_max: float, c0: float, dt: float) -> int:
 
     A direct arrival at ``r/c0`` lasting ``Nt`` samples wraps into the window when
     ``r/c0 > Nt*dt``. Then the length is the 5-smooth size from
-    ``Nt + ceil(1.1*r_max/(c0*dt))`` (10 % margin for dispersive slow components).
+    ``Nt + ceil(1.1*r_max/(c0*dt))``. The 10 % is an empirical margin, not a
+    bound: components slower than ``c0`` (``2 < b < 3``, and low frequencies
+    with ``b <= 1`` and a finite reference) can arrive later, but they are
+    strongly attenuated or carry little energy (the source spectrum is ∝ f);
+    measured in-window leakage ≤ 2e-11 × peak for ``b`` 0.5–2.5 at 2.3 and 10
+    × ``Nt*dt*c0`` (unit test ``test_far_arrivals_never_wrap``).
     """
     if not r_max > nt * dt * c0:
         return 2 * nt
@@ -389,6 +394,8 @@ def propagate_homogeneous(
         (float(np.max(np.linalg.norm(sen - src[m], axis=1))) for m in range(n_src)),
         default=0.0,
     )
+    # gridded distances can exceed r_max by dt*c0/2: covered by the margin (or
+    # identical to MATLAB at 2*Nt)
     L = _fft_length(nt, r_max, c0, float(dt))
     F = L // 2 + 1
     K = med.wavenumber(_frequencies(fs, L, xp), xp)

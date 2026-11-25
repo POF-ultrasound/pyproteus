@@ -168,7 +168,12 @@ def test_far_arrivals_never_wrap() -> None:
     r = np.array(
         [[1e-3], [0.9 * nt_small * DT * c], [1.4 * nt_small * DT * c], [2.3 * nt_small * DT * c]]
     )
-    for med in (LOSSLESS, {"c": c, "a": 0.75, "b": 1.5}):
+    for med in (
+        LOSSLESS,
+        {"c": c, "a": 0.75, "b": 1.5},
+        {"c": c, "a": 0.75, "b": 2.5},  # components slower than c0
+        {"c": c, "a": 0.5, "b": 0.5, "reference_frequency": 3e6},  # D-23 finite reference
+    ):
         small = hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": nt_small}, r)[:, :, 0]
         big = hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": nt_big}, r)[:, :nt_small, 0]
         scale = np.max(np.abs(big))
