@@ -97,3 +97,6 @@ Who: developer.
 - Q-130: `calc_scatter_attenuated` uses reference frequency 0 in the power-law Kramers–Kronig dispersion, which is singular for `alpha_power` ≤ 1 (bubble echoes all NaN for AttenuationB ≤ 0.9). pyproteus uses a finite reference frequency (transmit centre frequency, c(ω0) = c0) only in that singular case and keeps PROTEUS's formula elsewhere; applying it for all b is in the 1.x backlog.
 - Q-131: arrivals later than 2·Nt·dt no longer wrap into the RF window (FFT padding / far sources zeroed); nothing reachable with PROTEUS's own Nt sizing changes.
 Who: developer.
+
+## D-24 — End-to-end RF comparison class (2026-11-26)
+End-to-end RF from fixed bubble positions is compared with MATLAB at ≤ 1e-3 × max|RF| (replacing D-13's 1e-4), consistent with the D-22 bubble class: the bubble ODE difference (mass source ~2e-4) passes into the RF almost one to one (measured RF 1.01e-4 for P4-1 with shared steps). The propagation + RF stage, fed MATLAB's mass source, stays at ≤ 1e-9 (measured ~1e-13), so propagation errors are still caught. Who: developer.

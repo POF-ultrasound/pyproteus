@@ -62,7 +62,7 @@ Reference: PROTEUS v1.1.0 · team: 1 developer + Claude Code · reviewed twice a
 | Bubble radius, mass source | ≈ 10·RelTol rel + AbsTol abs of the solver settings; plus accuracy vs analytical/high-accuracy references | same ODE method, adaptive steps may differ |
 | Streamlines (serial) | statistical: paths agree until the first voxel flip; distributions (positions, velocities, counts) match | piecewise-constant velocity |
 | k-Wave fields, RF | ≤ 1e-5 rel (single) | same binary; input preparation |
-| End-to-end RF, images | RF ≤ 1e-4; image metrics equal | accumulated differences |
+| End-to-end RF, images | RF ≤ 1e-3 × max (D-24; propagation stage alone ≤ 1e-9); image metrics equal | bubble ODE differences pass into RF |
 
 Tolerance policy (D-12, 2026-11-22): reproduce behaviour and results, not MATLAB's bits. Never tune code to MATLAB ulps (libm rounding, summation order, formula grouping, solver step sequences) by probing MATLAB; use documented semantics, papers and standard library routines.
 
