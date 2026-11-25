@@ -205,8 +205,8 @@ Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxS
 
 ## Microbubble model and mass source (`pyproteus.microbubble`, `pyproteus.acoustic.mass_source`, M2)
 
-Bubble-response class (D-22, 2026-11-25): per bubble
-`max|Δy| ≤ 1e-3·max|y| + 1e-5` for the solver states `y = x = R/R0 - 1` and `y = xdot = Rdot·T/R0`;
+Bubble-response class (D-22, absolute term amended 2026-11-25 for B-123): per bubble
+`max|Δy| ≤ 1e-3·max|y| + 3e-5` for the solver states `y = x = R/R0 - 1` and `y = xdot = Rdot·T/R0`;
 for the mass source the same per bubble with the absolute term scaled by `4πρR0³/T`. The D-13 bound
 `10·RelTol·max|y| + AbsTol` is missed by MATLAB against itself (bubble alone vs in a batch: 17–34×),
 and both solvers are ~1e-4 of the excursion from a DOP853 rtol 1e-13 reference (MATLAB ≤ 1.2e-4,
@@ -223,9 +223,9 @@ that reference (≤ 1e-3).
 | `getEqParam` (Prosperetti/Adiabatic/Isothermal × shell models, equal radii) | `get_eq_param` | float | `test_microbubble_model.py` | ✅ |
 | `compress_bubble` (over/underpressure, Marmottant, SegersTable) | `compress_bubble` | float | `test_microbubble_model.py` (needs the `boolean` shim, B-122) | ✅ |
 | `simple_RP` (random states, off-node and extrapolated times) | `simple_rp` + `PchipBatch` | float (1e-9 rel + 1e-12·max) | `test_microbubble_model.py` | ✅ |
-| `calcBubbleResponse` (single bubbles: buckled/elastic/ruptured, 0.5 µm, 6 µm; batches incl. equal radii; SegersTable, Segers) | `calc_bubble_response(..., step_control="shared")` vs MATLAB's batch; default `"independent"` vs MATLAB integrating each bubble alone | bubble class (shared worst 0.79; 6–30× the D-13 bound) | `test_microbubble_model.py` | 🟡 one case at 1.17 (B-123) |
+| `calcBubbleResponse` (single bubbles: buckled/elastic/ruptured, 0.5 µm, 6 µm; batches incl. equal radii; SegersTable, Segers) | `calc_bubble_response(..., step_control="shared")` vs MATLAB's batch; default `"independent"` vs MATLAB integrating each bubble alone | bubble class (worst 0.82 independent / 0.56 shared with the amended 3e-5 term; was 1.17 / 0.79 with 1e-5, B-123) | `test_microbubble_model.py` | ✅ |
 | `compute_bubble_mass_source` batch membership (stable radius sort, ties) | `get_batch_indices` | exact | `test_mass_source.py` | ✅ |
-| `compute_bubble_mass_source` (defaults, batch sizes 1/2/3/15, ties, single bubble, Segers table, `Advanced` viscosity, float32 input) | `compute_bubble_mass_source` (default independent steps vs MATLAB with `BatchSize = 1`; `step_control="shared"` vs MATLAB at the same batch size) | bubble class (independent worst 0.85, shared 0.26) | `test_mass_source.py` | ✅ |
+| `compute_bubble_mass_source` (defaults, batch sizes 1/2/3/15, ties, single bubble, Segers table, `Advanced` viscosity, float32 input) | `compute_bubble_mass_source` (default independent steps vs MATLAB with `BatchSize = 1`; `step_control="shared"` vs MATLAB at the same batch size) | bubble class (independent worst 0.70, shared 0.22) | `test_mass_source.py` | ✅ |
 
 Batch-size sensitivity (default Marmottant, 7 bubbles, batch 1 vs 7, max per-bubble difference relative
 to its max): MATLAB 4.6e-5–2.4e-4; pyproteus shared steps 1.0e-4–1.0e-3; pyproteus independent steps

@@ -15,11 +15,11 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Handling: no code to match MATLAB (D-12). The `'Segers'` polynomial path is tested at a class from its conditioning (roots 1e-3 rel, σ 2e-4 N/m, χ-derived 1e-2); its bubble responses still meet the bubble class. The pipeline (`compute_bubble_mass_source`) maps `'Segers'` to the lookup table, which is well conditioned (float class).
 - Proposal (1.x, D-15): drop the polynomial path, or evaluate the fit in a centred/scaled or Chebyshev basis.
 
-## B-123 — Quiet bubbles crossing the Marmottant buckling kink are integrated less accurately (open, decision requested)
+## B-123 — Quiet bubbles crossing the Marmottant buckling kink are integrated less accurately (accepted: D-22 amended)
 - Where: `calc_surface_tension` clamps σ at the buckling radius R_b (and at σ_l): a kink in the RHS.
 - Symptom: 2 µm, σ0 = 0.01, 2 MHz, 7–20 kPa sweep, fraction of the D-22 class against DOP853 rtol 1e-13: MATLAB up to 0.82 (12 kPa), pyproteus up to 1.16 (10–11 kPa); oracle case `batch_equal_radii` (10 kPa bubble) at 1.17 of the class vs MATLAB. With R_b out of reach (σ0 = 0.04) both ≤ 0.17.
 - Cause: a 5th-order step straddling the kink loses order; the error depends on where steps land. Hairer–Wanner step stabilisation (β = 0.04) only moves the unlucky amplitude (1.71 at 9 kPa), so it was not adopted.
-- Proposed (sent to the main session): widen the class's absolute term to 3e-5 now; treat the regime switches as events (1.x, D-15).
+- Resolution (developer, D-22 amended): the class's absolute term is 3e-5 (rel 1e-3 unchanged); buckling/rupture events (R = R_b, σ = σ_l) are in the 1.x backlog.
 
 ## B-121 — D-13 bubble class not reachable (resolved: D-22 class)
 - Where: `calcBubbleResponse` with PROTEUS' options (RelTol = AbsTol = 1e-6).
