@@ -2,6 +2,16 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-25 — M2 homogeneous path: Green's function propagation and RF synthesis (m2-homogeneous)
+- `pyproteus.acoustic.homogeneous`: `calc_scatter_attenuated`, `run_simulation_homogeneous` (+ array-level `propagate_homogeneous`, `average_medium`, `gridded_distance`), clean-room `power_law_kramers_kronig` (Szabo 1994, Waters et al. 2005) and `db2neper` (no k-Wave source). `pyproteus.acoustic.rf`: `compute_RF`, `compute_RF_data`, `rf_signal_length`.
+- D-15 design (PARITY.md): half spectra; sources summed in the frequency domain (one inverse FFT per sensor); `compute_RF` applies delay, apodization and weights per element on half spectra (one inverse FFT per element, no `N_el·N_int × N` complex array); float64 inside for single-precision runs; `xp` array module for CuPy (untested here, no CUDA).
+- Oracle (58 tests, plus 25 unit tests; MATLAB bubble responses from `compute_bubble_mass_source` as sources): double ≤ 5e-15 × max; single ≤ 8.8e-7 × max (class 1e-5, as k-Wave single). MATLAB single is 8e-7 from MATLAB double; pyproteus 1.1e-7.
+- Quirks: Q-132 (periodic spectral derivative of the source); Q-130/Q-131 found here and fixed under D-23 (below). Fix proposals sent to the main session.
+- Reviewer round 1 (CHANGES REQUESTED, memory only): output allocated in the output dtype, source spectra per batch, `compute_RF` blocks bounded by `MaxArrayElements`, in-place DC/Nyquist handling, `nanmax` for delays, single-precision `rf_signal_length` oracle check; Q-132 added; complex64 GPU kernel recorded as a to-do before the GPU test.
+- D-23 review: SIGN-OFF (nits applied: empirical wording of the 10 % FFT margin, no-wrap test for b 0.5 and 2.5, MILESTONES item to pass the transmit centre frequency in the hybrid pipeline).
+- D-23 (developer): Q-130 fixed only where singular (finite Kramers–Kronig reference frequency = transmit centre frequency for `0 < b ≤ 1` with dispersion; PROTEUS's formula elsewhere); Q-131 fixed by lengthening the FFT when a distance exceeds `Nt·dt·c0` (MATLAB's `2·Nt` otherwise). Both moved from QUIRKS to PARITY divergences. Far-source oracle cases: near rows ≤ 4.1e-6 vs MATLAB (its periodic leakage moves with the period), far rows silent.
+- Open: CuPy path vs NumPy (GPU test); end-to-end RF on given bubble positions after m2-bubble merges (main session).
+
 ## 2026-11-24 — define_grid PML rounding default (m1-grid-medium follow-up)
 - D-19 revised (developer, via main): `define_grid(..., pml_rounding="ceil"|"floor")`, default `"ceil"` until 1.0 (MATLAB's grid, Q-90 reproduced), `"floor"` is the fix and becomes the default in 1.x. Q-90 back in QUIRKS.md; PARITY rows updated. Oracle tests: default mode equals MATLAB's grid exactly on every domain case and both default settings; `"floor"` checked against MATLAB with the documented core +2 / PML −1 difference (both padding parities occur).
 - `optimize_grid_size` uses `numerics.colon` (#17). No sind/cosd copies existed in acoustic/ or medium/.

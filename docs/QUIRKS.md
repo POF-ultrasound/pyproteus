@@ -108,3 +108,12 @@ Format:
 - Ported in: `pyproteus.acoustic.define_grid`, reproduced by default (`pml_rounding="ceil"`, D-19).
 - Test: `tests/unit/test_acoustic.py::test_define_grid_q90_default_drops_a_point`; `tests/oracle/test_acoustic_grid.py::test_define_grid_domains`, `test_define_grid_default_settings` (default mode equals MATLAB's grid exactly).
 - Fix available now: `define_grid(..., pml_rounding="floor")` keeps the odd point in the core (`N + 1` points, PML one thinner, same full size; tests `test_define_grid_floor_keeps_the_domain` and the oracle `"floor"` checks). The default flips to `"floor"` in 1.x (D-19); every downstream index changes for odd-padding axes.
+
+<!-- Q-130 and Q-131 were fixed under D-23: see docs/PARITY.md (homogeneous propagation divergences). -->
+
+## Q-132 — the mass-source derivative is spectral on the source's own (periodic) length
+- MATLAB: `acoustic-module/calc_scatter_attenuated.m:35-41` (`MS_dot = real(ifft(2i*pi*f.*fft(mass_source,[],2),[],2))`).
+- Behaviour: the time derivative treats the mass source as one period of a periodic signal of length `N`. A source that does not end where it starts (e.g. a bubble still oscillating at the end of the record, or a non-zero offset) has a jump at the wrap, and its derivative rings (Gibbs) over the whole record. Bubble sources start at rest and usually decay, so the effect is normally small.
+- Ported in: `pyproteus.acoustic.homogeneous._source_spectra` (same spectral derivative).
+- Test: covered by every `calc_scatter_attenuated` oracle case (the Gaussian test sources are not exactly zero at the ends).
+- Planned fix (proposal for after parity): pad the source (e.g. to the `2·Nt` propagation length) or taper it before differentiating, or use a finite-difference derivative; changes results for sources truncated at the end of the record.
