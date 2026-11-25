@@ -17,6 +17,16 @@ derivative is spectral, on the source's own length; the propagation uses an
 FFT of length ``2*Nt`` (domain extension against wrap-around) and keeps the
 first ``Nt`` samples.
 
+Divergences decided by the developer (D-23, ``docs/PARITY.md``):
+
+- ``0 < b <= 1`` with dispersion, where PROTEUS's reference frequency 0 is
+  singular (NaN field): the reference frequency is the medium's
+  ``reference_frequency`` (the transmit centre frequency, ``c(f0) = c0``).
+  PROTEUS's formula is kept for every other ``b``.
+- arrivals can never wrap around: when the farthest source–sensor distance
+  exceeds ``Nt*dt*c0`` (impossible with PROTEUS's own ``Nt``), the FFT is
+  lengthened to at least ``Nt + 1.1*r_max/(c0*dt)`` samples instead of ``2*Nt``.
+
 Design (D-15, ``docs/PARITY.md``): both stages use half spectra
 (``rfft``/``irfft``, ``Nt + 1`` bins instead of ``2*Nt``); the sources are
 summed in the frequency domain, so there is one inverse FFT per sensor instead
@@ -29,7 +39,6 @@ blocks of sensors × sources. Array functions take an array module ``xp``
 from __future__ import annotations
 
 import math
-import warnings
 from typing import Any
 
 import numpy as np
@@ -40,6 +49,7 @@ from pyproteus.numerics import matlab_round
 from ._struct import get as _get
 from ._struct import isfield as _isfield
 from ._struct import scalar as _scalar
+from .grid import optimize_grid_size
 
 __all__ = [
     "average_medium",
@@ -131,8 +141,8 @@ def power_law_kramers_kronig(
 
     ``c(omega0) = c0``. ``a0`` is in Np/((rad/s)^y m) (:func:`db2neper`).
     Evaluated with IEEE arithmetic: PROTEUS uses ``omega0 = 0``, which is
-    singular for ``y <= 1`` (``omega0^(y-1)`` or ``ln(omega/0)`` infinite; the
-    speed becomes ±0 and the field NaN, docs/QUIRKS.md Q-130).
+    singular for ``y <= 1`` (``omega0^(y-1)`` or ``ln(omega/0)`` infinite, speed
+    ±0, field NaN); the propagation uses a finite reference there (D-23).
     """
     w = xp.asarray(omega, dtype=float)
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
@@ -144,34 +154,65 @@ def power_law_kramers_kronig(
         return 1.0 / (1.0 / c0 + a0 * math.tan(math.pi * y / 2) * (w ** (y - 1) - w0_term))
 
 
-def _medium_params(medium: Any) -> tuple[float, float, float, bool]:
-    """``(c0, a, b, no_dispersion)`` of an averaged medium (fields ``c``, ``a``, ``b``)."""
-    c0 = _scalar(_get(medium, "c"))
-    a = _scalar(_get(medium, "a"))
-    b = _scalar(_get(medium, "b"))
-    mode = _get(medium, "alpha_mode") if _isfield(medium, "alpha_mode") else None
-    return c0, a, b, (isinstance(mode, str) and mode == "no_dispersion")
+class _Medium:
+    """Averaged medium: ``c`` [m/s], ``a`` [dB/(MHz^b cm)], ``b``, dispersion, reference."""
+
+    def __init__(self, medium: Any) -> None:
+        self.c0 = _scalar(_get(medium, "c"))
+        self.a = _scalar(_get(medium, "a"))
+        self.b = _scalar(_get(medium, "b"))
+        mode = _get(medium, "alpha_mode") if _isfield(medium, "alpha_mode") else None
+        self.no_dispersion = isinstance(mode, str) and mode == "no_dispersion"
+        f_ref = _get(medium, "reference_frequency")
+        self.f_ref = None if f_ref is None else _scalar(f_ref)
+
+    def reference_omega(self) -> float:
+        """Kramers–Kronig reference [rad/s]: 0 as PROTEUS, finite for ``b <= 1`` (D-23)."""
+        if not 0 < self.b <= 1:
+            return 0.0
+        if self.f_ref is None or not self.f_ref > 0:
+            raise ValueError(
+                f"alpha_power = {self.b:g} <= 1 with dispersion needs a finite Kramers-Kronig "
+                "reference frequency (PROTEUS's 0 is singular, D-23): pass the transmit centre "
+                "frequency as reference_frequency, or use alpha_mode='no_dispersion'"
+            )
+        return 2 * math.pi * self.f_ref
+
+    def wavenumber(self, f: Any, xp: Any) -> Any:
+        """Complex ``K(f) = alpha(f) + 2 pi i f / c(f)``, so that ``W = exp(-r K)``.
+
+        ``f/c(f)`` is taken as 0 at ``f = 0`` (its limit; with a finite reference
+        frequency and ``b <= 1`` the speed itself tends to 0 there).
+        """
+        a_np = self.a * math.log(10) * 100 / 20  # dB/(MHz^b cm) -> Np/(MHz^b m)
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            alpha = a_np * xp.abs(f / 1e6) ** self.b
+            if self.no_dispersion:
+                phase = f / self.c0
+            else:
+                c = power_law_kramers_kronig(
+                    2 * math.pi * f,
+                    self.reference_omega(),
+                    self.c0,
+                    float(db2neper(self.a, self.b)),
+                    self.b,
+                    xp,
+                )
+                phase = xp.where(f == 0, 0.0, f / c)
+            return alpha + 2j * math.pi * phase
 
 
-def _wavenumber(f: Any, c0: float, a: float, b: float, no_dispersion: bool, xp: Any) -> Any:
-    """Complex ``K(f) = alpha(f) + 2 pi i f / c(f)``, so that ``W = exp(-r K)``."""
-    if not no_dispersion and 0 < b <= 1:
-        warnings.warn(
-            f"alpha_power = {b:g} <= 1 with dispersion: the Kramers-Kronig sound speed with "
-            "reference frequency 0 is singular and the propagated pressure is NaN, as in "
-            "PROTEUS (docs/QUIRKS.md Q-130). Use alpha_mode='no_dispersion' for powers near "
-            "or below 1.",
-            UserWarning,
-            stacklevel=3,
-        )
-    a_np = a * math.log(10) * 100 / 20  # dB/(MHz^b cm) -> Np/(MHz^b m)
-    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-        alpha = a_np * xp.abs(f / 1e6) ** b
-        if no_dispersion:
-            c = c0
-        else:
-            c = power_law_kramers_kronig(2 * math.pi * f, 0.0, c0, float(db2neper(a, b)), b, xp)
-        return alpha + 2j * math.pi * (f / c)
+def _fft_length(nt: int, r_max: float, c0: float, dt: float) -> int:
+    """Propagation FFT length: ``2*Nt`` as PROTEUS, longer if an arrival could wrap (D-23).
+
+    A direct arrival at ``r/c0`` lasting ``Nt`` samples wraps into the window when
+    ``r/c0 > Nt*dt``. Then the length is the 5-smooth size from
+    ``Nt + ceil(1.1*r_max/(c0*dt))`` (10 % margin for dispersive slow components).
+    """
+    if not r_max > nt * dt * c0:
+        return 2 * nt
+    n = nt + math.ceil(1.1 * r_max / (c0 * dt))
+    return optimize_grid_size(n, [0, max(10, int(matlab_round(0.05 * n)))], 5)
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +220,8 @@ def _wavenumber(f: Any, c0: float, a: float, b: float, no_dispersion: bool, xp: 
 # ---------------------------------------------------------------------------
 
 
-def _source_spectra(mass_source: Any, fs: float, nt: int, xp: Any) -> Any:
-    """Half spectrum (length ``2*Nt``) of the time derivative of each source row.
+def _source_spectra(mass_source: Any, fs: float, nt: int, L: int, xp: Any) -> Any:
+    """Half spectrum (FFT length ``L``, normally ``2*Nt``) of the derivative of each source row.
 
     MATLAB: ``MS_dot = real(ifft(2i*pi*f.*fft(m,[],2),[],2))`` on the source's
     own length ``N`` (Nyquist bin of an even ``N`` contributes nothing), then
@@ -194,12 +235,12 @@ def _source_spectra(mass_source: Any, fs: float, nt: int, xp: Any) -> Any:
         ms_dot = ms_dot[:, :nt]
     else:
         ms_dot = xp.concatenate([ms_dot, xp.zeros((m.shape[0], nt - n))], axis=1)
-    return xp.fft.rfft(ms_dot, n=2 * nt, axis=1)
+    return xp.fft.rfft(ms_dot, n=L, axis=1)
 
 
-def _frequencies(fs: float, nt: int, xp: Any) -> Any:
-    """Non-negative frequencies of the length-``2*Nt`` propagation FFT."""
-    return xp.arange(nt + 1, dtype=xp.float64) / (2 * nt) * fs
+def _frequencies(fs: float, L: int, xp: Any) -> Any:
+    """Non-negative frequencies of the length-``L`` propagation FFT."""
+    return xp.arange(L // 2 + 1, dtype=xp.float64) / L * fs
 
 
 def _green(r: Any, K: Any, xp: Any) -> Any:
@@ -208,7 +249,7 @@ def _green(r: Any, K: Any, xp: Any) -> Any:
     ``r == 0`` gives 0: a source cannot sense itself.
     """
     r = xp.asarray(r, dtype=xp.float64)
-    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):  # NaN K: Q-130
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):  # NaN K stays NaN
         G = (-r)[..., None] * K
         xp.exp(G, out=G)
         g = xp.where(r == 0, 0.0, 1.0 / (4 * math.pi * r))
@@ -222,17 +263,17 @@ def calc_scatter_attenuated(
     """Port of ``calc_scatter_attenuated.m``: pressure of each source at each sensor.
 
     - ``mass_source``: ``Nsrc × N`` (one source per row; a 1-D array is one source).
-    - ``medium``: averaged medium with ``c`` [m/s], ``a`` [dB/(MHz^b cm)], ``b``
-      and optional ``alpha_mode`` (``'no_dispersion'``: ``c(f) = c0``).
+    - ``medium``: averaged medium with ``c`` [m/s], ``a`` [dB/(MHz^b cm)], ``b``,
+      optional ``alpha_mode`` (``'no_dispersion'``: ``c(f) = c0``) and
+      ``reference_frequency`` [Hz] (needed only for ``0 < b <= 1`` with
+      dispersion, D-23; PROTEUS gives NaN there).
     - ``kgrid``: ``dt`` [s] and ``Nt`` (output length).
     - ``r``: ``Nsensor × Nsrc`` distances [m] (a 1-D array: ``Nsensor × 1``).
 
     Returns ``Nsensor × Nt × Nsrc`` (MATLAB's shape), dtype of ``mass_source``
-    (float32 or float64). Zero distance gives zero pressure.
-
-    Arrivals later than ``Nt*dt`` are cropped; arrivals later than
-    ``2*Nt*dt`` wrap around into the window (periodic FFT, as PROTEUS,
-    docs/QUIRKS.md Q-131).
+    (float32 or float64). Zero distance gives zero pressure. Arrivals later
+    than ``Nt*dt`` are cropped and never wrap around (D-23; PROTEUS wraps
+    arrivals later than ``2*Nt*dt``).
     """
     ms = np.asarray(mass_source)
     if ms.ndim == 1:
@@ -245,12 +286,13 @@ def calc_scatter_attenuated(
         raise ValueError(f"r has {rr.shape[1]} columns for {ms.shape[0]} sources")
     fs = 1.0 / _scalar(_get(kgrid, "dt"))
     nt = int(_scalar(_get(kgrid, "Nt")))
-    c0, a, b, no_disp = _medium_params(medium)
-    S = _source_spectra(ms, fs, nt, np)  # Nsrc × F
-    K = _wavenumber(_frequencies(fs, nt, np), c0, a, b, no_disp, np)
+    med = _Medium(medium)
+    L = _fft_length(nt, float(np.max(rr, initial=0.0)), med.c0, 1.0 / fs)
+    S = _source_spectra(ms, fs, nt, L, np)  # Nsrc × F
+    K = med.wavenumber(_frequencies(fs, L, np), np)
     G = _green(rr, K, np)  # Nsensor × Nsrc × F
     G *= S[None, :, :]
-    p = _irfft(G, 2 * nt, np, overwrite=True)[:, :, :nt]  # Nsensor × Nsrc × Nt
+    p = _irfft(G, L, np, overwrite=True)[:, :, :nt]  # Nsensor × Nsrc × Nt
     return np.ascontiguousarray(p.transpose(0, 2, 1)).astype(out_dtype, copy=False)
 
 
@@ -317,7 +359,8 @@ def propagate_homogeneous(
 
     - ``mass_source``: ``Nsrc × N``; ``source_points`` ``Nsrc × 3``;
       ``sensor_points`` ``Nsensor × 3`` [m].
-    - ``medium``: averaged medium (``c``, ``a``, ``b``, ``alpha_mode``).
+    - ``medium``: averaged medium (``c``, ``a``, ``b``, ``alpha_mode``,
+      ``reference_frequency``; see :func:`calc_scatter_attenuated`).
     - ``gridded``: per source, snap the source–sensor distances to a grid of
       step ``dt*c`` through their mean (:func:`gridded_distance`), compute the
       field on that grid and copy it to the sensors (PROTEUS's fast mode for many
@@ -340,9 +383,15 @@ def propagate_homogeneous(
     n_src, n_sen = src.shape[0], sen.shape[0]
     fs = 1.0 / float(dt)
     nt = int(nt)
-    F = nt + 1
-    c0, a, b, no_disp = _medium_params(medium)
-    K = _wavenumber(_frequencies(fs, nt, xp), c0, a, b, no_disp, xp)
+    med = _Medium(medium)
+    c0 = med.c0
+    r_max = max(
+        (float(np.max(np.linalg.norm(sen - src[m], axis=1))) for m in range(n_src)),
+        default=0.0,
+    )
+    L = _fft_length(nt, r_max, c0, float(dt))
+    F = L // 2 + 1
+    K = med.wavenumber(_frequencies(fs, L, xp), xp)
     ms = xp.asarray(mass_source).reshape(n_src, -1)
     if out is None:
         out = xp.zeros((n_sen, nt), dtype=dtype)
@@ -354,14 +403,14 @@ def propagate_homogeneous(
     if gridded:
         rows_per_chunk = max(1, max_array_elements // (2 * nt))
         for m in range(n_src):
-            S = _source_spectra(ms[m : m + 1], fs, nt, xp)[0]
+            S = _source_spectra(ms[m : m + 1], fs, nt, L, xp)[0]
             d0 = np.linalg.norm(sen - src[m], axis=1)
             d_grid, i_grid = gridded_distance(d0, dt * c0)
             p = xp.empty((d_grid.size, nt), dtype=out.dtype)
             for gblk in _blocks(d_grid.size, max(1, max_array_elements // (4 * F))):
                 G = _green(xp.asarray(d_grid[gblk]), K, xp)
                 G *= S
-                p[gblk] = _irfft(G, 2 * nt, xp, overwrite=True)[:, :nt]
+                p[gblk] = _irfft(G, L, xp, overwrite=True)[:, :nt]
             silent = d0 == 0
             for blk in _blocks(n_sen, rows_per_chunk):
                 pc = p[xp.asarray(i_grid[blk])]
@@ -375,15 +424,15 @@ def propagate_homogeneous(
     n_batch = max(1, min(n_src, budget // (F * n_chunk)))
     sblocks, mblocks = _blocks(n_sen, n_chunk), _blocks(n_src, n_batch)
     # spectra of all sources once if they fit the budget, else per batch
-    S_all = _source_spectra(ms, fs, nt, xp) if n_src * F <= budget else None
+    S_all = _source_spectra(ms, fs, nt, L, xp) if n_src * F <= budget else None
     for sblk in sblocks:
         P = xp.zeros((sblk.stop - sblk.start, F), dtype=xp.complex128)
         for mblk in mblocks:
-            S = S_all[mblk] if S_all is not None else _source_spectra(ms[mblk], fs, nt, xp)
+            S = S_all[mblk] if S_all is not None else _source_spectra(ms[mblk], fs, nt, L, xp)
             r = np.linalg.norm(sen[sblk, None, :] - src[None, mblk, :], axis=2)
             G = _green(xp.asarray(r), K, xp)  # chunk × batch × F
             P += xp.einsum("smf,mf->sf", G, S)
-        add(sblk, _irfft(P, 2 * nt, xp, overwrite=True)[:, :nt])
+        add(sblk, _irfft(P, L, xp, overwrite=True)[:, :nt])
     return out
 
 
@@ -392,7 +441,13 @@ def _param(run_param: Any, name: str, default: Any) -> Any:
 
 
 def run_simulation_homogeneous(
-    run_param: Any, kgrid: Any, medium: Any, source: Any, sensor: Any
+    run_param: Any,
+    kgrid: Any,
+    medium: Any,
+    source: Any,
+    sensor: Any,
+    *,
+    reference_frequency: float | None = None,
 ) -> dict[str, Any]:
     """Port of ``run_simulation_homogeneous.m``: sensor data of bubbles in a homogeneous medium.
 
@@ -404,11 +459,16 @@ def run_simulation_homogeneous(
       :func:`average_medium`).
     - ``source``: ``points`` ``Nsrc × 3``, ``mass_source`` ``Nsrc × N``.
     - ``sensor``: ``points`` ``Nsensor × 3``.
+    - ``reference_frequency`` [Hz]: Kramers–Kronig reference frequency for
+      ``0 < alpha_power <= 1`` with dispersion (the transmit centre frequency,
+      D-23); required there, unused otherwise (PROTEUS: NaN field).
 
     Returns ``{'p': Nsensor × Nt}`` in the dtype of ``source.mass_source``
     (NumPy, or CuPy when on the GPU and small enough).
     """
     avg = average_medium(medium)
+    if reference_frequency is not None:
+        avg["reference_frequency"] = float(reference_frequency)
     ms = _get(source, "mass_source")
     dtype = np.float32 if getattr(ms, "dtype", None) == np.float32 else np.float64
     nt = int(_scalar(_get(kgrid, "Nt")))

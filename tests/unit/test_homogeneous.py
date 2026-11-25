@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from pyproteus.acoustic import homogeneous as hom
+from pyproteus.acoustic import largest_prime_factor
 
 DT = 1 / 50e6
 F0 = 3e6
@@ -102,14 +103,40 @@ def test_db2neper() -> None:
     assert hom.db2neper(0.0, 1.3) == 0.0
 
 
-@pytest.mark.parametrize("b", [0.5, 1.0])
-def test_singular_dispersion_warns_and_gives_nan(b: float) -> None:
+@pytest.mark.parametrize("b", [0.5, 0.95, 1.0])
+def test_finite_reference_frequency_for_b_le_1(b: float) -> None:
+    """D-23: ``b <= 1`` with dispersion uses ``c(f0) = c0`` (PROTEUS: NaN field)."""
+    f0 = 3e6
     med = {"c": 1540.0, "a": 0.5, "b": b}
-    with pytest.warns(UserWarning, match="Q-130"):
-        p = hom.calc_scatter_attenuated(
-            np.ones((1, 16)), med, {"dt": DT, "Nt": 16}, np.array([[1e-3]])
-        )
-    assert np.isnan(p).all()
+    kg = {"dt": DT, "Nt": 1500}
+    t = np.arange(1500) * DT
+    r = np.array([[2e-3], [6e-3]])
+    with pytest.raises(ValueError, match="reference"):
+        hom.calc_scatter_attenuated(pulse(t), med, kg, r)
+    p = hom.calc_scatter_attenuated(pulse(t), {**med, "reference_frequency": f0}, kg, r)[:, :, 0]
+    assert np.isfinite(p).all() and np.abs(p).max() > 0
+    a0 = float(hom.db2neper(0.5, b))
+    w0 = 2 * np.pi * f0
+    assert hom.power_law_kramers_kronig(np.array([w0]), w0, 1540.0, a0, b)[0] == pytest.approx(
+        1540.0, rel=1e-14
+    )
+    # transfer function between the two distances at f0: phase speed c0, attenuation alpha(f0)
+    L = 2 * 1500
+    f = np.fft.rfftfreq(L, DT)
+    k = int(np.argmin(np.abs(f - f0)))
+    P = np.fft.rfft(p, n=L, axis=1)
+    H = P[1, k] * 6e-3 / (P[0, k] * 2e-3)
+    c_k = hom.power_law_kramers_kronig(np.array([2 * np.pi * f[k]]), w0, 1540.0, a0, b)[0]
+    alpha = 0.5 * math.log(10) * 100 / 20 * (f[k] / 1e6) ** b
+    expected = np.exp(-4e-3 * (alpha + 2j * np.pi * f[k] / c_k))
+    assert abs(H - expected) < 1e-6 * abs(expected)
+    assert c_k == pytest.approx(1540.0, rel=1e-4)  # f[k] is within one bin of f0
+    # PROTEUS's formula is kept for b > 1: the reference frequency is ignored
+    med2 = {"c": 1540.0, "a": 0.5, "b": 1.5}
+    np.testing.assert_array_equal(
+        hom.calc_scatter_attenuated(pulse(t), med2, kg, r),
+        hom.calc_scatter_attenuated(pulse(t), {**med2, "reference_frequency": f0}, kg, r),
+    )
 
 
 def test_zero_distance_is_silent_and_lengths() -> None:
@@ -132,17 +159,30 @@ def test_dtype_follows_mass_source() -> None:
     assert hom.calc_scatter_attenuated(ms, LOSSLESS, {"dt": DT, "Nt": 64}, r).dtype == np.float64
 
 
-def test_arrival_after_extended_window_wraps() -> None:
-    """Q-131: delays beyond ``2*Nt*dt`` wrap around (periodic FFT), as in PROTEUS."""
-    nt = 400
-    t = np.arange(nt) * DT
-    c = LOSSLESS["c"]
-    tau = 2 * nt * DT + 1.5e-6  # wraps to 1.5 us
-    r = np.array([[tau * c], [1.5 * nt * DT * c]])  # wrapped; arrives after the window
-    p = hom.calc_scatter_attenuated(pulse(t), LOSSLESS, {"dt": DT, "Nt": nt}, r)[:, :, 0]
-    exact = pulse_dot(t - 1.5e-6) / (4 * np.pi * r[0, 0])
-    assert np.max(np.abs(p[0] - exact)) < 1e-6 * np.max(np.abs(exact))
-    assert np.max(np.abs(p[1])) < 1e-6 * np.max(np.abs(exact))  # cropped
+def test_far_arrivals_never_wrap() -> None:
+    """D-23 (was Q-131): the window equals the start of a longer simulation (far sources too)."""
+    nt_small, nt_big = 300, 3000
+    t = np.arange(nt_big) * DT
+    ms = pulse(t[:200])  # source shorter than both windows
+    c = 1540.0
+    r = np.array(
+        [[1e-3], [0.9 * nt_small * DT * c], [1.4 * nt_small * DT * c], [2.3 * nt_small * DT * c]]
+    )
+    for med in (LOSSLESS, {"c": c, "a": 0.75, "b": 1.5}):
+        small = hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": nt_small}, r)[:, :, 0]
+        big = hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": nt_big}, r)[:, :nt_small, 0]
+        scale = np.max(np.abs(big))
+        assert np.max(np.abs(small - big)) < 1e-9 * scale
+    # far source alone: nothing in the window (PROTEUS: the pulse wraps to ~0.3 Nt)
+    assert np.max(np.abs(small[3])) < 1e-9 * scale
+
+
+def test_fft_length() -> None:
+    nt, dt, c = 200, DT, 1540.0
+    assert hom._fft_length(nt, nt * dt * c, c, dt) == 2 * nt  # PROTEUS's length up to r = Nt dt c
+    L = hom._fft_length(nt, 3 * nt * dt * c, c, dt)
+    assert nt + 1.1 * 3 * nt <= L
+    assert largest_prime_factor(L) <= 5
 
 
 def problem(seed: int = 0, n_src: int = 5, n_sen: int = 17, nt: int = 150):

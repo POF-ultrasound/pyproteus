@@ -136,10 +136,40 @@ def distances(n_sen: int, n_src: int, c: float, dt: float, nt: int, seed: int) -
     r[0, 0] = 5e-4 * rng.uniform(0.5, 1.0)  # bubble very close to the sensor
     if n_sen > 2:
         r[1, -1] = 1.4 * nt * dt * c  # arrives after the window: cropped
-        r[2, 0] = 2.3 * nt * dt * c  # beyond the extended domain: wraps (Q-131)
+        r[2, 0] = 2.3 * nt * dt * c  # beyond 2 Nt: MATLAB wraps (Q-131), pyproteus not (D-23)
     if n_sen > 3 and n_src > 1:
         r[3, 1] = 0.0  # source on the sensor: silent
     return r
+
+
+WRAP_ROW = 2  # row of distances() whose arrival MATLAB wraps into the window
+FAR_ROWS = [1, 2]  # rows beyond Nt*dt*c0: pyproteus lengthens its FFT (D-23)
+
+
+#: Class of the non-wrapping rows when a far source lengthens pyproteus's FFT
+#: (D-23): MATLAB's 2*Nt periodic FFT leaks the band-limited (sinc) delay tails
+#: of sources with an abrupt onset (these test pulses start at 2e-3 of their
+#: peak) around the period; a longer period moves that leakage. Measured
+#: ≤ 4.1e-6 × max; end-to-end RF class. Unreachable with PROTEUS's own Nt.
+LONG_FFT_REL = 1e-4
+
+
+def compare_without_wrap(actual: np.ndarray, expected: np.ndarray, rel: float) -> None:
+    """MATLAB parity on the near rows; the far rows (arrivals after the window) are silent here.
+
+    MATLAB wraps the far arrivals into the window (Q-131: always the ``2.3 Nt``
+    row, the ``1.4 Nt`` row too when the pulse is long compared with ``Nt``);
+    pyproteus does not (D-23). The far sources lengthen pyproteus's FFT for the
+    whole case, so the near rows are compared at ``max(rel, LONG_FFT_REL)``; the
+    strict class is checked on the same cases without the far sources.
+    """
+    keep = np.setdiff1d(np.arange(actual.shape[0]), FAR_ROWS)
+    assert rel_err(actual[keep], expected[keep]) <= max(rel, LONG_FFT_REL)
+    scale = np.max(np.abs(expected[keep]))
+    # band-limited leakage of the abrupt source onset only (measured ≤ 4e-7 × max)
+    assert np.max(np.abs(actual[1, :, -1])) <= 1e-5 * scale  # FAR_ROWS[0] is source -1
+    assert np.max(np.abs(actual[WRAP_ROW, :, 0])) <= 1e-5 * scale
+    assert np.max(np.abs(expected[WRAP_ROW, :, 0])) > 1e-3 * scale  # MATLAB wraps here
 
 
 MEDIA = {
@@ -152,7 +182,13 @@ MEDIA = {
 }
 
 # (n_src, N, Nt): N == Nt even/odd, N < Nt (padding), N > Nt (cropping), one source
-SHAPES = [(3, 200, 200), (2, 151, 151), (4, 120, 257), (2, 300, 211), (1, 64, 64)]
+SHAPES = [
+    (3, 200, 200),
+    (2, 151, 151),
+    (4, 120, 257),
+    (2, 300, 211),
+    (1, 96, 96),
+]  # sources end near zero (Q-132)
 
 
 # ---------------------------------------------------------------- calc_scatter_attenuated
@@ -168,7 +204,13 @@ def test_calc_scatter_attenuated_double(keng: Any, medium: str, shape: tuple) ->
     expected = matlab_scatter(keng, ms, med, DT, nt, r)
     actual = hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": nt}, r)
     assert actual.dtype == np.float64
-    assert rel_err(actual, expected) <= REL
+    compare_without_wrap(actual, expected, REL)
+    # without the far sources the FFT length is MATLAB's 2*Nt: all rows at the float class
+    near = np.delete(r, FAR_ROWS, axis=0)
+    exp_near = matlab_scatter(keng, ms, med, DT, nt, near)
+    assert (
+        rel_err(hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": nt}, near), exp_near) <= REL
+    )
     if n_src > 1:
         assert np.all(actual[3, :, 1] == 0)
 
@@ -186,9 +228,14 @@ def test_calc_scatter_attenuated_single(keng: Any) -> None:
     exp_double = matlab_scatter(keng, ms, med, DT, nt, r)
     actual = hom.calc_scatter_attenuated(ms.astype(np.float32), med, {"dt": DT, "Nt": nt}, r)
     assert actual.dtype == np.float32
-    err_single = rel_err(actual, exp_single)
-    assert err_single <= SINGLE_REL
-    # pyproteus works in float64: at least as close to the double result as MATLAB single
+    compare_without_wrap(actual, exp_single, SINGLE_REL)
+    # without the far sources (MATLAB's FFT length): single class, and pyproteus (float64
+    # inside) at least as close to MATLAB's double result as MATLAB single is
+    near = np.delete(r, FAR_ROWS, axis=0)
+    exp_single = matlab_scatter(keng, ms.astype(np.float32), med, DT, nt, near.astype(np.float32))
+    exp_double = matlab_scatter(keng, ms, med, DT, nt, near)
+    actual = hom.calc_scatter_attenuated(ms.astype(np.float32), med, {"dt": DT, "Nt": nt}, near)
+    assert rel_err(actual, exp_single) <= SINGLE_REL
     assert rel_err(actual, exp_double) <= rel_err(exp_single, exp_double)
 
 
@@ -201,20 +248,23 @@ def test_calc_scatter_attenuated_bubble_response(keng: Any, bubble_mass_source: 
     r = distances(6, ms.shape[0], c, dt, nt, seed=11)
     expected = matlab_scatter(keng, ms, med, dt, nt, r)
     actual = hom.calc_scatter_attenuated(ms, med, {"dt": dt, "Nt": nt}, r)
-    assert rel_err(actual, expected) <= REL
+    compare_without_wrap(actual, expected, REL)
 
 
 @pytest.mark.parametrize("b", [0.5, 1.0], ids=["b0.5", "b1.0"])
 def test_calc_scatter_attenuated_singular_dispersion(keng: Any, b: float) -> None:
-    """``b <= 1`` with dispersion: Kramers–Kronig with reference frequency 0 is singular (Q-130)."""
+    """``b <= 1`` with dispersion: MATLAB gives NaN (Q-130); pyproteus a finite field (D-23)."""
     med = {"c": 1540.0, "a": 0.5, "b": b}
     ms = gauss_sources(2, 100)
-    r = distances(4, 2, med["c"], DT, 100, seed=5)
+    r = np.random.default_rng(5).uniform(1e-3, 2e-3, (4, 2))
     expected = matlab_scatter(keng, ms, med, DT, 100, r)
-    with pytest.warns(UserWarning, match="Q-130"):
-        actual = hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": 100}, r)
-    np.testing.assert_array_equal(np.isnan(actual), np.isnan(expected))
-    assert np.isnan(expected).any()
+    assert np.isnan(expected).all()
+    with pytest.raises(ValueError, match="reference"):
+        hom.calc_scatter_attenuated(ms, med, {"dt": DT, "Nt": 100}, r)
+    actual = hom.calc_scatter_attenuated(
+        ms, {**med, "reference_frequency": 3e6}, {"dt": DT, "Nt": 100}, r
+    )
+    assert np.isfinite(actual).all() and np.abs(actual).max() > 0
 
 
 def test_power_law_kramers_kronig_and_db2neper(keng: Any) -> None:
@@ -409,7 +459,7 @@ def test_average_medium(keng: Any) -> None:
     medium["alpha_power"] = 1.7 * np.ones((2, 3, 4))
     avg = hom.average_medium(medium)
     assert avg["c"] == pytest.approx(float(np.mean(medium["sound_speed"])), rel=1e-15)
-    sen = np.array([[3e-3, 0, 0], [5e-3, 1e-3, 0]])
+    sen = np.array([[3e-3, 0, 0], [4e-3, 1e-3, 0]])  # within Nt*dt*c0 (MATLAB FFT length)
     src = np.array([[0.0, 0, 0]])
     source = {"points": src, "mass_source": gauss_sources(1, 128)}
     run_param = {"DATA_CAST": "double", "gridded": 0.0}
