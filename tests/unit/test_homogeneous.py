@@ -264,6 +264,3 @@ def test_memory_is_bounded_by_output_and_budget() -> None:
         # float32 output + two budget-sized complex128 blocks + small change; a float64
         # output (measured 35-40 MB here) or a full-size temporary would exceed it
         assert peak < out_bytes + 2 * 16 * budget + 6_000_000, (gridded, peak)
-            gridded,
-            peak,
-        )
