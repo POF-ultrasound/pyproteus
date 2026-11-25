@@ -232,3 +232,37 @@ def test_gpu_cast_without_cupy() -> None:
             hom.array_module("gpuArray-single")
     assert hom.array_module("single") is np
     assert hom.array_module(None) is np
+
+
+def test_memory_is_bounded_by_output_and_budget() -> None:
+    """Single precision: peak ≈ float32 output + inputs + O(max_array_elements), no float64 copy."""
+    import tracemalloc
+
+    rng = np.random.default_rng(3)
+    n_sen, n_src, nt = 4000, 6, 1000
+    ms = rng.standard_normal((n_src, nt)).astype(np.float32)
+    src = 1e-3 * rng.random((n_src, 3))
+    sen = 1e-2 * rng.random((n_sen, 3))
+    out_bytes = n_sen * nt * 4
+    budget = 2**18
+    for gridded in (False, True):
+        tracemalloc.start()
+        p = hom.propagate_homogeneous(
+            ms,
+            src,
+            sen,
+            dt=DT,
+            nt=nt,
+            medium=LOSSLESS,
+            gridded=gridded,
+            max_array_elements=budget,
+            dtype=np.float32,
+        )
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert p.dtype == np.float32
+        # output + a few budget-sized complex128 blocks (16 B) + gridded field rows
+        assert peak < out_bytes + 8 * 16 * budget + 2 * n_sen * 24 + 4 * 8 * nt * 300, (
+            gridded,
+            peak,
+        )

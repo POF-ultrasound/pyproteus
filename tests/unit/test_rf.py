@@ -132,7 +132,7 @@ def test_block_size_does_not_change_results(monkeypatch: pytest.MonkeyPatch) -> 
     W = rng.random((15, 8))
     p = rng.standard_normal((8, 60))
     ref = compute_RF(T, {"p": p}, W, {"dt": DT}, {"DATA_CAST_RF": "double"})
-    monkeypatch.setattr(rfmod, "_BLOCK_ELEMENTS", 1)  # one element per block
+    monkeypatch.setattr(rfmod, "_MAX_ARRAY_ELEMENTS", 1)  # one element per block
     np.testing.assert_allclose(
         compute_RF(T, {"p": p}, W, {"dt": DT}, {"DATA_CAST_RF": "double"}),
         ref,

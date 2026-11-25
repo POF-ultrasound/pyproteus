@@ -122,3 +122,10 @@ Format:
 - Ported in: `pyproteus.acoustic.calc_scatter_attenuated`, `propagate_homogeneous` (same periodic FFT).
 - Test: `tests/oracle/test_homogeneous.py::test_calc_scatter_attenuated_double` (distance `2.3·Nt·dt·c` in every case), `tests/unit/test_homogeneous.py::test_arrival_after_extended_window_wraps`.
 - Planned fix (proposal for after parity): zero the contribution of sources whose direct arrival `r/c` is later than the window (or pad to `Nt + max(r)/(c dt) + pulse`); results change only for such far sources.
+
+## Q-132 — the mass-source derivative is spectral on the source's own (periodic) length
+- MATLAB: `acoustic-module/calc_scatter_attenuated.m:35-41` (`MS_dot = real(ifft(2i*pi*f.*fft(mass_source,[],2),[],2))`).
+- Behaviour: the time derivative treats the mass source as one period of a periodic signal of length `N`. A source that does not end where it starts (e.g. a bubble still oscillating at the end of the record, or a non-zero offset) has a jump at the wrap, and its derivative rings (Gibbs) over the whole record. Bubble sources start at rest and usually decay, so the effect is normally small.
+- Ported in: `pyproteus.acoustic.homogeneous._source_spectra` (same spectral derivative).
+- Test: covered by every `calc_scatter_attenuated` oracle case (the Gaussian test sources are not exactly zero at the ends).
+- Planned fix (proposal for after parity): pad the source (e.g. to the `2·Nt` propagation length) or taper it before differentiating, or use a finite-difference derivative; changes results for sources truncated at the end of the record.

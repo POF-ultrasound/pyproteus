@@ -81,14 +81,16 @@ def to_numpy(x: Any) -> np.ndarray:
     return get() if callable(get) and not isinstance(x, np.ndarray) else np.asarray(x)
 
 
-def _irfft(X: Any, n: int, xp: Any) -> Any:
+def _irfft(X: Any, n: int, xp: Any, overwrite: bool = False) -> Any:
     """``irfft`` along the last axis, using only the real part of DC and Nyquist.
 
     That is MATLAB's ``real(ifft(...))`` of a conjugate-symmetric extension
     (and ``ifft(..., 'symmetric')``); NumPy does this implicitly, cuFFT does not
-    promise it, so the imaginary parts are dropped explicitly.
+    promise it, so the imaginary parts are dropped explicitly (in place on ``X``
+    with ``overwrite=True``).
     """
-    X = X.copy()
+    if not overwrite:
+        X = X.copy()
     X[..., 0] = X[..., 0].real
     if n % 2 == 0:
         X[..., n // 2] = X[..., n // 2].real
@@ -248,7 +250,7 @@ def calc_scatter_attenuated(
     K = _wavenumber(_frequencies(fs, nt, np), c0, a, b, no_disp, np)
     G = _green(rr, K, np)  # Nsensor × Nsrc × F
     G *= S[None, :, :]
-    p = _irfft(G, 2 * nt, np)[:, :, :nt]  # Nsensor × Nsrc × Nt
+    p = _irfft(G, 2 * nt, np, overwrite=True)[:, :, :nt]  # Nsensor × Nsrc × Nt
     return np.ascontiguousarray(p.transpose(0, 2, 1)).astype(out_dtype, copy=False)
 
 
@@ -307,6 +309,7 @@ def propagate_homogeneous(
     max_array_elements: int = MAX_ARRAY_ELEMENTS,
     xp: Any = np,
     out: Any = None,
+    dtype: Any = np.float64,
 ) -> Any:
     """Total pressure at each sensor from all sources (``Nsensor × Nt``).
 
@@ -323,9 +326,14 @@ def propagate_homogeneous(
       intermediate array (``sensors × sources × (Nt+1)`` per block); results do
       not depend on it beyond rounding.
     - ``out``: optional ``Nsensor × Nt`` array to accumulate into (e.g. a NumPy
-      array while computing with CuPy); otherwise a new float64 ``xp`` array.
+      array while computing with CuPy); otherwise a new ``xp`` array of ``dtype``.
+    - ``dtype``: output dtype (float32 for PROTEUS's single precision). The
+      kernel works in float64; results are rounded to ``dtype`` when written
+      (the gridded path accumulates the sources in ``dtype``, as MATLAB).
 
-    Sources are summed in the frequency domain (one inverse FFT per sensor).
+    Sources are summed in the frequency domain (one inverse FFT per sensor);
+    their spectra are computed per batch, so memory beyond ``out`` and the
+    inputs is bounded by ``max_array_elements``.
     """
     src = np.asarray(source_points, dtype=float).reshape(-1, 3)
     sen = np.asarray(sensor_points, dtype=float).reshape(-1, 3)
@@ -335,24 +343,25 @@ def propagate_homogeneous(
     F = nt + 1
     c0, a, b, no_disp = _medium_params(medium)
     K = _wavenumber(_frequencies(fs, nt, xp), c0, a, b, no_disp, xp)
-    S = _source_spectra(xp.asarray(mass_source).reshape(n_src, -1), fs, nt, xp)
+    ms = xp.asarray(mass_source).reshape(n_src, -1)
     if out is None:
-        out = xp.zeros((n_sen, nt))
+        out = xp.zeros((n_sen, nt), dtype=dtype)
     on_host = isinstance(out, np.ndarray) and xp is not np
 
     def add(rows: slice | np.ndarray, p: Any) -> None:
-        out[rows] += to_numpy(p) if on_host else p
+        out[rows] += (to_numpy(p) if on_host else p).astype(out.dtype, copy=False)
 
     if gridded:
-        rows_per_chunk = max(1, max_array_elements // nt)
+        rows_per_chunk = max(1, max_array_elements // (2 * nt))
         for m in range(n_src):
+            S = _source_spectra(ms[m : m + 1], fs, nt, xp)[0]
             d0 = np.linalg.norm(sen - src[m], axis=1)
             d_grid, i_grid = gridded_distance(d0, dt * c0)
-            p = xp.empty((d_grid.size, nt))
+            p = xp.empty((d_grid.size, nt), dtype=out.dtype)
             for gblk in _blocks(d_grid.size, max(1, max_array_elements // (4 * F))):
                 G = _green(xp.asarray(d_grid[gblk]), K, xp)
-                G *= S[m]
-                p[gblk] = _irfft(G, 2 * nt, xp)[:, :nt]
+                G *= S
+                p[gblk] = _irfft(G, 2 * nt, xp, overwrite=True)[:, :nt]
             silent = d0 == 0
             for blk in _blocks(n_sen, rows_per_chunk):
                 pc = p[xp.asarray(i_grid[blk])]
@@ -364,13 +373,17 @@ def propagate_homogeneous(
     budget = max(1, max_array_elements // 4)
     n_chunk = max(1, min(n_sen, budget // F))
     n_batch = max(1, min(n_src, budget // (F * n_chunk)))
-    for sblk in _blocks(n_sen, n_chunk):
+    sblocks, mblocks = _blocks(n_sen, n_chunk), _blocks(n_src, n_batch)
+    # spectra of all sources once if they fit the budget, else per batch
+    S_all = _source_spectra(ms, fs, nt, xp) if n_src * F <= budget else None
+    for sblk in sblocks:
         P = xp.zeros((sblk.stop - sblk.start, F), dtype=xp.complex128)
-        for mblk in _blocks(n_src, n_batch):
+        for mblk in mblocks:
+            S = S_all[mblk] if S_all is not None else _source_spectra(ms[mblk], fs, nt, xp)
             r = np.linalg.norm(sen[sblk, None, :] - src[None, mblk, :], axis=2)
             G = _green(xp.asarray(r), K, xp)  # chunk × batch × F
-            P += xp.einsum("smf,mf->sf", G, S[mblk])
-        add(sblk, _irfft(P, 2 * nt, xp)[:, :nt])
+            P += xp.einsum("smf,mf->sf", G, S)
+        add(sblk, _irfft(P, 2 * nt, xp, overwrite=True)[:, :nt])
     return out
 
 
@@ -406,7 +419,7 @@ def run_simulation_homogeneous(
     if xp is not np:
         xp.cuda.Device(int(_param(run_param, "DEVICE_NUM", 0))).use()
         if sensor_points.shape[0] * nt > int(_param(run_param, "MaxGpuElements", MAX_GPU_ELEMENTS)):
-            out = np.zeros((sensor_points.shape[0], nt))
+            out = np.zeros((sensor_points.shape[0], nt), dtype=dtype)
     p = propagate_homogeneous(
         ms,
         _get(source, "points"),
@@ -418,5 +431,6 @@ def run_simulation_homogeneous(
         max_array_elements=int(_param(run_param, "MaxArrayElements", MAX_ARRAY_ELEMENTS)),
         xp=xp,
         out=out,
+        dtype=dtype,
     )
-    return {"p": p.astype(dtype, copy=False)}
+    return {"p": p}

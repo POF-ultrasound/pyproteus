@@ -170,6 +170,14 @@ def test_rf_signal_length(matlab_engine) -> None:
                 nargout=0,
             )
             assert rf_signal_length(m, delay, DT) == int(get(matlab_engine, "pyp_N")[0, 0])
+            # DATA_CAST_RF = 'single': MATLAB divides a single delay by the double dt
+            matlab_engine.eval(
+                f"pyp_N = {m} + ceil(single({delay!r})/pyp_dt);"
+                "pyp_N = optimize_grid_size(double(pyp_N), [0 max(10, round(pyp_N*0.05))], 5);",
+                nargout=0,
+            )
+            got = rf_signal_length(m, delay, DT, np.float32)
+            assert got == int(get(matlab_engine, "pyp_N")[0, 0])
     matlab_engine.eval("clear pyp_dt pyp_N", nargout=0)
 
 

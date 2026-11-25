@@ -43,8 +43,9 @@ _CASTS = {
     "gpuArray-single": (np.float32, True),
     "gpuArray-double": (np.float64, True),
 }
-#: Complex elements of the largest intermediate array per block of elements.
-_BLOCK_ELEMENTS = 1 << 24
+#: Default bound on the elements of the largest intermediate array (as PROTEUS's
+#: ``MaxArrayElements`` for the homogeneous simulation).
+_MAX_ARRAY_ELEMENTS = 1 << 26
 
 
 def rf_signal_length(m: int, max_delay: float, dt: float, dtype: Any = np.float64) -> int:
@@ -81,9 +82,11 @@ def compute_RF(
       in MATLAB column-major order of ``(element, point)``.
     - ``Grid``: ``dt``.
     - ``run_param``: ``DATA_CAST_RF`` (``'single'``, ``'double'``,
-      ``'gpuArray-single'``, ``'gpuArray-double'``) and optional ``RF_type``
+      ``'gpuArray-single'``, ``'gpuArray-double'``), optional ``RF_type``
       (``'pressure'``: return the element pressure ``N_el × N``, before the
-      impulse response).
+      impulse response) and ``MaxArrayElements`` (default 2^26: bound on the
+      complex elements of the per-block intermediates, about four live at once;
+      results do not depend on it).
 
     Returns the RF data, ``N_el × (N + numel(IR) - 1)``, in the requested dtype.
     """
@@ -109,7 +112,7 @@ def compute_RF(
 
     p_sensor = _sensor_pressure(sensor_data)
     m = int(np.shape(p_sensor)[1])
-    n = rf_signal_length(m, float(np.max(delays)), dt, dtype)
+    n = rf_signal_length(m, float(np.nanmax(delays)), dt, dtype)  # MATLAB max skips NaN
 
     # sensor pressure → integration points (MATLAB: sensor_weights*double(p)),
     # half spectrum on N points, rows in column-major (element, point) order
@@ -124,14 +127,16 @@ def compute_RF(
     f = np.arange(n // 2 + 1, dtype=float) / (n * dt)
     coef = (weights * apod)[:, :, None]
     p = np.empty((n_el, n))
-    per_el = max(1, _BLOCK_ELEMENTS // max(1, n_int * f.size))
+    max_el = int(_get(run_param, "MaxArrayElements", _MAX_ARRAY_ELEMENTS))
+    per_el = max(1, max_el // (4 * max(1, n_int * f.size)))
     for i in range(0, n_el, per_el):
         blk = slice(i, min(i + per_el, n_el))
         P = xp.fft.rfft(xp.asarray(p_int[blk]), n=n, axis=-1)
         shift = xp.asarray(coef[blk]) * xp.exp(
             -2j * math.pi * xp.asarray(delays[blk])[:, :, None] * xp.asarray(f)
         )
-        p[blk] = to_numpy(_irfft(xp.sum(P * shift, axis=1), n, xp))
+        P *= shift
+        p[blk] = to_numpy(_irfft(xp.sum(P, axis=1), n, xp, overwrite=True))
 
     if _get(run_param, "RF_type") == "pressure":
         return p.astype(dtype)
