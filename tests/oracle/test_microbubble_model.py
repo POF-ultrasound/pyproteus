@@ -399,9 +399,9 @@ CASES = {
 @pytest.mark.parametrize("step_control", ["independent", "shared"])
 @pytest.mark.parametrize("name", list(CASES))
 def test_calc_bubble_response(matlab_engine, name: str, step_control: str) -> None:
-    """Both step controls (D-22) against MATLAB's stacked solve. A single bubble gets the
-    same algorithm either way; in batches "independent" differs from MATLAB by MATLAB's
-    own batch dependence (Q-50), which is within the class."""
+    """Both step controls (D-22). "shared" against MATLAB's stacked solve of the batch;
+    "independent" against MATLAB integrating each bubble alone (same per-bubble time
+    scale and step control; the step-size floors differ slightly from ode45's)."""
     eng = matlab_engine
     model, sig_0, radii, amps, f0 = CASES[name]
     R0 = np.array(radii)

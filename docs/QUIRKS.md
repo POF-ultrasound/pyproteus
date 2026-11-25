@@ -63,6 +63,11 @@ Format:
 - Test: `tests/oracle/test_mass_source.py::test_batch_size_sensitivity`, `tests/oracle/test_microbubble_model.py::test_matlab_batch_dependence`.
 - Fixed by default (D-22): `step_control="independent"` gives every bubble its own steps and time scale; `step_control="shared"` reproduces this quirk for MATLAB comparisons.
 
+## Q-122 — Wall-clock timer stops bubble integration after 60 s × N (not ported: replaced, D-22)
+- MATLAB: `microbubble-simulator/calcBubbleResponse.m:8-12` (timer sets `timeout_reached`), `functions/odeOutputFcn.m` (returns it, which stops `ode45`).
+- Behaviour: results depend on machine speed; the response is truncated and `compute_bubble_mass_source` then fails with a size mismatch.
+- Replaced (D-22): deterministic failure detection and an optional wall-clock limit, off by default; see `docs/PARITY.md` (microbubble section).
+
 ## Q-100 — DAS time to peak uses the 1-based index (unresolved; decide after the M3 point-scatterer check)
 - MATLAB: `delay-and-sum/DAS_reconstruction.m:51-54`, `initialize_das_parameters.m:62-65`.
 - Behaviour: `V_ref = conv(Transmit.PressureSignal, Transducer.ReceiveImpulseResponse)`, `[~,I] = max(abs(hilbert(V_ref)))`, `timeToPeak = I/Transmit.SamplingRate`. `V_ref` starts at index 1 = time 0, so the peak time is `(I-1)/Transmit.SamplingRate`: the axis is shifted by one *transmit* sample, `1/Transmit.SamplingRate` (4 ns ≈ 3 µm in depth at the GUI default of 250 MHz).

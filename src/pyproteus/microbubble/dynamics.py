@@ -109,10 +109,13 @@ class BubbleIntegrationError(RuntimeError):
 
     ``failures`` lists ``(index, t [s], reason)`` per failed bubble (indices into
     the batch passed in); ``response`` holds the results of all bubbles, NaN
-    after each failure.
+    after each failure (``None`` when raised by ``compute_bubble_mass_source``,
+    which attaches ``mass_source`` instead).
     """
 
-    def __init__(self, failures: list[BatchFailure], response: BubbleResponse, settings: str):
+    def __init__(
+        self, failures: list[BatchFailure], response: BubbleResponse | None, settings: str
+    ):
         self.failures = failures
         self.response = response
         lines = [f"  bubble {f.index}: t = {f.t:.4e} s: {f.reason}" for f in failures]
@@ -256,7 +259,8 @@ def calc_bubble_response(
     wall_clock_limit
         Seconds for the whole batch; ``None`` (default) = no limit.
     max_steps
-        Step budget per bubble (independent) or for the batch (shared).
+        Independent: attempted steps per bubble (accepted and rejected).
+        Shared: accepted steps of the stacked solve (counted by its output function).
     max_radius_ratio
         A radius above ``max_radius_ratio * R0`` counts as a blow-up.
 
@@ -386,7 +390,7 @@ def _shared(liquid, shell, eqparam, R0, P_acc, T, tq, wall, max_steps, ratio):
     X = np.full((tq.size, n, 2), np.nan)
     X[:m] = sol.y.reshape(m, n, 2)
     failures: list[BatchFailure] = []
-    if sol.stopped:
+    if sol.stopped or reason:  # a flag on the final step does not set ``stopped``
         why = reason[0] if reason else "step size underflow"
         t_fail = float(sol.t[-1] * T)
         failures = [BatchFailure(i, t_fail, f"{why} (shared steps: whole batch stopped)")

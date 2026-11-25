@@ -1,5 +1,5 @@
 """Unit tests for the microbubble model (no MATLAB): physics and accuracy checks,
-vectorisation invariants, timer (Q-122), batching (Q-50/Q-121)."""
+vectorisation invariants, failure detection and per-bubble steps (D-22)."""
 
 from __future__ import annotations
 
@@ -209,7 +209,9 @@ def test_non_finite_pressure_reported(setup) -> None:
 def test_step_budget_and_wall_clock(setup) -> None:
     liquid, gas, R0, pl = setup
     sh = mb.get_shell_properties(R0, "Marmottant", 0.02, liquid)
-    with pytest.raises(mb.BubbleIntegrationError, match="more than 20 steps") as exc:
+    with pytest.raises(
+        mb.BubbleIntegrationError, match="20 steps attempted without finishing"
+    ) as exc:
         mb.calc_bubble_response(liquid, gas, sh, R0, pl, max_steps=20)
     assert len(exc.value.failures) == 3
     with pytest.raises(mb.BubbleIntegrationError, match="wall-clock"):

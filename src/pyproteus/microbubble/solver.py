@@ -4,9 +4,11 @@
 system with ``m = 2``) are advanced together: every system has its own time,
 step size, error estimate and accept/reject decision, and the right-hand side
 is evaluated once per stage for all still-active systems. A system's result
-does not depend on which other systems share the batch (the stage sums run
-in a fixed order, elementwise, so batch results equal single-system results
-bit for bit).
+does not depend on which other systems share the batch: the stage sums run in
+a fixed order, elementwise, with no matmul/BLAS reduction, so batch results
+equal single-system results bit for bit as long as NumPy's elementwise ufuncs
+(pow, exp) do not depend on array length or alignment (tested, not guaranteed:
+``tests/unit/test_microbubble_model.py``).
 
 Method, written from the same published sources as
 :func:`pyproteus.numerics.ode45` (Dormand & Prince 1980; Hairer, Nørsett &
@@ -137,6 +139,8 @@ def dopri5_batch(
     attempts = np.zeros(N, dtype=np.int64)
     active = np.arange(N)
     failures: list[BatchFailure] = []
+    failed = np.zeros(N, dtype=bool)
+    n_reported = 0
     nfev = 0
 
     k1 = np.asarray(fun(t, y, active), dtype=np.float64).reshape(N, m)
@@ -152,10 +156,12 @@ def dopri5_batch(
             fail(active, f"wall-clock limit of {wall_clock_limit:g} s reached")
             break
         idx = active
-        ti, yi, hi, ki1 = t[idx], y[idx], h[idx], k1[idx]
+        ti, yi, ki1 = t[idx], y[idx], k1[idx]
+        hi = np.minimum(h[idx], hmax[idx])  # MaxStep is never exceeded (as ode45)
         remaining = tend[idx] - ti
         last = (1.01 * hi >= remaining) & (remaining <= hmax[idx])
         hi = np.where(last, remaining, hi)
+        hreq = hi.copy()  # requested step (``tn - ti`` below may round it up)
         K = [ki1]
         for s in range(1, 6):
             ys = yi + hi[:, None] * _stage_sum(K, _A[s, :s])
@@ -182,7 +188,7 @@ def dopri5_batch(
             nfailed[b] += 1
             nonfinite[b] = ~finite[bad]
             hmin = 16 * _EPS * np.maximum(np.abs(t[b]), tfloor[b])
-            under = np.abs(hi[bad]) <= hmin
+            under = hreq[bad] <= hmin
             if under.any():
                 u = b[under]
                 for i, nf in zip(u, nonfinite[u], strict=True):
@@ -195,7 +201,7 @@ def dopri5_batch(
                 np.maximum(_FACMIN, _SAFETY * (rtol / err[bad]) ** 0.2),
                 _FACMIN,
             )
-            h[b] = np.maximum(hmin, hi[bad] * np.minimum(1.0, fac))
+            h[b] = np.maximum(hmin, hreq[bad] * np.minimum(1.0, fac))
             rejected[b] = True
 
         # ---- accepted steps
@@ -228,7 +234,8 @@ def dopri5_batch(
                 pos += cross.sum(axis=1)
             n_out[a] = pos
             nsteps[a] += 1
-            fac = np.where(err[ok] == 0, _FACMAX, _SAFETY * (rtol / err[ok]) ** 0.2)
+            with np.errstate(divide="ignore"):
+                fac = np.where(err[ok] == 0, _FACMAX, _SAFETY * (rtol / err[ok]) ** 0.2)
             fac = np.minimum(np.where(rejected[a], 1.0, _FACMAX), np.maximum(_FACMIN, fac))
             h[a] = ha * fac
             rejected[a] = False
@@ -239,16 +246,18 @@ def dopri5_batch(
                     BatchFailure(int(i), float(t[i]), reasons.get(int(c), f"check {c}"))
                 )
 
-        done_fail = {f.index for f in failures}
-        over = attempts[idx] >= max_steps
+        for f in failures[n_reported:]:
+            failed[f.index] = True
+        n_reported = len(failures)
+        finished = t[idx] >= tend[idx]
+        over = (attempts[idx] >= max_steps) & ~finished & ~failed[idx]
         for i in idx[over]:
-            if int(i) not in done_fail:
-                failures.append(
-                    BatchFailure(int(i), float(t[i]), f"more than {max_steps} steps attempted")
-                )
-                done_fail.add(int(i))
-        keep = (t[idx] < tend[idx]) & np.array([int(i) not in done_fail for i in idx])
-        active = idx[keep]
+            failures.append(
+                BatchFailure(int(i), float(t[i]), f"{max_steps} steps attempted without finishing")
+            )
+            failed[i] = True
+        n_reported = len(failures)
+        active = idx[~finished & ~failed[idx]]
 
     failures.sort(key=lambda f: f.index)
     return BatchODEResult(
