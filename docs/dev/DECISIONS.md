@@ -82,3 +82,6 @@ From the PR #17 review, done now:
 - P7: `log_compress` warns on all-zero frames instead of returning silent NaN.
 - P8: the DAS matrix is cached per settings and RF size.
 P5 and P6 are the default; a `proteus_compat=True` keyword restores PROTEUS behaviour for parity tests. Results are unchanged for symmetric domains and unapodized transmits. Who: developer (P5, P6); main session under D-15 (P7, P8, no result change).
+
+## D-21 amendment (2026-11-24)
+After the PR #26 review: (1) the reference beamformer's depth axis starts at `max(Xmin, 0)`, because real settings have `Xmin ≈ -2λ` (margin above the array) and starting at `Xmin` would add rows above the array face; results are then identical to MATLAB for real settings. (2) `Tx.apod` is used as a binary mask (`apod != 0`), not an amplitude weight, since the source is already scaled by the apodization (amplitude weighting would give apod²). Who: developer.
