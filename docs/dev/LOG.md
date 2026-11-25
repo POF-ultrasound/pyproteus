@@ -11,9 +11,9 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - Found B-123: quiet bubbles crossing the buckling kink reach 1.16 of the class against a high-accuracy reference (MATLAB 0.82); developer chose to widen the class's absolute term to 3e-5 (D-22 amended); kink events in the 1.x backlog.
 - Final review (CHANGES REQUESTED, fixed): `dopri5_batch` did not enforce MaxStep (could step over a silent stretch); a step clamped at the underflow floor never failed (rounding in `tn - ti`); `max_steps` flagged a system finishing on its last attempt; shared mode lost a flag raised on the final step. Added `tests/unit/test_microbubble_solver.py`; Q-122 kept in QUIRKS as replaced by D-22.
 
-## 2026-11-26 — M2 "Done when": end-to-end RF on given bubble positions, CuPy switch (m2-homogeneous)
+## 2026-11-25 — M2 "Done when": end-to-end RF on given bubble positions, CuPy switch (m2-homogeneous)
 - `tests/oracle/test_end_to_end_rf.py`: default P4-1 (96 el.) and curved C1-6D (33 el.); 6 fixed bubbles, same incident plane wave; each side's own integration points/delays → mass source → gridded propagation → `compute_RF_data`. Propagation + RF from MATLAB's mass source ≤ 2.2e-13; end-to-end RF 1.01e-4 / 6.0e-5 (shared steps), 6.0e-5 / 5.3e-5 (independent): the bubble-model difference (2.1–2.4e-4, D-22 class) passes on to the RF. 1e-4 missed by 1 % on the default case: B-130, decision asked from the main session.
-- `tests/unit/test_homogeneous_backend.py`: the `gpuArray-*` path with a CuPy stand-in (device arrays that refuse host arrays); equal to NumPy bit for bit. Fixed the host-buffer check in `propagate_homogeneous` (`type(out) is np.ndarray`). Real GPU run left for the cluster.
+- `tests/unit/test_homogeneous_backend.py`: the `gpuArray-*` path with a CuPy stand-in (device arrays that refuse host arrays); equal to NumPy bit for bit; injected host/device bugs (missing gather, host array in a device product, NumPy kernel on device data) fail it. No library change (a first stand-in subclassing `ndarray` needed one; review round 1 replaced it). Real GPU run left for the cluster.
 - MILESTONES: `reference_frequency` wiring moved to M3 (hybrid simulator), complex64 kernel to M5 (hardware validation).
 
 ## 2026-11-25 — M2 homogeneous path: Green's function propagation and RF synthesis (m2-homogeneous)

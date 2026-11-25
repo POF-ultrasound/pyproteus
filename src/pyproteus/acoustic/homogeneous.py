@@ -402,7 +402,7 @@ def propagate_homogeneous(
     ms = xp.asarray(mass_source).reshape(n_src, -1)
     if out is None:
         out = xp.zeros((n_sen, nt), dtype=dtype)
-    on_host = type(out) is np.ndarray and xp is not np  # host buffer while computing on xp
+    on_host = isinstance(out, np.ndarray) and xp is not np
 
     def add(rows: slice | np.ndarray, p: Any) -> None:
         out[rows] += (to_numpy(p) if on_host else p).astype(out.dtype, copy=False)

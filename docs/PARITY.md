@@ -411,21 +411,21 @@ Notes:
 - The RF transducers are built by MATLAB (`get_transducer_properties`, `get_transducer_integration_points`, `get_transducer_integration_delays`); `test_compute_RF_python_transducer_chain` checks that pyproteus's own M1 chain gives the same RF.
 - Unit tests check the physics without MATLAB: lossless free-field Green's function `m'(t - r/c)/(4πr)` (≤ 1e-9), attenuation and Kramers–Kronig phase between two distances, `no_dispersion`, wrap-around, batching/chunking independence, gridded self-silence, integer and fractional lens delays, apodization/weight normalisation, impulse-response convolution, the GPU out-of-memory fallback.
 - Single-precision tolerances are relative to the largest value in a case (from the nearest sensor), so far sensors (crop/wrap distances) are effectively checked at ~1e-3 of their own amplitude there; the double-precision cases check every distance at 1e-9 of the case maximum.
-- CuPy path (`DATA_CAST`/`DATA_CAST_RF = 'gpuArray-*'`): the code runs on an `xp` array module (`array_module`), selects the device (`DEVICE_NUM`), keeps small outputs on the device and accumulates outputs above `MaxGpuElements` on the host, and gathers RF to the host. CuPy cannot run here (no NVIDIA GPU on the development Mac or in CI), so `tests/unit/test_homogeneous_backend.py` runs the GPU code path with a CuPy stand-in (NumPy underneath; device arrays that must be gathered with `.get()` and refuse arithmetic with host arrays, as CuPy's): results equal the NumPy path bit for bit, single and double, direct and gridded, host accumulation, `compute_RF`. The real CuPy-vs-NumPy run (M2 "Done when") is left for the university cluster (D-3, D-16), after the complex64 kernel (M5).
+- CuPy path (`DATA_CAST`/`DATA_CAST_RF = 'gpuArray-*'`): the code runs on an `xp` array module (`array_module`), selects the device (`DEVICE_NUM`), keeps small outputs on the device and accumulates outputs above `MaxGpuElements` on the host, and gathers RF to the host. CuPy cannot run here (no NVIDIA GPU on the development Mac or in CI), so `tests/unit/test_homogeneous_backend.py` runs the GPU code path with a CuPy stand-in: NumPy underneath, device arrays that are not `ndarray`s, can only reach the host through `.get()` (`np.asarray(dev)` and `host[...] = dev` raise, as with CuPy) and refuse host arrays in device operations; injected bugs (a missing gather, a host array in a device product, a NumPy kernel on device data) all fail the tests: results equal the NumPy path bit for bit, single and double, direct and gridded, host accumulation, `compute_RF`. The real CuPy-vs-NumPy run (M2 "Done when") is left for the university cluster (D-3, D-16), after the complex64 kernel (M5).
 
 ### End-to-end RF on given bubble positions (M2 "Done when")
 
-`tests/oracle/test_end_to_end_rf.py`: MATLAB-built default settings (P4-1, 96 elements) and a curved C1-6D (33 elements); 6 fixed bubbles 2–26 mm deep, off-axis, with equal-radius ties, driven by the same incident plane wave (the transmit pulse delayed by `x/c`; the k-Wave first iteration is M3); each side then runs its own integration points and delays → `compute_bubble_mass_source` → `run_simulation_homogeneous` (gridded) → `compute_RF_data` (double precision).
+`tests/oracle/test_end_to_end_rf.py`: MATLAB-built default settings (P4-1, 96 elements) and a curved C1-6D (33 elements); 6 fixed bubbles 2–26 mm deep, off-axis, with equal-radius ties, driven by the same incident plane wave (the transmit pulse delayed by `x/c`; the k-Wave first iteration is M3); each side then runs its own integration points and delays → `compute_bubble_mass_source` → `run_simulation_homogeneous` (gridded) → `compute_RF_data` (double precision). A third case (P4-1, 5 elements, `AttenuationB = 1.05`) runs the `no_dispersion` branch. The sensors are the integration points themselves with unit weights; PROTEUS's hybrid last stage senses at k-Wave grid points weighted by `define_sensor_transducer` (M3).
 
-| Stage compared | Measured (× max) |
-|---|---|
-| propagation + RF from MATLAB's mass source | 2.2e-13 (P4-1), 7.0e-14 (C1-6D) |
-| mass source, `step_control="shared"` | 2.2e-4, 2.1e-4 |
-| RF, `step_control="shared"` | 1.01e-4, 6.0e-5 |
-| mass source, `"independent"` (default, D-22) | 2.1e-4, 2.4e-4 |
-| RF, `"independent"` | 6.0e-5, 5.3e-5 |
+| Stage compared (× max) | P4-1 (96 el.) | C1-6D (33 el.) | P4-1 `no_dispersion` (5 el.) |
+|---|---|---|---|
+| propagation + RF from MATLAB's mass source | 2.2e-13 | 7.0e-14 | 3.6e-14 |
+| mass source, `step_control="shared"` | 2.2e-4 | 2.1e-4 | 2.2e-4 |
+| RF, `step_control="shared"` | 1.01e-4 | 6.0e-5 | 1.00e-4 |
+| mass source, `"independent"` (default, D-22) | 2.1e-4 | 2.4e-4 | 2.1e-4 |
+| RF, `"independent"` | 6.0e-5 | 5.3e-5 | 5.9e-5 |
 
-The RF difference is the bubble-model difference (inside the D-22 class, 1e-3) passed on almost one to one; the D-13 1e-4 end-to-end target is missed by 1 % on the default case in shared mode (open question to the developer, B-130).
+The RF difference is the bubble-model difference (inside the D-22 class, 1e-3) passed on almost one to one; the D-13 1e-4 end-to-end target is missed by ≤ 1 % on the P4-1 cases in shared mode (open question to the developer, B-130); the test asserts the propagation/RF stage at 1e-9 and the mass source and RF at the bubble class (1e-3), and marks RF > 1e-4 as an expected failure until the decision.
 
 Design divergences (D-15; results unchanged unless marked, parity checked as above):
 

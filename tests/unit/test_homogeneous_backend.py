@@ -20,40 +20,88 @@ from pyproteus.acoustic import homogeneous as hom
 from pyproteus.acoustic import rf as rfmod
 
 
-class DeviceArray(np.ndarray):
-    """Stand-in for a CuPy array: ``.get()`` returns a plain NumPy array.
+def _is_host(x: object) -> bool:
+    return isinstance(x, np.ndarray) and x.ndim > 0
 
-    Like CuPy, arithmetic with a plain (non-scalar) NumPy array raises, so a
-    host array leaking into the device computation is caught.
+
+def _unwrap(x: object) -> object:
+    """Device → NumPy for the stand-in's own use; host arrays are refused (as CuPy)."""
+    if isinstance(x, DeviceArray):
+        return x._a
+    if _is_host(x):
+        raise TypeError("host (NumPy) array passed to a device operation")
+    if isinstance(x, list | tuple):
+        return type(x)(_unwrap(v) for v in x)
+    return x
+
+
+def _wrap(x: object) -> object:
+    return DeviceArray(x) if isinstance(x, np.ndarray) else x
+
+
+class DeviceArray(np.lib.mixins.NDArrayOperatorsMixin):
+    """Stand-in for a CuPy array (not an ``ndarray``).
+
+    As CuPy: ``.get()`` is the only way to the host (``np.asarray(dev)`` and
+    ``host[...] = dev`` raise TypeError), and device operations refuse host arrays.
     """
 
+    def __init__(self, a: np.ndarray) -> None:
+        self._a = a
+
     def get(self) -> np.ndarray:
-        return np.asarray(self).view(np.ndarray).copy()
+        return self._a.copy()
+
+    def __array__(self, *args, **kwargs):
+        raise TypeError("implicit conversion of a device array to NumPy is not allowed")
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
-        args = []
-        for x in inputs + tuple(kwargs.get("out", ())):
-            if type(x) is np.ndarray and x.ndim > 0:
-                raise TypeError(f"host array mixed into a device computation ({ufunc.__name__})")
-        for x in inputs:
-            args.append(x.view(np.ndarray) if isinstance(x, DeviceArray) else x)
         if "out" in kwargs:
-            kwargs["out"] = tuple(o.view(np.ndarray) for o in kwargs["out"])
-        out = getattr(ufunc, method)(*args, **kwargs)
-        if method == "at":
-            return None
-        if isinstance(out, tuple):
-            return tuple(o.view(DeviceArray) if isinstance(o, np.ndarray) else o for o in out)
-        return out.view(DeviceArray) if isinstance(out, np.ndarray) else out
+            kwargs["out"] = tuple(_unwrap(o) for o in kwargs["out"])
+        out = getattr(ufunc, method)(*(_unwrap(x) for x in inputs), **kwargs)
+        if "out" in kwargs and len(kwargs["out"]) == 1 and isinstance(inputs[0], DeviceArray):
+            return next(x for x in (*inputs,) if x is not None) if out is None else _wrap(out)
+        return _wrap(out)
 
-    def __setitem__(self, key, value):
-        if type(value) is np.ndarray and value.ndim > 0:
-            raise TypeError("host array assigned into a device array")
-        super().__setitem__(key, value)
+    shape = property(lambda self: self._a.shape)
+    dtype = property(lambda self: self._a.dtype)
+    ndim = property(lambda self: self._a.ndim)
+    size = property(lambda self: self._a.size)
+    real = property(lambda self: DeviceArray(self._a.real))
+    imag = property(lambda self: DeviceArray(self._a.imag))
+
+    def __len__(self) -> int:
+        return len(self._a)
+
+    def __getitem__(self, key):
+        return _wrap(self._a[_unwrap(key)])
+
+    def __setitem__(self, key, value) -> None:
+        self._a[_unwrap(key)] = _unwrap(value)
+
+    def copy(self):
+        return DeviceArray(self._a.copy())
+
+    def astype(self, dtype, copy=True):
+        return DeviceArray(self._a.astype(dtype, copy=copy))
+
+    def reshape(self, *shape):
+        return DeviceArray(self._a.reshape(*shape))
+
+    def transpose(self, *axes):
+        return DeviceArray(self._a.transpose(*axes))
+
+    def sum(self, *args, **kwargs):
+        return _wrap(self._a.sum(*args, **kwargs))
+
+    def any(self):
+        return bool(self._a.any())
 
 
 class FakeCuPy(types.ModuleType):
-    """NumPy behind a CuPy-like module; array constructors return :class:`DeviceArray`."""
+    """NumPy behind a CuPy-like module returning :class:`DeviceArray`; records calls and devices."""
+
+    _TO_DEVICE = frozenset({"asarray", "array"})  # the only host → device transfers
 
     def __init__(self) -> None:
         super().__init__("fake_cupy")
@@ -70,20 +118,26 @@ class FakeCuPy(types.ModuleType):
 
         self.cuda = types.SimpleNamespace(Device=_Device)
         self.fft = types.SimpleNamespace(
-            rfft=self._wrap(np.fft.rfft, "rfft"), irfft=self._wrap(np.fft.irfft, "irfft")
+            rfft=self._fn(np.fft.rfft, "rfft"), irfft=self._fn(np.fft.irfft, "irfft")
         )
 
-    def _wrap(self, fn, name):
+    def _fn(self, fn, name):
         def inner(*args, **kwargs):
             self.calls[name] = self.calls.get(name, 0) + 1
-            out = fn(*args, **kwargs)
-            return out.view(DeviceArray) if isinstance(out, np.ndarray) else out
+            if name in self._TO_DEVICE:
+                x = args[0]
+                a = x._a if isinstance(x, DeviceArray) else np.asarray(x)
+                return DeviceArray(
+                    np.array(a, dtype=kwargs.get("dtype", args[1] if len(args) > 1 else None))
+                )
+            out = fn(*(_unwrap(a) for a in args), **{k: _unwrap(v) for k, v in kwargs.items()})
+            return _wrap(out)
 
         return inner
 
     def __getattr__(self, name: str):
         attr = getattr(np, name)
-        return self._wrap(attr, name) if callable(attr) and not isinstance(attr, type) else attr
+        return self._fn(attr, name) if callable(attr) and not isinstance(attr, type) else attr
 
 
 @pytest.fixture

@@ -11,7 +11,8 @@ Chain, each side with its own functions (MATLAB PROTEUS 8d37938 / pyproteus):
 4. mass source (``compute_bubble_mass_source``; pyproteus with
    ``step_control="shared"`` for the comparison, D-22);
 5. propagation to the integration points (``run_simulation_homogeneous``,
-   gridded, as ``hybrid_simulator``'s last stage);
+   gridded, as ``hybrid_simulator``'s last stage, which senses at the k-Wave
+   grid points of ``define_sensor_transducer`` instead: M3);
 6. element RF (``compute_RF_data``) with unit sensor weights (sensors = points).
 
 Classes: propagation + RF from MATLAB's own mass source ≤ 1e-9 × max|RF| (D-13
@@ -80,7 +81,9 @@ POSITIONS = np.array(
 RADII = np.array([2.0e-6, 1.5e-6, 2.5e-6, 2.0e-6, 3.0e-6, 1.8e-6])
 
 
-def make_settings(eng: Any, oracle: Any, tmp: Path, transducer: str, n_el: int) -> Any:
+def make_settings(
+    eng: Any, oracle: Any, tmp: Path, transducer: str, n_el: int, alpha_power: float | None
+) -> Any:
     build_settings(eng, oracle.path, "S")
     if transducer != "P4-1":
         eng.eval(
@@ -93,6 +96,8 @@ def make_settings(eng: Any, oracle: Any, tmp: Path, transducer: str, n_el: int) 
             nargout=0,
         )
     eng.eval(f"S.Transducer.NumberOfElements = {n_el};", nargout=0)
+    if alpha_power is not None:
+        eng.eval(f"S.Medium.AttenuationB = {alpha_power!r};", nargout=0)
     update_settings(eng, "S")
     return load_settings(eng, tmp, "S")
 
@@ -202,13 +207,18 @@ def rel(a: np.ndarray, e: np.ndarray) -> float:
     return float(np.max(np.abs(a - e)) / np.max(np.abs(e)))
 
 
-CASES = {"default_P4-1": ("P4-1", 96), "curved_C1-6D_odd": ("C1-6D", 33)}
+CASES = {
+    "default_P4-1": ("P4-1", 96, None),
+    "curved_C1-6D_odd": ("C1-6D", 33, None),
+    # |b - 1| < 0.1: alpha_mode = 'no_dispersion' (define_medium rule), 5 elements
+    "P4-1_no_dispersion": ("P4-1", 5, 1.05),
+}
 
 
 @pytest.mark.parametrize("case", list(CASES))
 def test_end_to_end_rf(keng: Any, oracle: Any, tmp_path: Path, case: str) -> None:
-    transducer, n_el = CASES[case]
-    S = make_settings(keng, oracle, tmp_path, transducer, n_el)
+    transducer, n_el, alpha_power = CASES[case]
+    S = make_settings(keng, oracle, tmp_path, transducer, n_el, alpha_power)
     c = float(S.Medium.SpeedOfSound)
     dt = 1 / float(S.SimulationParameters.SamplingRate)
     pulse_len = np.size(S.Transmit.PressureSignal) / float(S.Transmit.SamplingRate)
@@ -232,7 +242,7 @@ def test_end_to_end_rf(keng: Any, oracle: Any, tmp_path: Path, case: str) -> Non
         f"independent: mass source {e_ms_i:.2e}, RF {e_rf_i:.2e} (× max)"
     )
     assert np.max(np.abs(rf_m)) > 0
-    # never worse than the bubble-model class (D-22) passed on to the RF
-    assert max(e_rf, e_rf_i) <= BUBBLE_REL
+    # never worse than the bubble-model class (D-22), for the mass source and the RF
+    assert max(e_ms, e_ms_i, e_rf, e_rf_i) <= BUBBLE_REL
     if e_rf > RF_REL:
         pytest.xfail(f"B-130: end-to-end RF {e_rf:.2e} > {RF_REL:g} (bubble-model difference)")

@@ -107,7 +107,7 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 
 ### Done when
 - [ ] End-to-end RF on given bubble positions matches MATLAB (RF ≤ 1e-4)
-- [ ] CuPy path matches NumPy path: array-module switch done and tested on NumPy with a CuPy stand-in (`tests/unit/test_homogeneous_backend.py`, 2026-11-26); the GPU run is left for the cluster (M5 hardware validation, D-16)
+- [ ] CuPy path matches NumPy path: array-module switch done and tested on NumPy with a CuPy stand-in (`tests/unit/test_homogeneous_backend.py`, 2026-11-25); the GPU run is left for the cluster (M5 hardware validation, D-16)
 
 ## M3: k-Wave paths
 
