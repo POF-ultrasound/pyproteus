@@ -322,3 +322,37 @@ Design divergences (D-15; results unchanged unless marked, parity checked as abo
 | `define_grid`, `define_medium`: missing fields | `SensorOnGrid` absent, `EmbedVessel` absent or `Medium.Vessel` absent → error | `sensor_on_grid=None`; `EmbedVessel` absent = false; `Medium.Vessel` only read when the mask has vessel voxels | lenient where MATLAB fails; no effect on results |
 | NaN in `max`/`min` (integration delays, Custom orientation check, travel times) | `max`/`min` skip NaN | `np.nanmax`/`np.nanmin` | same semantics (all-NaN → NaN) |
 | `get_transducer_integration_*`, `compute_travel_times` | modify and return the struct | return an updated copy (`copy_struct`); `run_param` is a dict | value semantics, as MATLAB |
+
+## Homogeneous propagation and RF (`pyproteus.acoustic`, M2)
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `calc_scatter_attenuated(mass_source, medium, kgrid, r)` (1–4 sources; `N` = `Nt` odd/even, `N` < `Nt`, `N` > `Nt`; tissue/water/lossless media, `b` 1.05–2.5, `no_dispersion`; distances below a wavelength, after the window, beyond `2 Nt` (wrap, Q-131), zero; MATLAB bubble responses as sources) | `acoustic.calc_scatter_attenuated` | double: float (measured ≤ 3.4e-15 × max); single: 1e-5 × max (measured ≤ 8.1e-7, MATLAB single vs double 8.0e-7, pyproteus vs MATLAB double 1.1e-7); `b ≤ 1` with dispersion: NaN positions equal (Q-130) | `tests/oracle/test_homogeneous.py` | ✅ |
+| k-Wave `powerLawKramersKronig`, `db2neper` (as called by `calc_scatter_attenuated`) | `acoustic.power_law_kramers_kronig`, `acoustic.db2neper` (clean-room from Szabo 1994 / Waters et al. 2005 and the unit definitions; no k-Wave source) | float; finite/non-finite positions equal (`y` 0.5–2.7, `ω0` 0 and 2π·1 MHz) | `test_homogeneous.py::test_power_law_kramers_kronig_and_db2neper` | ✅ |
+| `run_simulation_homogeneous` (direct: linear and curved sensor arrays with odd counts, bubbles on/off axis and next to the array, chunked and default `MaxArrayElements`, single/double; gridded with a bubble on a sensor; bubble-to-bubble with MATLAB bubble responses and `no_dispersion`; averaged medium maps) | `acoustic.run_simulation_homogeneous` (+ `propagate_homogeneous` on arrays) | as `calc_scatter_attenuated`; gridded indices (`round`) equal in every case | `test_homogeneous.py` | ✅ |
+| `gridded_distance` (subfunction) | `acoustic.gridded_distance` (0-based indices) | indices exact (statistical class, 100 % seen), grid float | `test_homogeneous.py::test_gridded_distance_matches_matlab` | ✅ |
+| `compute_RF` / `compute_RF_data` (P4-1 and C1-6D with odd element counts, finite/infinite elevation focus, odd/even `M`, random receive apodization, per-point weights, dense/sparse sensor weights, `DATA_CAST_RF` single/double, `RF_type = 'pressure'`) | `acoustic.compute_RF`, `acoustic.compute_RF_data` | output size exact; double: float (measured ≤ 5.0e-15 × max); single: 1e-5 × max (measured ≤ 8.8e-7) | `tests/oracle/test_rf.py` | ✅ |
+| signal length `M + ceil(max(delays)/dt)` → `optimize_grid_size(N, [0 max(10, round(0.05N))], 5)` | `acoustic.rf_signal_length` | exact | `test_rf.py::test_rf_signal_length` | ✅ |
+
+Notes:
+
+- The mass sources include bubble responses computed by MATLAB PROTEUS (`compute_bubble_mass_source`, default microbubble/medium/transmit, as the oracle's `regression_cases.m`), so these tests do not depend on the Python microbubble model. The end-to-end "RF on given bubble positions" check (M2 Done when) follows once both M2 halves are merged.
+- The oracle tests need MATLAB k-Wave on the path (`KWAVE_MATLAB_PATH`), for `powerLawKramersKronig`/`db2neper`.
+- The RF transducers are built by MATLAB (`get_transducer_properties`, `get_transducer_integration_points`, `get_transducer_integration_delays`); `test_compute_RF_python_transducer_chain` checks that pyproteus's own M1 chain gives the same RF.
+- Unit tests check the physics without MATLAB: lossless free-field Green's function `m'(t - r/c)/(4πr)` (≤ 1e-9), attenuation and Kramers–Kronig phase between two distances, `no_dispersion`, wrap-around, batching/chunking independence, gridded self-silence, integer and fractional lens delays, apodization/weight normalisation, impulse-response convolution, the GPU out-of-memory fallback.
+- The CuPy path (`DATA_CAST`/`DATA_CAST_RF = 'gpuArray-*'`) is written against the `xp` array module but not run here (no CUDA on the development Mac); the M2 "CuPy path matches NumPy path" item stays open for the GPU test (D-3, D-16).
+
+Design divergences (D-15; results unchanged unless marked, parity checked as above):
+
+| Where | MATLAB | pyproteus | Why |
+|---|---|---|---|
+| `calc_scatter_attenuated`, `run_simulation_homogeneous` spectra | full FFTs of length `N` and `2 Nt`; complex `Nsensor × 2Nt × Nsrc` transfer function, then a mirror to make it Hermitian | half spectra (`rfft`/`irfft`, `Nt + 1` bins); DC and Nyquist imaginary parts dropped explicitly (same as MATLAB's `real(ifft)`) | half the memory and work; cuFFT-safe |
+| `run_simulation_homogeneous` source sum | one inverse FFT per sensor-source pair, summed in time | sources summed in the frequency domain, one inverse FFT per sensor | `Nsrc`× fewer inverse FFTs; linear, same result |
+| `run_simulation_homogeneous` memory | sensor chunks × source batches bounded by `MaxArrayElements` (≈ 4 complex arrays of `chunk·2Nt·batch`) | same parameter bounds `chunk·batch·(Nt+1)` complex elements (÷4); the gridded field is also built in blocks | bounded memory; results independent of the block size (unit test) |
+| single precision (`DATA_CAST = 'single'`, PROTEUS default) | distances cast to single, transfer function and FFTs in single (phase `2π r f/c` with ~1e-7 relative error) | float64 inside, output cast to float32 | more accurate (MATLAB single is 8e-7 from its own double result, pyproteus 1.1e-7, i.e. float32 output rounding); on GPUs with weak FP64 a single-precision kernel can be added later |
+| `compute_RF` delays and element sum | `N_el·N_int × N` complex array: FFT, delay, inverse FFT per integration point, then apodization and weighted sum in time | delay, apodization and weights applied to half spectra and summed per element, in blocks of elements; one inverse FFT per element | `N_int`× fewer inverse FFTs, no full-size complex array; same result (linear) |
+| `compute_RF` single precision | FFT, delays and phase in single | float64 inside; the integration-point pressure and the element pressure are rounded to float32 where MATLAB casts them | as above |
+| `compute_RF_data` | catches `parallel:gpu:array:OOM`, prints, switches `DATA_CAST_RF` to CPU | catches CuPy `OutOfMemoryError`, `ResourceWarning`, returns a changed copy of `run_param` | value semantics; warnings instead of prints |
+| `calc_scatter_attenuated` with `b ≤ 1` and dispersion (Q-130) | silent NaN field | same NaN field plus a `UserWarning` | usability; result unchanged |
+| `run_simulation_homogeneous` progress output, GPU reset (`gpuDevice`) | `disp` per batch; resets the device | no output; selects the CuPy device (`DEVICE_NUM`) without reset | library code; no global GPU reset |
+| MATLAB structs | `kgrid`, `medium`, `source`, `sensor`, `run_param` structs | dicts/structs accepted (`_struct.get`); array-level `propagate_homogeneous(mass_source, source_points, sensor_points, dt=, nt=, medium=)` | clearer API for the hybrid simulator |

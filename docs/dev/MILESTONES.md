@@ -101,9 +101,9 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 - [ ] `compute_bubble_mass_source` (stable radius sort, batching as MATLAB)
 
 ### Homogeneous path
-- [ ] `calc_scatter_attenuated` (Green's function)
-- [ ] `run_simulation_homogeneous`
-- [ ] `compute_RF`, `compute_RF_data` (symmetric ifft)
+- [x] `calc_scatter_attenuated` (Green's function)
+- [x] `run_simulation_homogeneous`
+- [x] `compute_RF`, `compute_RF_data` (symmetric ifft)
 
 ### Done when
 - [ ] End-to-end RF on given bubble positions matches MATLAB (RF ≤ 1e-4)

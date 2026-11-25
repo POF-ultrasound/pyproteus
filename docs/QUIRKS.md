@@ -108,3 +108,17 @@ Format:
 - Ported in: `pyproteus.acoustic.define_grid`, reproduced by default (`pml_rounding="ceil"`, D-19).
 - Test: `tests/unit/test_acoustic.py::test_define_grid_q90_default_drops_a_point`; `tests/oracle/test_acoustic_grid.py::test_define_grid_domains`, `test_define_grid_default_settings` (default mode equals MATLAB's grid exactly).
 - Fix available now: `define_grid(..., pml_rounding="floor")` keeps the odd point in the core (`N + 1` points, PML one thinner, same full size; tests `test_define_grid_floor_keeps_the_domain` and the oracle `"floor"` checks). The default flips to `"floor"` in 1.x (D-19); every downstream index changes for odd-padding axes.
+
+## Q-130 — Green's-function dispersion is singular for `alpha_power ≤ 1` (NaN pressure)
+- MATLAB: `acoustic-module/calc_scatter_attenuated.m:64` calls `powerLawKramersKronig(2*pi*f, 0, c0, db2neper(a, b), b)` with reference frequency 0 (oracle commit 8d37938).
+- Behaviour: for `b > 1` the reference term `ω0^(b-1)` is 0 and `c(0) = c0`. For `0 < b < 1` it is infinite, and for `b = 1` the formula has `log(ω/0)`; the phase speed becomes ±0 or NaN and the whole propagated field is NaN. `define_medium` sets `alpha_mode = 'no_dispersion'` for `|b - 1| < 0.1`, so default runs only reach this with `AttenuationB ≤ 0.9` (the k-Wave part of the hybrid simulation is fine there; only the bubble field is NaN).
+- Ported in: `pyproteus.acoustic.power_law_kramers_kronig` (IEEE arithmetic, same NaN), `calc_scatter_attenuated`/`run_simulation_homogeneous` (same NaN field) plus a `UserWarning` (D-15, result unchanged).
+- Test: `tests/oracle/test_homogeneous.py::test_calc_scatter_attenuated_singular_dispersion` (NaN positions equal MATLAB's, `b` 0.5 and 1.0), `tests/unit/test_homogeneous.py::test_singular_dispersion_warns_and_gives_nan`.
+- Planned fix (proposal for after parity): use a finite reference frequency (e.g. the transmit centre frequency, `c(ω0) = c0`), which is regular for every `0 < b < 3`; this changes the phase speed (and arrival times) for every `b`, so it needs a developer decision.
+
+## Q-131 — Green's-function arrivals later than `2·Nt·dt` wrap into the window
+- MATLAB: `acoustic-module/calc_scatter_attenuated.m:53-90` (domain extension to `2·Nt`, then crop to `Nt`).
+- Behaviour: the transfer function is applied on a periodic FFT of length `2·Nt`. Arrivals between `Nt·dt` and `2·Nt·dt` are cropped as intended; a source farther than `2·Nt·dt·c` from a sensor appears at `τ mod 2·Nt·dt`, i.e. inside the recorded window. PROTEUS sizes `Nt` from the domain (`compute_travel_times`), so in normal runs no source–sensor distance exceeds the window.
+- Ported in: `pyproteus.acoustic.calc_scatter_attenuated`, `propagate_homogeneous` (same periodic FFT).
+- Test: `tests/oracle/test_homogeneous.py::test_calc_scatter_attenuated_double` (distance `2.3·Nt·dt·c` in every case), `tests/unit/test_homogeneous.py::test_arrival_after_extended_window_wraps`.
+- Planned fix (proposal for after parity): zero the contribution of sources whose direct arrival `r/c` is later than the window (or pad to `Nt + max(r)/(c dt) + pulse`); results change only for such far sources.
