@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field, fields, replace
+from functools import cache
 from typing import Any
 
 import numpy as np
@@ -345,6 +346,26 @@ def _ks_fit(R0: np.ndarray) -> np.ndarray:
     return KS_C1 * np.exp(KS_C2 * R0)
 
 
+@cache
+def _segers_coeff() -> np.ndarray:
+    from pyproteus import data
+
+    c = np.asarray(data.load("fit_SigmaR_04-08-2017.mat")["fit"]["coeff"], float).ravel()
+    c.flags.writeable = False
+    return c
+
+
+@cache
+def _segers_table() -> tuple[np.ndarray, np.ndarray]:
+    from pyproteus import data
+
+    fit = data.load("fit_SigmaR_evaluated.mat")
+    A_m = np.asarray(fit["A_m"], float).ravel()
+    sig = np.asarray(fit["sig"], float).ravel()
+    A_m.flags.writeable = sig.flags.writeable = False
+    return A_m, sig
+
+
 def get_shell_properties(R0: ArrayLike, model: str, sig_0: ArrayLike, liquid: Liquid) -> Shell:
     """Port of ``getShellProperties.m`` for bubbles of radii ``R0``.
 
@@ -353,8 +374,6 @@ def get_shell_properties(R0: ArrayLike, model: str, sig_0: ArrayLike, liquid: Li
     for ``'Segers'``, ``fit_SigmaR_evaluated.mat`` for ``'SegersTable'``).
     MATLAB warns once per bubble outside 1–4 µm; this port warns once per call.
     """
-    from pyproteus import data
-
     R0 = np.asarray(R0, dtype=np.float64)
     sig0 = np.asarray(sig_0, dtype=np.float64)
     if np.any((R0 < 1e-6) | (R0 > 4e-6)):
@@ -372,7 +391,7 @@ def get_shell_properties(R0: ArrayLike, model: str, sig_0: ArrayLike, liquid: Li
         shell.chi = np.asarray(0.55)
         shell.Rb = R0 / np.sqrt(1 + shell.sig_0 / shell.chi)
     elif model == "Segers":
-        coeff = np.asarray(data.load("fit_SigmaR_04-08-2017.mat")["fit"]["coeff"], float).ravel()
+        coeff = _segers_coeff()
         A_0 = 4 * np.pi * R0**2
         A_m1, A_m2 = find_domain_boundaries(coeff)
         shell.coeff, shell.A_m1, shell.A_m2 = coeff, np.asarray(A_m1), np.asarray(A_m2)
@@ -380,9 +399,7 @@ def get_shell_properties(R0: ArrayLike, model: str, sig_0: ArrayLike, liquid: Li
         A_m0 = np.array([find_A_m0(coeff, A_m1, A_m2, s) for s in s0.ravel()]).reshape(s0.shape)
         shell.A_N = A_0 / A_m0
     else:  # SegersTable
-        fit = data.load("fit_SigmaR_evaluated.mat")
-        A_m = np.asarray(fit["A_m"], float).ravel()
-        sig = np.asarray(fit["sig"], float).ravel()
+        A_m, sig = _segers_table()
         A_0 = 4 * np.pi * R0**2
         shell.A_m1, shell.A_m2 = np.asarray(A_m.min()), np.asarray(A_m.max())
         A_m0 = interp1(sig, A_m, shell.sig_0)

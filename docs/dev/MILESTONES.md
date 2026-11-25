@@ -97,8 +97,8 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 - [x] `getMaterialProperties`, `getShellProperties` (Segers fit / lookup table), `getEqParam` (2026-11-25; Segers polynomial at its conditioning class, B-120)
 - [x] `calc_surface_tension`, `calc_thermal_damp`, `compress_bubble`, `find_A_m0`, `find_domain_boundaries` (2026-11-25)
 - [x] `simple_RP` right-hand side (Marmottant shell) (2026-11-25, vectorised, `PchipBatch`)
-- [x] `calcBubbleResponse` (pchip driving pressure; timer ported as quirk, off in tests) (2026-11-25, Q-122; class provisional, B-121)
-- [x] `compute_bubble_mass_source` (stable radius sort, batching as MATLAB) (2026-11-25, `pyproteus.acoustic.mass_source`; batch sensitivity Q-121)
+- [x] `calcBubbleResponse` (pchip driving pressure; timer ported as quirk, off in tests) (2026-11-25; D-22: per-bubble steps by default, timer replaced by failure detection; B-123 open)
+- [x] `compute_bubble_mass_source` (stable radius sort, batching as MATLAB) (2026-11-25, `pyproteus.acoustic.mass_source`; results independent of batch size by default, D-22)
 
 ### Homogeneous path
 - [ ] `calc_scatter_attenuated` (Green's function)

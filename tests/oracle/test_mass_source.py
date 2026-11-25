@@ -105,7 +105,9 @@ def sensed(dt: float, f0: float, amps: np.ndarray, dur: float = 4e-6) -> np.ndar
     return amps[:, None] * (env * np.sin(2 * np.pi * f0 * t))[None, :]
 
 
-def run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, batch_size):
+def run_both(
+    eng, sp, radii, medium, microbubble, f0, dt, k_max, batch_size, step_control="independent"
+):
     put(eng, pyp_sp=sp, pyp_radii=radii.reshape(-1, 1))
     eng.eval(
         f"kg = struct('dt', {g17(dt)}, 'k_max', {g17(k_max)});"
@@ -128,7 +130,7 @@ def run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, batch_size):
             microbubble,
             SimpleNamespace(CenterFrequency=f0),
             batch_size=batch_size,
-            timeout=None,
+            step_control=step_control,
         )
     return got, ref
 
@@ -162,8 +164,9 @@ CASES = {
 }
 
 
+@pytest.mark.parametrize("step_control", ["independent", "shared"])
 @pytest.mark.parametrize("name", list(CASES))
-def test_compute_bubble_mass_source(keng, tmp_path, name: str) -> None:
+def test_compute_bubble_mass_source(keng, tmp_path, name: str, step_control: str) -> None:
     eng = keng
     model, advanced, radii, amps, bs = CASES[name]
     medium, microbubble = settings(eng, tmp_path, model, advanced)
@@ -171,10 +174,17 @@ def test_compute_bubble_mass_source(keng, tmp_path, name: str) -> None:
     f0, dt = 2.5e6, 1 / 40e6
     k_max = np.pi / (1540 / (f0 * 6))
     sp = sensed(dt, f0, np.array(amps, float))
-    got, ref = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, bs)
+    got, ref = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, bs, step_control)
+    if step_control == "independent" and bs > 1:
+        # D-22: independent steps = MATLAB with one bubble per batch
+        _, ref1 = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, 1)
+        print(
+            f"{name}: vs MATLAB batch {bs}: {mass_errors(got, ref, radii).max():.3f} of the class"
+        )
+        ref = ref1
     assert got.shape == ref.shape and got.dtype == np.float64
     err = mass_errors(got, ref, radii)
-    print(f"{name}: worst fraction of the class {err.max():.3f}")
+    print(f"{name} [{step_control}]: worst fraction of the class {err.max():.3f}")
     assert np.all(err <= 1), err
 
 
@@ -195,7 +205,8 @@ def test_mass_source_single_precision(keng, tmp_path) -> None:
 
 
 def test_batch_size_sensitivity(keng, tmp_path) -> None:
-    """Measured and reported (Q-50/Q-121): batch size 1 vs 7, in MATLAB and in pyproteus."""
+    """Batch size 1 vs 7: measured for MATLAB and pyproteus' shared mode (Q-50/Q-121);
+    pyproteus' default independent steps give identical results (D-22)."""
     eng = keng
     medium, microbubble = settings(eng, tmp_path, "Marmottant", False)
     _, _, radii, amps, _ = CASES["default_marmottant"]
@@ -203,11 +214,15 @@ def test_batch_size_sensitivity(keng, tmp_path) -> None:
     f0, dt = 2.5e6, 1 / 40e6
     k_max = np.pi / (1540 / (f0 * 6))
     sp = sensed(dt, f0, np.array(amps, float))
-    g1, m1 = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, 1)
-    g7, m7 = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, 7)
+    g1, m1 = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, 1, "shared")
+    g7, m7 = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, 7, "shared")
+    i1, _ = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, 1)
+    i7, _ = run_both(eng, sp, radii, medium, microbubble, f0, dt, k_max, 7)
+    np.testing.assert_array_equal(i1, i7)
     rel = lambda a, b: np.max(np.abs(a - b), axis=1) / np.max(np.abs(b), axis=1)  # noqa: E731
+    print(f"pyproteus independent vs MATLAB batch 1: {rel(i1, m1)}")
     print(f"MATLAB 1 vs 7: {rel(m7, m1)}")
-    print(f"pyproteus 1 vs 7: {rel(g7, g1)}")
+    print(f"pyproteus shared 1 vs 7: {rel(g7, g1)}")
     print(f"pyproteus vs MATLAB, batch 1: {rel(g1, m1)}; batch 7: {rel(g7, m7)}")
     assert np.all(mass_errors(m7, m1, radii) <= 1)
     assert np.all(mass_errors(g7, g1, radii) <= 1)

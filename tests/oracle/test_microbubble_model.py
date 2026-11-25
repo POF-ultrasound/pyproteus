@@ -394,8 +394,12 @@ CASES = {
 }
 
 
+@pytest.mark.parametrize("step_control", ["independent", "shared"])
 @pytest.mark.parametrize("name", list(CASES))
-def test_calc_bubble_response(matlab_engine, name: str) -> None:
+def test_calc_bubble_response(matlab_engine, name: str, step_control: str) -> None:
+    """Both step controls (D-22) against MATLAB's stacked solve. A single bubble gets the
+    same algorithm either way; in batches "independent" differs from MATLAB by MATLAB's
+    own batch dependence (Q-50), which is within the class."""
     eng = matlab_engine
     model, sig_0, radii, amps, f0 = CASES[name]
     R0 = np.array(radii)
@@ -408,16 +412,32 @@ def test_calc_bubble_response(matlab_engine, name: str) -> None:
     w = 2 * np.pi * f0
     put_pulse(eng, t, p, t, w)
     R_ref, Rd_ref, t_ref = run_matlab_response(eng)
+    T = float(eng.eval("median(sqrt(liquid.rho.*[bubble.R0].^2/liquid.P0))"))
+    R_bat, Rd_bat = R_ref, Rd_ref
+    if step_control == "independent" and R0.size > 1:
+        # D-22: independent steps = MATLAB integrating each bubble alone
+        rows = []
+        for i in range(R0.size):
+            put_shells(eng, R0[i : i + 1], model, sig_0)
+            put_pulse(eng, t, p[i : i + 1], t, w)
+            rows.append(run_matlab_response(eng)[:2])
+        R_ref = np.vstack([r[0] for r in rows])
+        Rd_ref = np.vstack([r[1] for r in rows])
     with __import__("warnings").catch_warnings():
         __import__("warnings").simplefilter("ignore")
         shell = mb.get_shell_properties(R0, model, sig_0, liquid)
     pulse = mb.Pulse(t=t, p=p, tq=t, w=w)
-    resp, _ = mb.calc_bubble_response(liquid, gas, shell, R0, pulse, timeout=None)
-    assert not resp.stopped
+    resp, _ = mb.calc_bubble_response(liquid, gas, shell, R0, pulse, step_control=step_control)
+    assert not resp.failures
     assert_float(resp.t, t_ref, atol=1e-20)
-    T = float(np.median(np.sqrt(liquid.rho * R0**2 / liquid.P0)))
+    if step_control == "shared":
+        assert_float(resp.T, T, rtol=1e-15)  # PROTEUS' batch time scale
+    else:
+        assert_float(resp.T, np.sqrt(liquid.rho * R0**2 / liquid.P0), rtol=0)
     err = ode_errors(R0, T, resp.R, resp.Rdot, R_ref, Rd_ref)
     d13 = ode_errors(R0, T, resp.R, resp.Rdot, R_ref, Rd_ref, 10 * ODE_REL, ODE_ABS)
+    vs_batch = ode_errors(R0, T, resp.R, resp.Rdot, R_bat, Rd_bat).max()
+    print(f"{name} [{step_control}]: vs MATLAB's batched solve {vs_batch:.3f} of the class")
     print(
         f"{name}: fraction of the class {err.max():.3f} (of the D-13 bound {d13.max():.1f}); "
         f"max R/R0 {np.max(R_ref / R0[:, None], axis=1)}"

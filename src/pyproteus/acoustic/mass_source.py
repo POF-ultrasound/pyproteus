@@ -6,16 +6,16 @@ Steps, as PROTEUS:
    ``kgrid.dt``) to the microbubble sampling rate with ``sinc_interpolation``;
 2. sort the bubbles by radius (stable sort, ties keep their input order) and
    integrate them in consecutive batches of ``batch_size`` with
-   :func:`pyproteus.microbubble.calc_bubble_response` (shared steps and time
-   scale inside a batch: results depend on the batching, Q-50/Q-121);
+   :func:`pyproteus.microbubble.calc_bubble_response`;
 3. mass source ``4 pi rho R^2 Rdot`` per bubble, zero-phase filtered with
    k-Wave's ``filterTimeSeries`` (through k-wave-python, B-60) and resampled
    back to the k-Wave time axis.
 
-Differences from PROTEUS (``docs/PARITY.md``): ``parfor`` is not used (the
-batches are independent, so serial results are the same); the timer is a
-keyword (``timeout``, Q-122) and a timeout raises an error (MATLAB fails with a
-size mismatch when it assigns the truncated response); float32 sensed pressures
+Differences from PROTEUS (``docs/PARITY.md``, D-22): per-bubble step control
+by default, so results do not depend on the batching (``step_control="shared"``
+gives PROTEUS' shared steps, Q-50/Q-121); no wall-clock timer: failed bubbles
+are reported in one :class:`BubbleIntegrationError` after all batches ran;
+``parfor`` is not used (batches are independent); float32 sensed pressures
 are integrated in double precision and the mass source is returned as float32
 (MATLAB stores the batch results in single and mixes single into the RHS).
 """
@@ -29,8 +29,13 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from pyproteus.acoustic.signals import sinc_interpolation
-from pyproteus.microbubble.dynamics import PROTEUS_TIMEOUT, Pulse, calc_bubble_response
+from pyproteus.microbubble.dynamics import (
+    BubbleIntegrationError,
+    Pulse,
+    calc_bubble_response,
+)
 from pyproteus.microbubble.model import KS_C1, KS_C2, GasProps, Liquid, Shell
+from pyproteus.microbubble.solver import BatchFailure
 from pyproteus.numerics import argsort, gridded_interpolant, interp1
 
 __all__ = [
@@ -146,7 +151,8 @@ def compute_bubble_mass_source(
     transmit: Any,
     *,
     batch_size: int | None = None,
-    timeout: float | Literal["proteus"] | None = PROTEUS_TIMEOUT,
+    step_control: Literal["independent", "shared"] = "independent",
+    wall_clock_limit: float | None = None,
 ) -> np.ndarray:
     """Port of ``compute_bubble_mass_source.m``.
 
@@ -166,8 +172,18 @@ def compute_bubble_mass_source(
     batch_size
         Bubbles per ODE batch; default ``Microbubble.BatchSize`` if present, else
         15 (PROTEUS ``sim_setup.m``).
-    timeout
-        Per-batch wall-clock limit (see :func:`calc_bubble_response`); ``None`` = off.
+    step_control
+        ``"independent"`` (default, D-22): results do not depend on the batching;
+        ``"shared"``: PROTEUS' shared steps per batch (Q-50).
+    wall_clock_limit
+        Per-batch wall-clock limit in seconds; ``None`` (default) = off.
+
+    Raises
+    ------
+    BubbleIntegrationError
+        If bubbles fail (all batches are still computed); ``failures`` use
+        indices into ``radii`` and ``mass_source`` holds the result with NaN rows
+        for failed bubbles.
 
     Returns
     -------
@@ -205,23 +221,28 @@ def compute_bubble_mass_source(
     liquid, gas = get_microbubble_material_properties(medium, microbubble)
 
     mass = np.zeros((n_mb, m), dtype=out_dtype)
+    order = argsort(radii)  # stable: ties keep their input order, as MATLAB sort
+    failures: list[BatchFailure] = []
     for k in range(n_batch):
-        idx = get_batch_indices(k, n_mb, batch_size, radii)
+        idx = order[k * batch_size : (k + 1) * batch_size]
         shell = get_microbubble_shell_properties(radii[idx], medium, microbubble)
         pulse = Pulse(t=t_mb, p=p_mb[idx].astype(np.float64), tq=t_mb, w=w, f=f0, fs=fs_mb)
-        resp, _ = calc_bubble_response(liquid, gas, shell, radii[idx], pulse, timeout=timeout)
-        if resp.stopped:
-            raise RuntimeError(
-                f"bubble batch {k + 1}/{n_batch} stopped early (timeout); "
-                "MATLAB PROTEUS fails here with a size mismatch (Q-122)"
-            )
+        try:
+            resp, _ = calc_bubble_response(
+                liquid, gas, shell, radii[idx], pulse, step_control=step_control,
+                wall_clock_limit=wall_clock_limit,
+            )  # fmt: skip
+        except BubbleIntegrationError as exc:
+            resp = exc.response
+            failures += [BatchFailure(int(idx[f.index]), f.t, f.reason) for f in exc.failures]
         mass[idx] = 4 * np.pi * liquid.rho * resp.R**2 * resp.Rdot
 
     tw = 0.1 / (fs_mb * dt)
     c_min = _get(medium, "SpeedOfSoundMinimum")
     k_max = _f(kgrid.k_max)
-    filtered = np.empty((n_mb, m), dtype=np.float64)
-    for i in range(n_mb):
+    filtered = np.full((n_mb, m), np.nan)
+    failed = sorted({f.index for f in failures})
+    for i in sorted(set(range(n_mb)) - set(failed)):
         filtered[i] = filter_time_series(
             1 / fs_mb,
             k_max,
@@ -232,4 +253,13 @@ def compute_bubble_mass_source(
             ppw=2,
         )
     mass = filtered.astype(out_dtype)
-    return np.atleast_2d(sinc_interpolation(t_mb, mass.T, t_kwave)).astype(out_dtype)
+    out = np.atleast_2d(sinc_interpolation(t_mb, mass.T, t_kwave)).astype(out_dtype)
+    if failures:
+        failures.sort(key=lambda f: f.index)
+        exc = BubbleIntegrationError(
+            failures, None, f"compute_bubble_mass_source, step_control={step_control!r}, "
+            f"batch_size={batch_size}, radii of failed bubbles {radii[failed]} m",
+        )  # fmt: skip
+        exc.mass_source = out
+        raise exc
+    return out

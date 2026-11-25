@@ -1,7 +1,7 @@
 """Microbubble: gas properties, size distributions and the bubble model (M2)."""
 
 from .dynamics import (
-    PROTEUS_TIMEOUT,
+    BubbleIntegrationError,
     BubbleResponse,
     PchipBatch,
     Pulse,
@@ -32,7 +32,7 @@ from .properties import (
 )
 
 __all__ = [
-    "PROTEUS_TIMEOUT",
+    "BubbleIntegrationError",
     "BubbleResponse",
     "EqParam",
     "GasProps",
