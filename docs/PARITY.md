@@ -203,6 +203,76 @@ Class D-13 (PR #10; replaces the old 1e-8 bubble class): per component `max|y_py
 
 Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxStep`, `InitialStep`, `Refine`, `OutputFcn`; `BDF`/`MaxOrder`/`Stats` accepted and ignored; other options raise. Forward and backward; 2-point and many-point `tspan`.
 
+## Microbubble model and mass source (`pyproteus.microbubble`, `pyproteus.acoustic.mass_source`, M2)
+
+Bubble-response class (D-22, absolute term amended 2026-11-25 for B-123): per bubble
+`max|Δy| ≤ 1e-3·max|y| + 3e-5` for the solver states `y = x = R/R0 - 1` and `y = xdot = Rdot·T/R0`;
+for the mass source the same per bubble with the absolute term scaled by `4πρR0³/T`. The D-13 bound
+`10·RelTol·max|y| + AbsTol` is missed by MATLAB against itself (bubble alone vs in a batch: 17–34×),
+and both solvers are ~1e-4 of the excursion from a DOP853 rtol 1e-13 reference (MATLAB ≤ 1.2e-4,
+pyproteus ≤ 2.3e-4, one quiet bubble in a loud batch 6.8e-4). Accuracy is also tested in CI against
+that reference (≤ 1e-3).
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `getMaterialProperties` | `microbubble.get_material_properties` | exact | `test_microbubble_model.py` | ✅ |
+| `getShellProperties` (Marmottant, SegersTable; warning range) | `get_shell_properties` | float | `test_microbubble_model.py` | ✅ |
+| `getShellProperties`, `calc_surface_tension`, `find_domain_boundaries`, `find_A_m0` for the `'Segers'` polynomial | same | B-120 class: roots 1e-3 rel, σ 2e-4 N/m abs, χ-derived parameters 1e-2 rel | `test_microbubble_model.py` | 🟡 (B-120) |
+| `calc_surface_tension` (Marmottant, SegersTable; buckled/elastic/ruptured, NaN, exact table ends Q-120) | `calc_surface_tension` | float (1e-9 rel + 1e-15) | `test_microbubble_model.py` | ✅ |
+| `calc_thermal_damp` (Hypothesis: R0 0.3–10 µm, σ0 0–0.072, f 0.1–20 MHz) | `calc_thermal_damp` | float | `test_microbubble_model.py` | ✅ |
+| `getEqParam` (Prosperetti/Adiabatic/Isothermal × shell models, equal radii) | `get_eq_param` | float | `test_microbubble_model.py` | ✅ |
+| `compress_bubble` (over/underpressure, Marmottant, SegersTable) | `compress_bubble` | float | `test_microbubble_model.py` (needs the `boolean` shim, B-122) | ✅ |
+| `simple_RP` (random states, off-node and extrapolated times) | `simple_rp` + `PchipBatch` | float (1e-9 rel + 1e-12·max) | `test_microbubble_model.py` | ✅ |
+| `calcBubbleResponse` (single bubbles: buckled/elastic/ruptured, 0.5 µm, 6 µm; batches incl. equal radii; SegersTable, Segers) | `calc_bubble_response(..., step_control="shared")` vs MATLAB's batch; default `"independent"` vs MATLAB integrating each bubble alone | bubble class (worst 0.82 independent / 0.56 shared with the amended 3e-5 term; was 1.17 / 0.79 with 1e-5, B-123) | `test_microbubble_model.py` | ✅ |
+| `compute_bubble_mass_source` batch membership (stable radius sort, ties) | `get_batch_indices` | exact | `test_mass_source.py` | ✅ |
+| `compute_bubble_mass_source` (defaults, batch sizes 1/2/3/15, ties, single bubble, Segers table, `Advanced` viscosity, float32 input) | `compute_bubble_mass_source` (default independent steps vs MATLAB with `BatchSize = 1`; `step_control="shared"` vs MATLAB at the same batch size) | bubble class (independent worst 0.70, shared 0.22) | `test_mass_source.py` | ✅ |
+
+Batch-size sensitivity (default Marmottant, 7 bubbles, batch 1 vs 7, max per-bubble difference relative
+to its max): MATLAB 4.6e-5–2.4e-4; pyproteus shared steps 1.0e-4–1.0e-3; pyproteus independent steps
+(default): identical results (`test_mass_source.py::test_batch_size_sensitivity`).
+
+Step control and failure detection (D-22), result-changing within the class:
+- Default `step_control="independent"`: each bubble has its own DOPRI5 steps, error test and time scale
+  `T = sqrt(rho R0²/P0)` (`pyproteus.microbubble.solver.dopri5_batch`, same published method and
+  controller as `numerics.ode45`). Batch results equal single-bubble results bit for bit; the reference
+  is MATLAB integrating each bubble alone. `step_control="shared"` keeps PROTEUS' stacked solve (Q-50,
+  Q-121) for MATLAB comparisons.
+- Timing (3-cycle 2.5 MHz pulses 20–300 kPa, radii 1–4 µm, 5 µs at 250 MHz, Apple M-series, best of 3):
+
+  | bubbles | shared (PROTEUS) | independent | loop of single solves |
+  |---|---|---|---|
+  | 1 | 0.024 s | 0.031 s | 0.031 s |
+  | 3 | 0.050 s | 0.077 s | 0.159 s |
+  | 15 (PROTEUS default batch) | 0.089 s | 0.092 s | 0.688 s |
+  | 50 | 0.130 s | 0.110 s | 2.166 s |
+
+- PROTEUS' wall-clock timer (60 s × N, `calcBubbleResponse.m:8-12`, formerly Q-122) is not ported: a
+  bubble fails deterministically on a non-finite state that step reduction cannot recover, radius ≤ 0,
+  radius above `max_radius_ratio·R0` (100), step underflow (`h < 16 eps |t|`, `|t|` floored at 1e-6 of
+  the span) or a step budget (`max_steps`, 1e6); an optional `wall_clock_limit` is off by default. Failed
+  bubbles are listed in one `BubbleIntegrationError` (index, time, reason, settings) after the other
+  bubbles (and, in `compute_bubble_mass_source`, all batches) finished; their results are NaN from the
+  failure on. In shared mode a failure stops the whole batch, as the stacked solve must.
+- Batch membership in `compute_bubble_mass_source` is unchanged (stable radius sort, consecutive batches);
+  the radii are sorted once instead of once per batch.
+
+Design differences (D-15), results unchanged within the class:
+- A `Shell` holds a batch as arrays (struct-of-arrays) and every function is vectorised over bubbles;
+  `simple_rp` evaluates the surface tension and the driving pressures of the whole batch in one array
+  operation. The per-bubble pchip interpolants are built once as one coefficient matrix
+  (`PchipBatch`) instead of one `griddedInterpolant` per bubble evaluated in a loop per RHS call.
+- Responses are `(n_bubbles, n_t)` arrays instead of a struct array.
+- No `parfor`: batches are independent, so serial results are what `parfor` gives.
+- float32 sensed pressure: integrated in double, returned as float32 (MATLAB stores batch results in
+  single and evaluates part of the RHS in single); same class.
+- `find_A_m0` raises when no area in the fit domain gives σ0 (MATLAB returns `[]` and fails later);
+  shell-radius warnings are issued once per call instead of once per bubble.
+- `calc_thermal_damp` uses `beta/tanh(beta)` for `beta*coth(beta)`.
+- Accepted where MATLAB errors (unreachable from the pipeline): `compress_bubble` treats a NaN sign
+  change as a crossing (MATLAB's `boolean(NaN)` throws); `get_microbubble_shell_properties` reads a
+  missing `Microbubble.Advanced` as false.
+- The Segers fit and table are loaded once per process (cached), not on every call.
+
 ## Geometry (`pyproteus.geometry`, M4 item moved into M1)
 
 | MATLAB | Python | Class | Oracle test | Status |

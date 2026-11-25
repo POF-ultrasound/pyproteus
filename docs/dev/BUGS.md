@@ -9,6 +9,29 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: the engine puts MATLAB's libcrypto first; conda's `_ssl` then binds to it.
 - Workaround: import `ssl` (or `kwave`) before `matlab.engine`. The oracle fixture must do this.
 
+## B-120 — PROTEUS' Segers polynomial fit is ill-conditioned (observation; class widened for that model)
+- Where: `microbubble-simulator/functions/getShellProperties.m` (`'Segers'`), `find_domain_boundaries.m`, `find_A_m0.m`, `calc_surface_tension.m` (`polyval`); fit `fit_SigmaR_04-08-2017.mat`, degree 10 in the monomial basis, coefficients up to 9e10.
+- Symptom: `roots` gives a cluster of three real roots near A_m = 0.91; MATLAB and NumPy (`numpy.roots`, same companion-matrix method) place `A_m1` 6e-4 rel apart, `A_m2` 1e-4, `A_N` 4e-5; `polyval` has evaluation noise ~eps·Σ|c| = 8e-5 N/m, so `chi` from `getEqParam`'s finite difference differs by up to 0.4 %. Near the fit's maximum (σ0 = 0.0719) MATLAB finds no `A_m0` while NumPy finds one. Both are equally valid evaluations of an ill-conditioned problem.
+- Handling: no code to match MATLAB (D-12). The `'Segers'` polynomial path is tested at a class from its conditioning (roots 1e-3 rel, σ 2e-4 N/m, χ-derived 1e-2); its bubble responses still meet the bubble class. The pipeline (`compute_bubble_mass_source`) maps `'Segers'` to the lookup table, which is well conditioned (float class).
+- Proposal (1.x, D-15): drop the polynomial path, or evaluate the fit in a centred/scaled or Chebyshev basis.
+
+## B-123 — Quiet bubbles crossing the Marmottant buckling kink are integrated less accurately (accepted: D-22 amended)
+- Where: `calc_surface_tension` clamps σ at the buckling radius R_b (and at σ_l): a kink in the RHS.
+- Symptom: 2 µm, σ0 = 0.01, 2 MHz, 7–20 kPa sweep, fraction of the D-22 class against DOP853 rtol 1e-13: MATLAB up to 0.82 (12 kPa), pyproteus up to 1.16 (10–11 kPa); oracle case `batch_equal_radii` (10 kPa bubble) at 1.17 of the class vs MATLAB. With R_b out of reach (σ0 = 0.04) both ≤ 0.17.
+- Cause: a 5th-order step straddling the kink loses order; the error depends on where steps land. Hairer–Wanner step stabilisation (β = 0.04) only moves the unlucky amplitude (1.71 at 9 kPa), so it was not adopted.
+- Resolution (developer, D-22 amended): the class's absolute term is 3e-5 (rel 1e-3 unchanged); buckling/rupture events (R = R_b, σ = σ_l) are in the 1.x backlog.
+
+## B-121 — D-13 bubble class not reachable (resolved: D-22 class)
+- Where: `calcBubbleResponse` with PROTEUS' options (RelTol = AbsTol = 1e-6).
+- Symptom: pyproteus vs MATLAB 6–30× the D-13 bound; MATLAB vs MATLAB (bubble alone vs in a batch) 17–34×. Against DOP853 at rtol 1e-13 both are ~1e-4 of the excursion.
+- Cause: global error of an oscillator integrated over ~40 time scales with local tolerance 1e-6; adaptive step sequences differ (D-12).
+- Resolution (D-22): class `1e-3·max|y| + 1e-5` per bubble plus a CI accuracy test against the high-accuracy reference (≤ 1e-3 of the excursion).
+
+## B-122 — PROTEUS `compress_bubble` needs a toolbox function `boolean` (observation)
+- Where: `microbubble-simulator/functions/compress_bubble.m:54` (`find(boolean(diff(sign(...))))`).
+- Symptom: `Undefined function 'boolean'` on a MATLAB installation without the toolbox that provides it (R2025a here). Not called by the simulation pipeline.
+- Handling: Python uses a plain logical test; the oracle test puts a test-only shim `tests/oracle/shims/boolean.m` (`logical(x)`) on the path.
+
 ## B-20 — interp1/griddedInterpolant with matrix v: sign of zero on flat segments (closed: irrelevant under D-12)
 - Was: with matrix-valued `v`, MATLAB R2025a returned +0 where pyproteus returned -0 on some ±0 flat segments (76 of 2,187 special-value comparisons; values equal).
 - Closed 2026-11-22: the flat-segment rule that caused it was removed (D-14), and the sign of zero is not part of the comparison classes (D-12/D-13).
