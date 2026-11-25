@@ -85,3 +85,15 @@ P5 and P6 are the default; a `proteus_compat=True` keyword restores PROTEUS beha
 
 ## D-21 amendment (2026-11-24)
 After the PR #26 review: (1) the reference beamformer's depth axis starts at `max(Xmin, 0)`, because real settings have `Xmin ≈ -2λ` (margin above the array) and starting at `Xmin` would add rows above the array face; results are then identical to MATLAB for real settings. (2) `Tx.apod` is used as a binary mask (`apod != 0`), not an amplitude weight, since the source is already scaled by the apodization (amplitude weighting would give apod²). Who: developer.
+
+## D-22 — Bubble dynamics: comparison class, per-bubble steps, failure detection (2026-11-25)
+- Class: the D-13 ODE bound (10·RelTol + AbsTol) is unreachable for `calcBubbleResponse`: MATLAB against itself (same bubble, different batch) misses it 17–34×. Bubble radius and velocity are compared per bubble at max|Δx| ≤ 1e-3·max|x| + 3e-5 vs MATLAB (abs term widened from 1e-5 on 2026-11-25: quiet bubbles crossing the Marmottant buckling kink, B-123), and pyproteus must stay within 1e-3 of the radial excursion against a high-accuracy reference (DOP853, rtol 1e-13).
+- Per-bubble adaptive step control is the default, so results no longer depend on batch size (fixes Q-50). Batching must stay vectorised and faster than per-bubble loops; the shared-step stacked mode stays available as an option for MATLAB-comparison diagnostics.
+- PROTEUS's wall-clock timer (60 s × N_MB) is replaced by deterministic failure detection (NaN/Inf, non-physical radius, step-size underflow, step/evaluation limits), which raises an error naming the failing bubbles, time and reason while the rest of the batch completes. An optional wall-clock limit stays available, off by default.
+- Solver tolerances stay at PROTEUS's values.
+Who: developer.
+
+## D-23 — Homogeneous path: Kramers–Kronig reference frequency and FFT wrap (2026-11-25)
+- Q-130: `calc_scatter_attenuated` uses reference frequency 0 in the power-law Kramers–Kronig dispersion, which is singular for `alpha_power` ≤ 1 (bubble echoes all NaN for AttenuationB ≤ 0.9). pyproteus uses a finite reference frequency (transmit centre frequency, c(ω0) = c0) only in that singular case and keeps PROTEUS's formula elsewhere; applying it for all b is in the 1.x backlog.
+- Q-131: arrivals later than 2·Nt·dt no longer wrap into the RF window (FFT padding / far sources zeroed); nothing reachable with PROTEUS's own Nt sizing changes.
+Who: developer.
