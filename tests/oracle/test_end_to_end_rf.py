@@ -15,9 +15,10 @@ Chain, each side with its own functions (MATLAB PROTEUS 8d37938 / pyproteus):
    grid points of ``define_sensor_transducer`` instead: M3);
 6. element RF (``compute_RF_data``) with unit sensor weights (sensors = points).
 
-Classes: propagation + RF from MATLAB's own mass source ≤ 1e-9 × max|RF| (D-13
-float); end-to-end RF ≤ 1e-4 × max|RF| (D-13), reported as an expected failure
-when only the bubble model (D-22 class 1e-3) puts it above (B-130). pyproteus' default
+Classes (D-24): end-to-end RF ≤ 1e-3 × max|RF| (the bubble-response class of
+D-22, which the RF inherits), and the mass source in the same class; the
+propagation + RF stage, fed MATLAB's own mass source, ≤ 1e-9 × max|RF| (D-13
+float), so propagation and RF bugs are still caught. pyproteus' default
 ``step_control="independent"`` is compared and reported separately (D-22: it
 equals MATLAB with one bubble per batch, not MATLAB's shared batch steps).
 """
@@ -53,8 +54,8 @@ KWAVE_MATLAB = Path(
         "/Users/theodoremichel/Repos/TWENTE/Ultrasound/PROTEUS-cleaning/PROTEUS/external/k-wave/k-Wave",
     )
 )
-RF_REL = 1e-4  # D-13 end-to-end RF class (B-130: missed by 1 % on the default case)
-BUBBLE_REL = 1e-3  # D-22 bubble-response class, the floor of what the RF can reach
+RF_REL = 1e-3  # D-24 end-to-end RF class (= the D-22 bubble class; was 1e-4, B-130)
+STAGE_REL = 1e-9  # propagation + RF from MATLAB's mass source (D-13 float)
 
 
 @pytest.fixture(scope="module")
@@ -236,13 +237,11 @@ def test_end_to_end_rf(keng: Any, oracle: Any, tmp_path: Path, case: str) -> Non
     _, rf_p = run_python(S, sensed, nt3, "shared", mass_source=ms_m)
     e_prop = rel(rf_p, rf_m)
     print(f"\n{case}: propagation + RF from MATLAB's mass source: {e_prop:.2e} × max")
-    assert e_prop <= 1e-9
+    assert e_prop <= STAGE_REL
     print(
         f"\n{case}: RF {rf_m.shape}; shared: mass source {e_ms:.2e}, RF {e_rf:.2e}; "
         f"independent: mass source {e_ms_i:.2e}, RF {e_rf_i:.2e} (× max)"
     )
     assert np.max(np.abs(rf_m)) > 0
-    # never worse than the bubble-model class (D-22), for the mass source and the RF
-    assert max(e_ms, e_ms_i, e_rf, e_rf_i) <= BUBBLE_REL
-    if e_rf > RF_REL:
-        pytest.xfail(f"B-130: end-to-end RF {e_rf:.2e} > {RF_REL:g} (bubble-model difference)")
+    # D-24: mass source and RF, shared (MATLAB comparison) and independent (default)
+    assert max(e_ms, e_ms_i, e_rf, e_rf_i) <= RF_REL

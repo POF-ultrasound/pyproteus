@@ -425,7 +425,7 @@ Notes:
 | mass source, `"independent"` (default, D-22) | 2.1e-4 | 2.4e-4 | 2.1e-4 |
 | RF, `"independent"` | 6.0e-5 | 5.3e-5 | 5.9e-5 |
 
-The RF difference is the bubble-model difference (inside the D-22 class, 1e-3) passed on almost one to one; the D-13 1e-4 end-to-end target is missed by ≤ 1 % on the P4-1 cases in shared mode (open question to the developer, B-130); the test asserts the propagation/RF stage at 1e-9 and the mass source and RF at the bubble class (1e-3), and marks RF > 1e-4 as an expected failure until the decision.
+The RF difference is the bubble-model difference (inside the D-22 class, 1e-3) passed on almost one to one; the former D-13 1e-4 target was missed by ≤ 1 % on the P4-1 cases in shared mode (B-130). **D-24 (developer):** end-to-end RF vs MATLAB ≤ 1e-3 × max|RF| (the D-22 bubble class it inherits), mass source in the same class, both step-control modes; the propagation + RF stage, fed MATLAB's mass source, stays at 1e-9 so propagation and RF bugs are still caught.
 
 Design divergences (D-15; results unchanged unless marked, parity checked as above):
 

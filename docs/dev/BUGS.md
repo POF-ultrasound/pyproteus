@@ -174,9 +174,9 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: not established; the Q-100 one-sample term (4 ns) cannot be resolved against these.
 - Next: far field, several depths, a linear (density) scatterer, and the expected waveform (d²V or cross-correlation) as reference, once the hybrid path is ported (M3). Scripts: `tools/investigations/q100_run.py` (driver), `q100_point_scatterer.m`, `q100_analyse.py`.
 
-## B-130 — End-to-end RF vs MATLAB: 1.01e-4 × max on the default case, just above the D-13 1e-4 class (open question)
+## B-130 — End-to-end RF vs MATLAB: 1.01e-4 × max on the default case, just above the D-13 1e-4 class (closed: D-24)
 - Where: `tests/oracle/test_end_to_end_rf.py` (default P4-1 settings, 6 fixed bubbles, double precision, `step_control="shared"`).
 - Measured: RF 1.01e-4 × max (shared), 6.0e-5 (independent); curved C1-6D 6.0e-5 / 5.3e-5; P4-1 `no_dispersion` (5 elements) 1.00e-4 / 5.9e-5. Propagation + RF from MATLAB's own mass source: 2.2e-13, so the difference is entirely the bubble mass source (2.1–2.4e-4 × max vs MATLAB, inside the D-22 bubble class of 1e-3).
 - Cause: independent ODE solvers (D-12/D-22); a 1e-4 end-to-end class is not consistent with a 1e-3 bubble class.
-- Status: reported to the main session with options (end-to-end class from D-22, e.g. 1e-3, keeping the propagation/RF stage at 1e-9; or keep 1e-4). The test asserts the propagation/RF stage at 1e-9 and reports the end-to-end numbers; the end-to-end assertion waits for the decision.
+- Status: closed by D-24 (developer): the end-to-end RF class is 1e-3 × max|RF| (the D-22 bubble class); the propagation + RF stage stays at 1e-9 from MATLAB's mass source.
 
