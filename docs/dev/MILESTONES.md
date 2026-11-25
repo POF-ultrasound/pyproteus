@@ -106,7 +106,7 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 - [x] `compute_RF`, `compute_RF_data` (symmetric ifft)
 
 ### Done when
-- [x] End-to-end RF on given bubble positions matches MATLAB (D-24: RF ≤ 1e-3 × max, the D-22 bubble class; propagation + RF stage ≤ 1e-9; measured 1.0e-4/6.0e-5 shared, 6.0e-5/5.3e-5 independent; 2026-11-26)
+- [x] End-to-end RF on given bubble positions matches MATLAB (D-24: RF ≤ 1e-3 × max, the D-22 bubble class; propagation + RF stage ≤ 1e-9; measured 1.01e-4/6.0e-5 shared, 6.0e-5/5.3e-5 independent; 2026-11-26)
 - [ ] CuPy path matches NumPy path: array-module switch done and tested on NumPy with a CuPy stand-in (`tests/unit/test_homogeneous_backend.py`, 2026-11-25); the GPU run is left for the cluster (M5 hardware validation, D-16)
 
 ## M3: k-Wave paths
