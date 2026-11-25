@@ -101,13 +101,14 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 - [x] `compute_bubble_mass_source` (stable radius sort, batching as MATLAB) (2026-11-25, `pyproteus.acoustic.mass_source`; results independent of batch size by default, D-22)
 
 ### Homogeneous path
-- [ ] `calc_scatter_attenuated` (Green's function)
-- [ ] `run_simulation_homogeneous`
-- [ ] `compute_RF`, `compute_RF_data` (symmetric ifft)
+- [x] `calc_scatter_attenuated` (Green's function)
+- [x] `run_simulation_homogeneous`
+- [x] `compute_RF`, `compute_RF_data` (symmetric ifft)
 
 ### Done when
 - [ ] End-to-end RF on given bubble positions matches MATLAB (RF ≤ 1e-4)
-- [ ] CuPy path matches NumPy path
+- [ ] CuPy path matches NumPy path (needs a complex64 kernel for `gpuArray-single` first, PARITY.md)
+- [ ] Hybrid pipeline passes the transmit centre frequency as `reference_frequency` to `run_simulation_homogeneous` (D-23; required for `AttenuationB ≤ 0.9` with dispersion, ideally read from the settings)
 
 ## M3: k-Wave paths
 
@@ -203,6 +204,8 @@ Cluster tooling (Slurm templates, containers) and `pyproteus sweep` moved out of
 - [ ] `define_grid` default `pml_rounding="floor"` (D-19)
 - [ ] DAS default `interpolation="linear"` (D-20); fix Q-102 (Q-103, Q-104 done now, D-21)
 - [ ] Estimated impulse response: replace the hard cut at round(5·Fs/df) samples (still 0.3–1.3 % of peak) with a taper or decay-based length
+- [ ] Bubble ODE: buckling/rupture radius as solver events so steps don't straddle the shell-model kink (D-22, B-123)
+- [ ] Kramers–Kronig finite reference frequency for all attenuation powers (D-23, Q-130)
 - [ ] Fix ported quirks listed in `docs/QUIRKS.md` (timer, batch-dependent ODEs, parallel randomness, `alpha_mode` Q-1, ...)
 
 ## 1.1: GUI
