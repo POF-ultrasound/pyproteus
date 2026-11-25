@@ -92,3 +92,8 @@ After the PR #26 review: (1) the reference beamformer's depth axis starts at `ma
 - PROTEUS's wall-clock timer (60 s × N_MB) is replaced by deterministic failure detection (NaN/Inf, non-physical radius, step-size underflow, step/evaluation limits), which raises an error naming the failing bubbles, time and reason while the rest of the batch completes. An optional wall-clock limit stays available, off by default.
 - Solver tolerances stay at PROTEUS's values.
 Who: developer.
+
+## D-23 — Homogeneous path: Kramers–Kronig reference frequency and FFT wrap (2026-11-25)
+- Q-130: `calc_scatter_attenuated` uses reference frequency 0 in the power-law Kramers–Kronig dispersion, which is singular for `alpha_power` ≤ 1 (bubble echoes all NaN for AttenuationB ≤ 0.9). pyproteus uses a finite reference frequency (transmit centre frequency, c(ω0) = c0) only in that singular case and keeps PROTEUS's formula elsewhere; applying it for all b is in the 1.x backlog.
+- Q-131: arrivals later than 2·Nt·dt no longer wrap into the RF window (FFT padding / far sources zeroed); nothing reachable with PROTEUS's own Nt sizing changes.
+Who: developer.
