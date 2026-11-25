@@ -91,14 +91,14 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 ### Clean-room ode45
 - [x] Implement Dormand-Prince from Shampine & Reichelt 1997 (no MATLAB source): error norm, step-size rule, initial step, `Refine` Hermite output (from the papers; DOPRI5 dense output for `Refine`; solutions within class D-13)
 - [x] Vectorised over a batch of bubbles (stacked system, as MATLAB does; Q-50)
-- [ ] Oracle tests on simple ODEs and on `simple_RP` (simple ODEs and an RP-like RHS done; `simple_RP` itself waits for its port)
+- [x] Oracle tests on simple ODEs and on `simple_RP` (2026-11-25, `test_microbubble_model.py`: RHS at the float class, responses at the provisional bubble class, B-121)
 
 ### Microbubble model
-- [ ] `getMaterialProperties`, `getShellProperties` (Segers fit / lookup table), `getEqParam`
-- [ ] `calc_surface_tension`, `calc_thermal_damp`, `compress_bubble`, `find_A_m0`
-- [ ] `simple_RP` right-hand side (Marmottant shell)
-- [ ] `calcBubbleResponse` (pchip driving pressure; timer ported as quirk, off in tests)
-- [ ] `compute_bubble_mass_source` (stable radius sort, batching as MATLAB)
+- [x] `getMaterialProperties`, `getShellProperties` (Segers fit / lookup table), `getEqParam` (2026-11-25; Segers polynomial at its conditioning class, B-120)
+- [x] `calc_surface_tension`, `calc_thermal_damp`, `compress_bubble`, `find_A_m0`, `find_domain_boundaries` (2026-11-25)
+- [x] `simple_RP` right-hand side (Marmottant shell) (2026-11-25, vectorised, `PchipBatch`)
+- [x] `calcBubbleResponse` (pchip driving pressure; timer ported as quirk, off in tests) (2026-11-25, Q-122; class provisional, B-121)
+- [x] `compute_bubble_mass_source` (stable radius sort, batching as MATLAB) (2026-11-25, `pyproteus.acoustic.mass_source`; batch sensitivity Q-121)
 
 ### Homogeneous path
 - [ ] `calc_scatter_attenuated` (Green's function)

@@ -2,6 +2,13 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-25 — M2 microbubble model and mass source (m2-bubble)
+- `pyproteus.microbubble`: `model.py` (`get_material_properties`, `calc_surface_tension`, `calc_thermal_damp`, `find_domain_boundaries`, `find_A_m0`, `get_shell_properties`, `compress_bubble`, `get_eq_param`; `Liquid`/`GasProps`/`Shell`/`EqParam`), `dynamics.py` (`simple_rp`, `PchipBatch`, `calc_bubble_response`, timer as `timeout`). `pyproteus.acoustic.mass_source`: `compute_bubble_mass_source`, `get_batch_indices`, shell/material converters.
+- Design (D-15): struct-of-arrays shells, RHS vectorised over the batch, one pchip coefficient matrix for all driving pressures; 3 bubbles × 1000 output samples in ~0.1 s.
+- Found: the D-13 bubble bound is not reachable, not even by MATLAB against itself (B-121); provisional class 1e-3·max|y| + 1e-5 proposed to the main session. Segers polynomial ill-conditioned (B-120). `compress_bubble` needs toolbox `boolean` (B-122, test shim). Quirks Q-120 (table end), Q-121 (shared time scale, batch sensitivity measured), Q-122 (timer).
+- Oracle: 34 model tests + 23 mass-source tests pass (sandbox off, k-Wave MATLAB on path for the mass source). Unit: 12 new tests (accuracy vs DOP853, Minnaert limit, linearity, timer, stable ties, float32).
+- Next: main session's decision on the bubble class and the D-15 proposals (timer off by default, per-bubble steps or tolerances 1e-8).
+
 ## 2026-11-24 — define_grid PML rounding default (m1-grid-medium follow-up)
 - D-19 revised (developer, via main): `define_grid(..., pml_rounding="ceil"|"floor")`, default `"ceil"` until 1.0 (MATLAB's grid, Q-90 reproduced), `"floor"` is the fix and becomes the default in 1.x. Q-90 back in QUIRKS.md; PARITY rows updated. Oracle tests: default mode equals MATLAB's grid exactly on every domain case and both default settings; `"floor"` checked against MATLAB with the documented core +2 / PML −1 difference (both padding parities occur).
 - `optimize_grid_size` uses `numerics.colon` (#17). No sind/cosd copies existed in acoustic/ or medium/.

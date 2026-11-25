@@ -45,9 +45,30 @@ Format:
 ## Q-50 — Bubbles integrated in one batch share ode45's adaptive steps
 - MATLAB: `microbubble-simulator/calcBubbleResponse.m:28-52` stacks `[x; xdot]` of all bubbles of a batch into one state vector for one `ode45` call; `acoustic-module/compute_bubble_mass_source.m` (`get_batch_indices`) groups bubbles into batches after sorting by radius.
 - Behaviour: one step size for the whole vector (the error test covers all components), so a bubble's response depends on which other bubbles share its batch and on the batch size (at the level of the tolerance).
-- Ported in: `pyproteus.numerics.ode45` (one state vector, shared steps; batching itself comes with `compute_bubble_mass_source`).
+- Ported in: `pyproteus.numerics.ode45` (one state vector, shared steps); `pyproteus.microbubble.calc_bubble_response` and `pyproteus.acoustic.mass_source` (stable radius sort, batches of `batch_size`, default 15). See also Q-121.
 - Test: `tests/oracle/test_ode45.py::test_batch_dependence_similar`, `tests/unit/test_ode45.py::test_stacked_batch_shares_steps`.
 - Planned fix: after parity, per-bubble step control (vectorised solver with per-bubble steps, or one solve per bubble), so results no longer depend on batching.
+
+## Q-120 — SegersTable surface tension is 0 exactly at the table's right end
+- MATLAB: `microbubble-simulator/functions/calc_surface_tension.m` (`'SegersTable'` branch): `sig = A_m*0`, then `sig(A_m>A_m2) = sig_l` and the interpolant only for `A_m1 < A_m < A_m2`.
+- Behaviour: a normalised area exactly equal to `A_m2` gets 0 (buckled value) instead of `sig_l`; exactly `A_m1` gets 0 (correct). Measure zero in practice.
+- Ported in: `pyproteus.microbubble.calc_surface_tension`.
+- Test: `tests/oracle/test_microbubble_model.py::test_surface_tension_table_ends`.
+- Planned fix: `>=`/`<=` at the ends (1.x).
+
+## Q-121 — Bubbles of one batch share the nondimensional time scale
+- MATLAB: `microbubble-simulator/calcBubbleResponse.m`: `T = median(sqrt(rho R0.^2/P0))` over the batch; the ODE tolerances act on `xdot = Rdot·T/R0`.
+- Behaviour: in addition to the shared steps (Q-50), the meaning of `AbsTol` on the velocity depends on the batch's median radius, so the batch changes results at the tolerance level. Measured with the default batching rule (stable radius sort, `compute_bubble_mass_source`): batch 1 vs 7 changes a bubble's mass source by up to 2.4e-4 (MATLAB) / 1.0e-3 (pyproteus) of its maximum.
+- Ported in: `pyproteus.microbubble.calc_bubble_response`, `pyproteus.acoustic.mass_source` (`get_batch_indices`).
+- Test: `tests/oracle/test_mass_source.py::test_batch_size_sensitivity`, `tests/oracle/test_microbubble_model.py::test_matlab_batch_dependence`.
+- Planned fix (proposed, D-15): per-bubble step control and time scale; or tighter tolerances (1e-8), which make the batch effect negligible.
+
+## Q-122 — Wall-clock timer stops bubble integration after 60 s × N
+- MATLAB: `microbubble-simulator/calcBubbleResponse.m:8-12` (timer sets `timeout_reached`), `functions/odeOutputFcn.m` (returns it, which stops `ode45`).
+- Behaviour: results depend on machine speed; the response is truncated, and `compute_bubble_mass_source` then fails with a size mismatch.
+- Ported in: `calc_bubble_response(..., timeout="proteus")` (default, 60 s × N; checked after every output step), `timeout=None` turns it off (all tests); a truncated response warns, `compute_bubble_mass_source` raises `RuntimeError`.
+- Test: `tests/unit/test_microbubble_model.py::test_timeout_truncates_and_warns`, `::test_mass_source_timeout_raises`.
+- Planned fix (proposed, D-15): timer off by default.
 
 ## Q-100 — DAS time to peak uses the 1-based index (unresolved; decide after the M3 point-scatterer check)
 - MATLAB: `delay-and-sum/DAS_reconstruction.m:51-54`, `initialize_das_parameters.m:62-65`.

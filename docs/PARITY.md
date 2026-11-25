@@ -203,6 +203,49 @@ Class D-13 (PR #10; replaces the old 1e-8 bubble class): per component `max|y_py
 
 Notes: options covered `RelTol`, `AbsTol` (scalar, vector), `NormControl`, `MaxStep`, `InitialStep`, `Refine`, `OutputFcn`; `BDF`/`MaxOrder`/`Stats` accepted and ignored; other options raise. Forward and backward; 2-point and many-point `tspan`.
 
+## Microbubble model and mass source (`pyproteus.microbubble`, `pyproteus.acoustic.mass_source`, M2)
+
+Bubble-response class (**provisional**, proposed to the main session 2026-11-25, B-121): per bubble
+`max|Δy| ≤ 1e-3·max|y| + 1e-5` for the solver states `y = x = R/R0 - 1` and `y = xdot = Rdot·T/R0`;
+for the mass source the same per bubble with the absolute term scaled by `4πρR0³/T`. The D-13 bound
+`10·RelTol·max|y| + AbsTol` is missed by MATLAB against itself (bubble alone vs in a batch: 17–34×),
+and both solvers are ~1e-4 of the excursion from a DOP853 rtol 1e-13 reference (MATLAB ≤ 1.2e-4,
+pyproteus ≤ 2.3e-4, one quiet bubble in a loud batch 6.8e-4). Accuracy is also tested in CI against
+that reference (≤ 1e-3).
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `getMaterialProperties` | `microbubble.get_material_properties` | exact | `test_microbubble_model.py` | ✅ |
+| `getShellProperties` (Marmottant, SegersTable; warning range) | `get_shell_properties` | float | `test_microbubble_model.py` | ✅ |
+| `getShellProperties`, `calc_surface_tension`, `find_domain_boundaries`, `find_A_m0` for the `'Segers'` polynomial | same | B-120 class: roots 1e-3 rel, σ 2e-4 N/m abs, χ-derived parameters 1e-2 rel | `test_microbubble_model.py` | 🟡 (B-120) |
+| `calc_surface_tension` (Marmottant, SegersTable; buckled/elastic/ruptured, NaN, exact table ends Q-120) | `calc_surface_tension` | float (1e-9 rel + 1e-15) | `test_microbubble_model.py` | ✅ |
+| `calc_thermal_damp` (Hypothesis: R0 0.3–10 µm, σ0 0–0.072, f 0.1–20 MHz) | `calc_thermal_damp` | float | `test_microbubble_model.py` | ✅ |
+| `getEqParam` (Prosperetti/Adiabatic/Isothermal × shell models, equal radii) | `get_eq_param` | float | `test_microbubble_model.py` | ✅ |
+| `compress_bubble` (over/underpressure, Marmottant, SegersTable) | `compress_bubble` | float | `test_microbubble_model.py` (needs the `boolean` shim, B-122) | ✅ |
+| `simple_RP` (random states, off-node and extrapolated times) | `simple_rp` + `PchipBatch` | float (1e-9 rel + 1e-12·max) | `test_microbubble_model.py` | ✅ |
+| `calcBubbleResponse` (single bubbles: buckled/elastic/ruptured, 0.5 µm, 6 µm; batches incl. equal radii; SegersTable, Segers) | `calc_bubble_response(..., timeout=None)` | bubble class (worst 0.79 of it; 6–30× the D-13 bound) | `test_microbubble_model.py` | ✅ (provisional class) |
+| `compute_bubble_mass_source` batch membership (stable radius sort, ties) | `get_batch_indices` | exact | `test_mass_source.py` | ✅ |
+| `compute_bubble_mass_source` (defaults, batch sizes 1/2/3/15, ties, single bubble, Segers table, `Advanced` viscosity, float32 input) | `compute_bubble_mass_source(..., timeout=None)` | bubble class (worst 0.26) | `test_mass_source.py` | ✅ (provisional class) |
+
+Batch-size sensitivity (default Marmottant, 7 bubbles, batch 1 vs 7, max per-bubble difference relative
+to its max): MATLAB 4.6e-5–2.4e-4, pyproteus 1.0e-4–1.0e-3; pyproteus vs MATLAB at equal batching
+6.4e-5–9.4e-4 (`test_mass_source.py::test_batch_size_sensitivity`).
+
+Design differences (D-15), results unchanged within the class:
+- A `Shell` holds a batch as arrays (struct-of-arrays) and every function is vectorised over bubbles;
+  `simple_rp` evaluates the surface tension and the driving pressures of the whole batch in one array
+  operation. The per-bubble pchip interpolants are built once as one coefficient matrix
+  (`PchipBatch`) instead of one `griddedInterpolant` per bubble evaluated in a loop per RHS call.
+- Responses are `(n_bubbles, n_t)` arrays instead of a struct array.
+- The wall-clock timer is a keyword (`timeout`, default PROTEUS' 60 s × N, `None` = off; Q-122).
+  A timeout in `compute_bubble_mass_source` raises (MATLAB fails with a size mismatch).
+- No `parfor`: batches are independent, so serial results are what `parfor` gives.
+- float32 sensed pressure: integrated in double, returned as float32 (MATLAB stores batch results in
+  single and evaluates part of the RHS in single); same class.
+- `find_A_m0` raises when no area in the fit domain gives σ0 (MATLAB returns `[]` and fails later);
+  shell-radius warnings are issued once per call instead of once per bubble.
+- `calc_thermal_damp` uses `beta/tanh(beta)` for `beta*coth(beta)`.
+
 ## Geometry (`pyproteus.geometry`, M4 item moved into M1)
 
 | MATLAB | Python | Class | Oracle test | Status |
