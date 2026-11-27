@@ -180,6 +180,34 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: independent ODE solvers (D-12/D-22); a 1e-4 end-to-end class is not consistent with a 1e-3 bubble class.
 - Status: closed by D-24 (developer): the end-to-end RF class is 1e-3 × max|RF| (the D-22 bubble class); the propagation + RF stage stays at 1e-9 from MATLAB's mass source.
 
+## B-170 — `run_simulation` solver `'3D'`: k-wave-python python backend, no movie (divergence)
+- Where: `pyproteus.acoustic.simulation.run_simulation` (`run_simulation.m`, `sim_setup.m` `Solver = '3D'`).
+- MATLAB: `kspaceFirstOrder3D` (MATLAB-native solver) with `RecordMovie` (sim_setup sets `record_movie = true` for `'3D'`).
+- pyproteus: k-wave-python's `python` backend (NumPy, in-process, `alpha_mode` dropped as on every backend, D-9); `record_movie` is ignored with a warning (no movie writer). Parity is against `kspaceFirstOrder3DC` (D-10): the python backend is within the k-Wave class of it (measured 5.1e-7 full source, 4.2e-7 self-sense). MATLAB-native `3D` is not compared (it honours `alpha_mode`, B-14).
+- Status: by design (D-15); PARITY.md.
+
+## B-171 — `update_source` with a single-precision mass source: one float32 ulp (divergence)
+- Where: `pyproteus.acoustic.full.update_source` (`update_source.m:27`).
+- MATLAB divides the single `mass_source` by the voxel volume in single precision, then converts to double; pyproteus divides in float64. Measured differences ≤ 1.04e-7 relative (176 of 49720 values), compared at 2^-23; double mass sources agree at 1e-9.
+- Status: by design (D-12, D-15); PARITY.md.
+
+## B-172 — self-sense delta function uses the global grid's full size (quirk Q-170, reproduced)
+- Where: `pyproteus.acoustic.full.compute_self_sense_pressure` (`compute_self_sense_pressure.m:35`).
+- Effect: ~0.2 % on the self-sensed pressure versus the local grid's own delta function (QUIRKS.md Q-170).
+- Status: reproduced (Phase A); fix proposed for after parity.
+
+## B-173 — self-sense impulse-response mode drops the local nonlinearity (by design, D-27)
+- Where: `pyproteus.acoustic.full.compute_self_sense_pressure` (default `impulse_response=True`).
+- Effect: exact for `BonA = 0`; with `BonA = 6` relative difference to the strict loop 4.5e-6 at a 5.9 kPa self-sense peak, 4.7e-5 at 59 kPa (above the k-Wave class from ~10 kPa).
+- Status: developer decision D-27 (default on, `impulse_response=False` for strict-parity runs); PARITY.md.
+
+## B-174 — homogeneous self-sense option changes results (opt-in, D-27)
+- Where: `compute_self_sense_pressure(..., homogeneous=True)`.
+- Effect: 4.8e-3 (Inhomogeneity 0.02) and 1.2e-2 (0.05) relative to the heterogeneous crop; up to 3.8e-4 PML-reflection residual even in a homogeneous medium (20-voxel core). Off by default; RF impact to be measured in M3 wave 2.
+- Cost: one Green run per distinct local medium value set. With PROTEUS's per-voxel Inhomogeneity every bubble is distinct, so the option makes as many runs as the default mode and caches one 17³ x Nt float32 tensor per bubble (~98 MB at Nt = 5000). It only pays off for piecewise-constant media; keying on background (pre-inhomogeneity) or quantized values would fix that and is proposed to the main session (changes results further).
+- Status: by design (D-27).
+
+
 
 ## B-150 — `update_sensor_fast.m` with a non-empty input mask: weight columns index the new points only (MATLAB bug, not reproduced)
 - Where: `acoustic-module/update_sensor_fast.m` (oracle 8d37938), weights branch: `j` comes from `ismember(mask_idx_local, unique(mask_idx_local))`, i.e. positions among the nodes of the points just added, while the sensor data rows follow `find(sensor.mask)` of the whole updated mask. `update_sensor.m` uses `intersect(find(sensor.mask), ...)` (correct). The weight matrix is `max(i) × max(j)` in both, so its width also depends on the input mask.

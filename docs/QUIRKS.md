@@ -137,6 +137,13 @@ Format:
 - Test: covered by every `calc_scatter_attenuated` oracle case (the Gaussian test sources are not exactly zero at the ends).
 - Planned fix (proposal for after parity): pad the source (e.g. to the `2·Nt` propagation length) or taper it before differentiating, or use a finite-difference derivative; changes results for sources truncated at the end of the record.
 
+## Q-170 — self-sense runs evaluate the band-limited delta with the global grid's period
+- MATLAB: `acoustic-module/compute_self_sense_pressure.m:35` (`Grid_local.full_size = Grid.full_size`), used by `update_sensor.m` → `evaluate_delta_function(..., Grid.full_size)` (oracle commit 8d37938).
+- Behaviour: each local single-bubble k-Wave grid is `core + 2*10` voxels per axis (periodic over that length), but the bubble's sensor/source weights use the band-limited delta for the *global* grid's full size. The weights differ from the local grid's own delta by ~0.1 % (max, offset 0.45 dx, 72-voxel local vs 200–600-voxel global grid), so the self-sensed pressure (∝ Σ w_i w_j G_ij) changes by ~0.2 %, above the k-Wave class.
+- Ported in: `pyproteus.acoustic.full.compute_self_sense_pressure` (reproduced: `full_size` from the global grid).
+- Test: `tests/oracle/test_full_pieces.py::test_self_sense_matches_matlab` (global `full_size` 49×44×41, local 32³).
+- Planned fix (proposal for after parity): use the local grid's full size (`Nx_local + 20`, ...) in the self-sense weights, so the subtracted self term matches what the local grid actually propagates.
+
 ## Q-150 — the PROTEUS transducer source has no staggered-grid compensation unless `Transducer.SourceType` is set
 - MATLAB: `acoustic-module/define_source_transducer.m:34-66,115-139` (oracle 8d37938).
 - Behaviour: with `SourceType = 'dipole'` the velocity source weights are recomputed at the integration points shifted by `-dx/2` (k-Wave's staggered velocity grid; also `-dy/2` for `uy` of a curved array, both on the union of the masks); with `'monopole'` a pressure source is used and the pulse is sinc-shifted by `+dt/2`. Without the field (all of `main_RF`/`main_pressure_field`: nothing sets it, only PROTEUS's tests do) the source is a velocity (dipole) source **without** either shift: the given sensor weights and mask are used as they are. Production runs therefore emit from a plane half a cell off the one the weights were computed for.
