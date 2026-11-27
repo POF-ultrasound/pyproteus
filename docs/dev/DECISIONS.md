@@ -117,3 +117,9 @@ Who: developer.
 
 ## D-28 — Multi-process RF runs (2026-11-27)
 Extends D-25. Several processes running different frame ranges of one run (as with MATLAB `main_RF` on several GPUs) each write their own HDF5 file (`rf_<start>-<end>.h5`). Readers and DAS accept a list of files or a folder, and an optional tool merges them into one run file. This avoids HDF5 file locking, which is often disabled on cluster file systems. Built in M5. Until then one process writes one file. Who: developer.
+
+## D-29 — Q-100 fix plan (2026-11-27)
+Extends D-18, after the M3 far-field study (B-185: off-by-one at PPW 4/6/8). In 1.x: `timeToPeak = (I−1)/Fs`; the components of `V_ref` (transmit pressure signal, receive impulse response) resampled to one sampling rate before the convolution; the k-Wave staggered-grid correction derived or calibrated for each grid instead of the fixed `dx/(2c) + dt` (`+ 3/2 dt` full). 1.0 keeps reproducing Q-100 exactly as PROTEUS. Who: developer.
+
+## D-30 — Exact receive propagation on the GPU (2026-11-27)
+From B-187 (M2 cluster run: exact ×64 vs gridded ×8.7). When `DATA_CAST` is `gpuArray-*`, the hybrid receive stage uses exact distances by default (`gridded=False`); the CPU stays gridded (PROTEUS). Changes results by the distance rounding only. Measured with `tools/m3/gpu_medium_case.py` on the cluster by the developer before release. Who: developer.

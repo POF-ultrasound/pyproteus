@@ -544,6 +544,7 @@ Row orders: sensor masks and source masks are `[ix, iy, iz]` arrays as MATLAB's;
 | medium draws | global stream, any state | `rng=MatlabRNG(seed)` (default 0, MATLAB's start-up stream), seed in the cache fingerprint (B-180) | reproducible runs |
 | medium cache | `medium.mat`, loaded unchecked with `Continue` | `medium.h5` with settings fingerprint; mismatch raises (B-180) | no silent reuse of another medium |
 | ground-truth frames | read once per pulse, twice per run | once per pulse loop; first-run mask over the frames still to compute | I/O |
+| hybrid receive distances (D-30) | gridded | gridded on the CPU, exact with `DATA_CAST = gpuArray-*` (`gridded_receive` option) | the exact GPU kernel is faster |
 | hybrid KK reference | NaN (`AttenuationB ≤ 1` with dispersion fails) | `Transmit.CenterFrequency` (D-23, B-181) | defined result |
 | full self-sense | one k-Wave run per bubble per iteration | default impulse responses cached per frame and pulse (D-27); `self_sense="strict"` = MATLAB; `"green"` opt-in; `self_sense_jobs` concurrent bubbles (B-182) | (N_int − 1) fewer runs per bubble |
 | bubble ODE batches | shared steps per batch | `step_control="independent"` default (D-22), `"shared"` option | batch-independent results |

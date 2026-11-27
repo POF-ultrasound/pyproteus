@@ -246,3 +246,21 @@ def test_main_pressure_field_tiny(tiny) -> None:
     assert maps.iy == int(np.argmin(np.abs(g.y))) and maps.iz == int(np.argmin(np.abs(g.z)))
     with h5py.File(root / "pf" / "pressure_maps.h5") as f:
         np.testing.assert_array_equal(f["xz/p_min"][()], maps.xz_p_min)
+
+
+@pytest.mark.parametrize(
+    ("cast", "given", "expected"),
+    [("double", None, True), ("gpuArray-single", None, False), ("gpuArray-single", True, True),
+     ("single", False, False)],
+)  # fmt: skip
+def test_hybrid_receive_gridded_default(monkeypatch, cast, given, expected) -> None:
+    """D-30: exact receive propagation by default on the GPU, gridded on the CPU."""
+    seen = []
+    monkeypatch.setattr(simulators, "compute_bubble_mass_source", lambda s, *a, **k: np.asarray(s))
+    monkeypatch.setattr(simulators, "run_simulation_homogeneous",
+                        lambda rp, kg, m, src, sen, **k: seen.append(rp["gridded"])
+                        or {"p": np.zeros((1, kg.Nt))})  # fmt: skip
+    rp = {**_run_param(0), "DATA_CAST": cast}
+    hybrid_simulator([0], np.ones((1, 11)), {"points": np.zeros((1, 3)), "radii": np.ones(1)},
+                     _grid(), {}, rp, **SETTINGS, gridded_receive=given)  # fmt: skip
+    assert seen == [expected]
