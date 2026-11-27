@@ -203,21 +203,26 @@ def transmit(n_el, seq="pulse", m=40):
 MEDIUM = {"SpeedOfSound": 1540.0, "Density": 1000.0}
 
 
+@pytest.mark.parametrize("scalar_weights", [False, True])
+@pytest.mark.parametrize("shift", [0.0, -1.2e-7])  # negative: N < M, MATLAB fft(x, N) truncates
 @pytest.mark.parametrize("m", [40, 41])
-def test_source_delay_equals_full_fft(m: int) -> None:
+def test_source_delay_equals_full_fft(m: int, shift: float, scalar_weights: bool) -> None:
     """Half-spectrum delay = MATLAB's full symmetric axis + ``ifft(...,'symmetric')``."""
     g = make_grid()
     T = transducer()
     s, w = acoustic.define_sensor_transducer(T, g)
     idx = np.flatnonzero(s.mask.ravel(order="F"))
     T["SourceType"] = "monopole"
+    T["integration_transmit_delays"] = T["integration_transmit_delays"] + shift
+    if scalar_weights:  # Custom transducer with one integration area
+        T["integration_weights"] = 0.8
     Tx = transmit(5, m=m)
     src = acoustic.define_source_transducer(T, Tx, MEDIUM, g, w.T, idx)
     # independent full-spectrum version (as define_source_transducer.m)
     p = acoustic.sinc_interpolation(np.arange(m) * g.dt, Tx["PressureSignal"],
                                     np.arange(m) * g.dt + g.dt / 2)  # fmt: skip
     delays = (T["integration_transmit_delays"] + Tx["Delays"].T).ravel(order="F")
-    weights = T["integration_weights"].ravel(order="F")
+    weights = np.ravel(T["integration_weights"], order="F")
     N = m + int(np.ceil(delays.max() / g.dt))
     f = np.arange(N) / (N * g.dt)
     f[int(np.ceil(N / 2 + 1)) - 1 :] = -f[int(np.floor(1 + N / 2)) - 1 : 0 : -1]
@@ -229,6 +234,8 @@ def test_source_delay_equals_full_fft(m: int) -> None:
         src.p, w.T @ (ps * weights[:, None]), atol=1e-12 * np.abs(src.p).max()
     )
     assert src.p.shape == (idx.size, N)
+    if shift < 0:
+        assert m > N
 
 
 def test_source_types_and_masks() -> None:
@@ -263,3 +270,26 @@ def test_preprocess_transmit_shapes() -> None:
     n = int(np.floor((m - 1) / 250e6 / 2e-8)) + 1
     assert out["PressureSignal"].shape == (1, n) and out["VoltageSignal"].shape == (1, n)
     assert out["SamplingRate"] == 1 / 2e-8 and Tx["SamplingRate"] == 250e6
+
+
+def test_grid_threshold_attribute() -> None:
+    """``Grid.threshold`` (update_sensor_fast.m) is read by update_sensor; define_sensor_MB
+    uses update_sensor.m's fixed 4 (MATLAB parity)."""
+    import dataclasses
+
+    g = make_grid()
+    vox = points(g, np.random.RandomState(8))
+
+    @dataclasses.dataclass(frozen=True, eq=False)
+    class GridT(grid_mod.Grid):
+        threshold: int = 2
+
+    gt = GridT(**{f.name: getattr(g, f.name) for f in dataclasses.fields(g)})
+    m = np.zeros(g.shape)
+    _, w2 = acoustic.update_sensor(acoustic.Sensor(m), vox.points, vox.index, gt)
+    _, w2k = acoustic.update_sensor(acoustic.Sensor(m), vox.points, vox.index, g, threshold=2)
+    np.testing.assert_array_equal(w2.toarray(), w2k.toarray())
+    _, w4, _, _ = acoustic.define_sensor_MB(gt, {"points": vox.points})
+    _, w4ref = acoustic.update_sensor(acoustic.Sensor(m), vox.points, vox.index, g)
+    np.testing.assert_array_equal(w4.toarray(), w4ref.toarray())
+    assert w2.nnz < w4.nnz

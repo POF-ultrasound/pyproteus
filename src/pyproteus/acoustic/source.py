@@ -19,6 +19,7 @@ import scipy.sparse as sp
 from numpy.typing import ArrayLike
 
 from pyproteus.backends.kwave import filter_time_series
+from pyproteus.numerics import ifft_symmetric
 from pyproteus.transducer.geometry import get_element_geometry
 
 from . import _struct
@@ -115,7 +116,12 @@ def _source_weights_from_sensor(transducer: Any, grid: Any) -> tuple[sp.csr_matr
 
 
 def _shifted(transducer: Any, axis: int, shift: float) -> Any:
-    T = _struct.copy(transducer)
+    try:
+        T = _struct.copy(transducer)
+    except TypeError:
+        import copy
+
+        T = copy.copy(transducer)
     ip = np.array(_struct.get(transducer, "integration_points"), dtype=float)
     ip[..., axis] = ip[..., axis] - shift
     _struct.set_field(T, "integration_points", ip)
@@ -234,12 +240,15 @@ def define_source_transducer(
     # Exact delay on the half spectrum. MATLAB builds the full symmetric
     # frequency axis (Nyquist bin negative for even N) and takes
     # ifft(...,'symmetric'), which reads the first N//2 + 1 bins only.
+    # (The sign of the Nyquist frequency does not matter: its bin is real
+    # after the 'symmetric' inverse, which ignores its imaginary part.)
     f = np.arange(N // 2 + 1) / (N * dt)
     if N % 2 == 0:
         f[-1] = -f[-1]
     spectrum = np.fft.rfft(p[None, :] * apod[:, None], n=N, axis=1)
     spectrum *= np.exp(-2j * np.pi * delays[:, None] * f[None, :])
-    pressure_source = np.fft.irfft(spectrum, n=N, axis=1)
+    # zero-padded to N: ifft_symmetric reads only the first N//2 + 1 bins
+    pressure_source = ifft_symmetric(spectrum, n=N, axis=1)
 
     shape = (grid.Nx, grid.Ny, grid.Nz)
     mask = np.zeros(shape, dtype=bool)

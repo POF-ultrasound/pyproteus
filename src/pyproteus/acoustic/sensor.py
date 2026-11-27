@@ -231,8 +231,6 @@ def update_sensor_fast(
 def _with_sensor_on_grid(grid: Any, value: Any) -> Any:
     if dataclasses.is_dataclass(grid) and not isinstance(grid, type):
         return dataclasses.replace(grid, sensor_on_grid=value)
-    if isinstance(grid, Mapping):
-        return {**grid, "sensor_on_grid": value}
     import copy
 
     g = copy.copy(grid)
@@ -263,8 +261,10 @@ def define_sensor_transducer(transducer: Any, grid: Any) -> tuple[Sensor, sp.csr
         raise ValueError("Transducer.OnGrid is required (SimulationParameters.TransducerOnGrid)")
     grid = _with_sensor_on_grid(grid, on_grid)
     ip = np.asarray(_struct.get(transducer, "integration_points"), dtype=float)
-    if ip.ndim == 2:  # MATLAB drops a trailing singleton: N_el × 3 is N_el × 1 × 3
-        ip = ip[:, None, :] if ip.shape[1] == 3 else ip
+    if ip.ndim == 2 and ip.shape[1] == 3:  # N_el × 3 (squeezed by a Python loader)
+        ip = ip[:, None, :]
+    if ip.ndim != 3 or ip.shape[2] != 3:
+        raise ValueError(f"integration_points must be N_el × N_int × 3, got {ip.shape}")
     n_el, n_int, n_dim = ip.shape
     P = ip.reshape(n_el * n_int, n_dim, order="F")
     vox = voxelize_media_points(P, grid)
@@ -330,7 +330,9 @@ def define_sensor_MB(grid: Any, mb: Any) -> tuple[Sensor, sp.csr_matrix, Any, fl
             _struct.set_field(mb, name, np.asarray(v)[~vox.exclude])
     max_dist = _max_pair_distance(vox.points)
     sensor = Sensor(mask=np.zeros((grid.Nx, grid.Ny, grid.Nz)))
-    sensor, weights = update_sensor(sensor, vox.points, vox.index, grid, False)
+    sensor, weights = update_sensor(  # update_sensor.m: th = 4, Grid.threshold ignored
+        sensor, vox.points, vox.index, grid, False, threshold=DEFAULT_THRESHOLD
+    )
     sensor.record = ("p",)
     return sensor, weights, mb, max_dist
 
@@ -362,7 +364,9 @@ def define_sensor_MB_all(grid: Any, frames: Iterable[Any]) -> tuple[Sensor, np.n
     for mb in frames:
         vox = voxelize_media_points(_bubble_points(mb), grid)
         max_mb = max(max_mb, vox.points.shape[0])
-        sensor, _ = update_sensor(sensor, vox.points, vox.index, grid, True)
+        sensor, _ = update_sensor(
+            sensor, vox.points, vox.index, grid, True, threshold=DEFAULT_THRESHOLD
+        )
     sensor.record = ("p",)
     return sensor, _find(sensor.mask == 1), max_mb
 
