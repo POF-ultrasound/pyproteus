@@ -10,8 +10,8 @@ import os
 import numpy as np
 from kwave.kgrid import kWaveGrid
 from kwave.kmedium import kWaveMedium
-from kwave.ksource import kSource
 from kwave.ksensor import kSensor
+from kwave.ksource import kSource
 from kwave.kspaceFirstOrder import kspaceFirstOrder
 
 N = (24, 20, 16)
@@ -25,9 +25,13 @@ sensor = kSensor(np.zeros(N, dtype=bool))
 sensor.mask[16, 10, 8] = sensor.mask[8, 12, 6] = True
 sensor.record = ["p_max"]
 
-common = dict(pml_size=6, pml_alpha=2.0, pml_inside=False, smooth_p0=False, device="cpu", quiet=True)
+common = dict(
+    pml_size=6, pml_alpha=2.0, pml_inside=False, smooth_p0=False, device="cpu", quiet=True
+)
 py = kspaceFirstOrder(kgrid, medium, source, sensor, backend="python", **common)
-cpp_kw = {"binary_path": os.environ["KWAVE_BINARY_PATH"]} if "KWAVE_BINARY_PATH" in os.environ else {}
+cpp_kw = (
+    {"binary_path": os.environ["KWAVE_BINARY_PATH"]} if "KWAVE_BINARY_PATH" in os.environ else {}
+)
 cpp = kspaceFirstOrder(kgrid, medium, source, sensor, backend="cpp", **common, **cpp_kw)
 print("python fields:", sorted(py))  # includes 'p_max'
 print("cpp fields:   ", sorted(cpp))  # only 'p' (plus metadata)

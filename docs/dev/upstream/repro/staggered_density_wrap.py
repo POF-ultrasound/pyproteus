@@ -8,8 +8,8 @@ import h5py
 import numpy as np
 from kwave.kgrid import kWaveGrid
 from kwave.kmedium import kWaveMedium
-from kwave.ksource import kSource
 from kwave.ksensor import kSensor
+from kwave.ksource import kSource
 from kwave.solvers.cpp_simulation import CppSimulation
 
 N = (16, 12, 10)
