@@ -168,7 +168,7 @@ Plan: pyproteus Roadmap §9. Hardware and execution
 
 ### Job model
 - [ ] Simulation → independent jobs (frame × pulse × variant); one HDF5 per job with settings, seeds, versions
-- [ ] Merge step
+- [ ] Merge step; readers and DAS accept a list of files or a folder (D-28: one HDF5 per process, `rf_<start>-<end>.h5`)
 - [ ] Local executor: process pool, one worker per GPU (`CUDA_VISIBLE_DEVICES`) or core group
 - [ ] Thread limits per worker (`OMP_NUM_THREADS`, threadpoolctl); spawn-safe on macOS/Windows
 
