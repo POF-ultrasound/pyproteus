@@ -10,7 +10,9 @@ Sparse weight matrices may be SciPy sparse or dense arrays.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -178,6 +180,8 @@ def compute_self_sense_pressure(
     *,
     binary_env: Mapping[str, str] | None = None,
     num_threads: int | None = None,
+    n_jobs: int = 1,
+    solver: str | None = None,
 ) -> np.ndarray:
     """Port of ``compute_self_sense_pressure.m`` (strict: one k-Wave run per bubble).
 
@@ -195,6 +199,20 @@ def compute_self_sense_pressure(
     ``run_param`` as :func:`~pyproteus.acoustic.simulation.run_simulation`
     (its ``PML`` is replaced). ``medium`` fields ``sound_speed``, ``density``,
     ``BonA``, ``alpha_coeff`` (3-D, or scalars) and ``alpha_power``.
+
+    Options not in MATLAB (D-15, results within the k-Wave class):
+
+    ``n_jobs``
+        Bubbles simulated concurrently (threads; each run is a separate binary
+        process or an in-process NumPy solve). With ``n_jobs > 1`` and no
+        ``num_threads``, the CPU cores are split between the runs. Each bubble
+        gets exactly the same inputs; only the binary's thread count changes
+        (measured ≤ 6e-7 vs sequential; 2.7x faster with 4 x 4 threads on 18
+        cores for 72³ local grids).
+    ``solver``
+        Overrides ``run_param.solver`` for the local runs, e.g. ``"3D"``
+        (k-wave-python's NumPy solver in-process: faster than the binary on
+        small local grids, slower on large ones; 4e-7 vs 3DC).
 
     Quirk reproduced (QUIRKS.md Q-170, BUGS.md B-172): the delta function uses the *global*
     grid's ``full_size`` for its period (``Grid_local.full_size =
@@ -216,13 +234,19 @@ def compute_self_sense_pressure(
     sensor_on_grid = bool(_get(grid, "sensor_on_grid", False))
     gx, gy, gz = (np.asarray(_get(grid, k), dtype=np.float64).reshape(-1) for k in "xyz")
     rp_local = _local_run_param(run_param)
+    if solver is not None:
+        rp_local["solver"] = solver
+    n_jobs = max(1, min(int(n_jobs), n_mb))
+    if n_jobs > 1 and num_threads is None:
+        num_threads = max(1, (os.cpu_count() or 1) // n_jobs)
 
     n_core = self_sense_grid_size(n_sup)
     centre = n_core // 2  # 0-based: floor(NX/2) + 1 - 1
     fields = {k: _get(medium, k) for k in ("sound_speed", "density", "BonA", "alpha_coeff")}
 
     ax, ay, az = ind2sub(shape, mb_idx)
-    for n in range(n_mb):
+
+    def one(n: int) -> None:
         sel = []
         for a, size in zip((int(ax[n]), int(ay[n]), int(az[n])), shape, strict=True):
             glob = np.arange(n_core) + a - centre
@@ -258,4 +282,11 @@ def compute_self_sense_pressure(
         p = np.asarray(sensor_data["p"])
         sensed = weights @ p.astype(np.float64)
         out[n] = sensed.astype(p.dtype)
+
+    if n_jobs == 1:
+        for n in range(n_mb):
+            one(n)
+    else:
+        with ThreadPoolExecutor(n_jobs) as pool:
+            list(pool.map(one, range(n_mb)))  # re-raises the first failure
     return out

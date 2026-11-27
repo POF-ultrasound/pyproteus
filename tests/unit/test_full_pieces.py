@@ -260,3 +260,34 @@ def test_self_sense_python_backend_translation_invariant() -> None:
                                           _rp("3D"))  # fmt: skip
     assert np.abs(out[0]).max() > 1.0
     np.testing.assert_allclose(out[0], out[1], rtol=0, atol=1e-5 * np.abs(out[0]).max())
+
+
+def test_self_sense_n_jobs_and_solver_override(monkeypatch) -> None:
+    """Bubble-parallel runs keep bubble order and split the cores; solver override applies."""
+    shape = (16, 16, 16)
+    coords = [DX * np.arange(n) for n in shape]
+    subs = np.array([[4, 5, 6], [8, 8, 8], [11, 3, 9], [6, 12, 2], [9, 9, 13]])
+    idx = np.ravel_multi_index(subs.T, shape, order="F")
+    points = np.array([[coords[d][s[d]] for d in range(3)] for s in subs])
+    grid = _grid(shape, x=coords[0], y=coords[1], z=coords[2], full_size=(36, 36, 36),
+                 sensor_on_grid=True)  # fmt: skip
+    seen = []
+
+    def fake(rp, kgrid, med, src, sensor, **kw):
+        seen.append((rp["solver"], kw["num_threads"]))
+        # echo the source amplitude so each row identifies its bubble
+        return {"p": np.asarray(src["p"], np.float32)}
+
+    monkeypatch.setattr(full, "run_simulation", fake)
+    monkeypatch.setattr(full.os, "cpu_count", lambda: 12)
+    ms = (np.arange(5)[:, None] + 1.0) * np.ones((5, 4))
+    medium = {"sound_speed": 1500.0, "density": 1000.0, "alpha_power": 1.5}
+    kg = KGrid(shape, (DX,) * 3, DT, 4)
+    seq = compute_self_sense_pressure(kg, grid, idx, points, ms, medium, 8, _rp())
+    assert {s for s in seen} == {("3DC", None)}
+    seen.clear()
+    par = compute_self_sense_pressure(kg, grid, idx, points, ms, medium, 8, _rp(), n_jobs=3,
+                                      solver="3D")  # fmt: skip
+    np.testing.assert_array_equal(par, seq)
+    assert np.all(np.diff(seq[:, 0]) > 0)  # rows in bubble order
+    assert {s for s in seen} == {("3D", 4)} and len(seen) == 5

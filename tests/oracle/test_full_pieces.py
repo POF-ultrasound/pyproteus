@@ -350,10 +350,14 @@ def self_sense(request, keng, tmp_path_factory):
             kgrid, _grid(c), c["MB_idx"], c["MB_points"], c["mass_source"], c["medium"],
             c["N_sup"], _run_param(solver, data / "ours"), binary_env=kt.binary_env(),
         )  # fmt: skip
+    out["parallel"] = compute_self_sense_pressure(
+        kgrid, _grid(c), c["MB_idx"], c["MB_points"], c["mass_source"], c["medium"],
+        c["N_sup"], _run_param("kspaceFirstOrder3DC"), binary_env=kt.binary_env(), n_jobs=3,
+    )  # fmt: skip
     return c, m, out
 
 
-@pytest.mark.parametrize("solver", ["kspaceFirstOrder3DC", "3D"])
+@pytest.mark.parametrize("solver", ["kspaceFirstOrder3DC", "3D", "parallel"])
 def test_self_sense_matches_matlab(self_sense, solver) -> None:
     c, m, out = self_sense
     ref, p = m["p"], out[solver]
