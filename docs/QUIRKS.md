@@ -1,5 +1,7 @@
 # MATLAB PROTEUS quirks ported on purpose
 
+> Sessions: don't read this file in full. `grep -n` for an entry, read the first lines for the format, and insert or append yours.
+
 Phase A reproduces MATLAB PROTEUS v1.1.0 behaviour exactly, including behaviour
 that looks wrong. Each such quirk is listed here with the planned fix after
 parity (Phase B). Do not fix a quirk before parity is confirmed.
