@@ -143,3 +143,10 @@ Format:
 - Ported in: `pyproteus.acoustic.full.compute_self_sense_pressure` (reproduced: `full_size` from the global grid).
 - Test: `tests/oracle/test_full_pieces.py::test_self_sense_matches_matlab` (global `full_size` 49×44×41, local 32³).
 - Planned fix (proposal for after parity): use the local grid's full size (`Nx_local + 20`, ...) in the self-sense weights, so the subtracted self term matches what the local grid actually propagates.
+
+## Q-150 — the PROTEUS transducer source has no staggered-grid compensation unless `Transducer.SourceType` is set
+- MATLAB: `acoustic-module/define_source_transducer.m:34-66,115-139` (oracle 8d37938).
+- Behaviour: with `SourceType = 'dipole'` the velocity source weights are recomputed at the integration points shifted by `-dx/2` (k-Wave's staggered velocity grid; also `-dy/2` for `uy` of a curved array, both on the union of the masks); with `'monopole'` a pressure source is used and the pulse is sinc-shifted by `+dt/2`. Without the field (all of `main_RF`/`main_pressure_field`: nothing sets it, only PROTEUS's tests do) the source is a velocity (dipole) source **without** either shift: the given sensor weights and mask are used as they are. Production runs therefore emit from a plane half a cell off the one the weights were computed for.
+- Ported in: `pyproteus.acoustic.define_source_transducer` (absent `SourceType` reproduced).
+- Test: `tests/oracle/test_source.py::test_define_source_transducer[*-absent]` (MATLAB parity; mask equals the sensor mask), `tests/unit/test_sensor_source.py::test_source_types_and_masks`.
+- Planned fix (after parity, proposal): default `SourceType` to `'dipole'` (with the shift) or `'monopole'`; changes the transmitted field by a half-cell (≈ λ/(2·PPW)) offset and the corresponding arrival times.

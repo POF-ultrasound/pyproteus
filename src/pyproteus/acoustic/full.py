@@ -179,36 +179,26 @@ def _point_sensor(
     full_size: np.ndarray,
     sensor_on_grid: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """``update_sensor.m`` for a single point on an empty mask: ``(mask, weights)``.
+    """``update_sensor`` for a single point on an empty mask: ``(mask, weights)``.
 
-    Private stand-in for the M3 ``update_sensor`` port (session A); replaced by
-    it once merged. ``weights`` are in ``find(mask)`` order (the 1 x n_mask
-    row of ``sensor_weights``).
+    ``weights`` are in ``find(mask)`` order (the 1 x n_mask row of
+    ``sensor_weights``); ``full_size`` is the delta function's period (the
+    global grid's in ``compute_self_sense_pressure.m``, Q-170).
     """
-    mask = np.zeros(shape, dtype=bool)
-    if sensor_on_grid:
-        mask[ind2sub(shape, idx)] = True
-        return mask, np.ones(1)
-    sub = [int(s) for s in ind2sub(shape, idx)]
-    ranges = []
-    for d in range(3):
-        s = sub[d]
-        if point[d] == coords[d][s]:
-            r = np.array([s])
-        else:
-            r = np.arange(s - _DELTA_HALF_WIDTH, s + _DELTA_HALF_WIDTH + 1)
-        ranges.append(r[(r >= 0) & (r < shape[d])])
-    gi, gj, gk = (g.ravel(order="F") for g in np.meshgrid(*ranges, indexing="ij"))
-    local_idx = sub2ind(shape, gi, gj, gk)
-    # ndgrid order with ascending ranges is ascending linear order, so the
-    # intersect() in update_sensor.m keeps b in this order.
-    if not np.all(np.diff(local_idx) > 0):  # pragma: no cover - invariant
-        raise AssertionError("truncated delta grid is not in ascending linear order")
-    b = evaluate_delta_function(
-        np.vstack([coords[0][gi], coords[1][gj], coords[2][gk]]), point, spacing, full_size
+    from types import SimpleNamespace
+
+    from .sensor import update_sensor
+
+    grid_local = SimpleNamespace(
+        Nx=shape[0], Ny=shape[1], Nz=shape[2], dx=float(spacing[0]), dy=float(spacing[1]),
+        dz=float(spacing[2]), x=coords[0], y=coords[1], z=coords[2],
+        full_size=np.asarray(full_size, dtype=np.float64), sensor_on_grid=sensor_on_grid,
+    )  # fmt: skip
+    sensor, w = update_sensor(
+        {"mask": np.zeros(shape, dtype=bool)}, np.asarray(point).reshape(1, 3), [idx], grid_local
     )
-    mask[gi, gj, gk] = True
-    return mask, np.asarray(b, dtype=np.float64).reshape(-1)
+    mask = np.asarray(sensor["mask"] if isinstance(sensor, Mapping) else sensor.mask, dtype=bool)
+    return mask, np.asarray(w.toarray(), dtype=np.float64).reshape(-1)
 
 
 def _local_run_param(run_param: Any) -> dict[str, Any]:

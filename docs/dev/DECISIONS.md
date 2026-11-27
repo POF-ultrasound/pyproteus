@@ -114,3 +114,6 @@ Follows the M3-C measurements under D-26. The strict port matches MATLAB 3DC at 
 - Bubble-parallel runs (`n_jobs`) and the solver override stay in; results are within class.
 - Q-170 (the self-sense delta function uses the global `full_size`, about 0.2 %) is reproduced, with the fix after parity.
 Who: developer.
+
+## D-28 — Multi-process RF runs (2026-11-27)
+Extends D-25. Several processes running different frame ranges of one run (as with MATLAB `main_RF` on several GPUs) each write their own HDF5 file (`rf_<start>-<end>.h5`). Readers and DAS accept a list of files or a folder, and an optional tool merges them into one run file. This avoids HDF5 file locking, which is often disabled on cluster file systems. Built in M5. Until then one process writes one file. Who: developer.
