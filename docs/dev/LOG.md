@@ -11,6 +11,23 @@ Newest first. One entry per working session or milestone step: what was done, wh
 - Reviewer (CHANGES REQUESTED, fixed): resume through `setup_run` was refused because run-control fields changed the stored settings (now compared without `RUN_CONTROL_FIELDS`); `"overwrite"` truncated other frames before computing (now always `"resume"` + `replace_frames`); a concurrent reader made `write_frame` lose the frame (now retries on the HDF5 lock); oracle tie cases did not use their ground-truth rate (fixed, outcome asserted); medium fingerprint covered run control/solver (excluded); `end_frame = Inf`; unique temp name + fsync for the medium cache; dropped bubble fields warn; CuPy arrays accepted. B-166 (Continue skips written frames). Open question to the main session: several processes writing frame ranges of one run into one HDF5 file.
 - Next: wave 2 `main_RF` wires `setup_run`, `RFWriter` and the medium cache.
 
+## 2026-11-27 — M3 plan and wave 1 (main)
+- Recorded D-25 (HDF5 RF output, one file per run, resumable) and D-26 (self-sense: strict port first, then a speedup proposal).
+- Started wave 1, three parallel sessions on disjoint files:
+  - A, sources and sensors (B-150..159);
+  - B, ground-truth frames, run setup and HDF5 I/O (B-160..169; frame reading moved forward from M4);
+  - C, `run_simulation`, `update_source` and self-sense (B-170..179).
+- Wave 2 starts once A–C have merged: hybrid and full simulators, `main_RF`, `main_pressure_field`, MATLAB parity, and the Q-100 far-field check (B-180..189).
+- Real-GPU CuPy test merged (PR #32); the cluster run passed and M2 is done. D-27 (self-sense speedups) recorded after the M3-C measurements.
+
+## 2026-11-27 — real-GPU CuPy parity test (main)
+- `tests/gpu/test_cupy_parity.py` (marker `gpu`): NumPy vs CuPy on propagation (`run_simulation_homogeneous`, gridded and exact) + element RF (`compute_RF_data`), 300 bubbles → 96 × 5 integration points, single and double; host accumulation above `MaxGpuElements`; block-size independence on the GPU; `DEVICE_NUM` with two devices; slow benchmark printing CPU/GPU times. Classes: double ≤ 1e-9 × max (D-13), single ≤ 1e-6 × max (D-18).
+- Skipped without CuPy or a CUDA device (Mac, CI). Dry-run against the NumPy-backed CuPy stand-in: 7 passed, 1 skipped (two-device test). The real run is for the developer on the cluster (D-16); closes the M2 CuPy item once it passes.
+- Cluster run (developer, 2026-11-27): Quadro RTX 6000, CC 7.5, CuPy 14.2.0, 3 devices. All 8 tests pass, including `DEVICE_NUM`.
+  - Max relative difference: p ≤ 9.1e-16 and RF ≤ 7.4e-16 in double; p ≤ 1.9e-13 and RF ≤ 2.4e-12 in single.
+  - Propagation speedup: ×4–4.4 gridded and ×20–41 exact on the test case; ×8.7 gridded and ×64 exact on the benchmark (1000 bubbles, 864 points, single).
+  - On the GPU the exact path is faster than the gridded one (gridded loops per source in small blocks): candidate for wave 2 / 1.x (e.g. exact by default on GPU, or a batched gridded kernel). M2 is done.
+
 ## 2026-11-25 — M2 microbubble model and mass source (m2-bubble)
 - `pyproteus.microbubble`: `model.py` (`get_material_properties`, `calc_surface_tension`, `calc_thermal_damp`, `find_domain_boundaries`, `find_A_m0`, `get_shell_properties`, `compress_bubble`, `get_eq_param`; `Liquid`/`GasProps`/`Shell`/`EqParam`), `dynamics.py` (`simple_rp`, `PchipBatch`, `calc_bubble_response`, timer as `timeout`). `pyproteus.acoustic.mass_source`: `compute_bubble_mass_source`, `get_batch_indices`, shell/material converters.
 - Design (D-15): struct-of-arrays shells, RHS vectorised over the batch, one pchip coefficient matrix for all driving pressures; 3 bubbles × 1000 output samples in ~0.1 s.
