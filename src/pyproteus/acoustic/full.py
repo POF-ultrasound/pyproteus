@@ -83,6 +83,11 @@ def update_source(
     if out.get("p_mask") is not None:
         mask = np.array(out["p_mask"], copy=True)
         p_old = np.atleast_2d(np.asarray(out["p"]))
+        if p_old.shape[0] != int(np.count_nonzero(mask)):
+            raise ValueError(
+                f"source.p has {p_old.shape[0]} rows for {int(np.count_nonzero(mask))} "
+                "p_mask voxels (MATLAB errors too)"
+            )
     else:
         mask = np.zeros(shape)
         p_old = np.zeros((0, 0))
@@ -153,7 +158,8 @@ def _point_sensor(
     local_idx = sub2ind(shape, gi, gj, gk)
     # ndgrid order with ascending ranges is ascending linear order, so the
     # intersect() in update_sensor.m keeps b in this order.
-    assert np.all(np.diff(local_idx) > 0)
+    if not np.all(np.diff(local_idx) > 0):  # pragma: no cover - invariant
+        raise AssertionError("truncated delta grid is not in ascending linear order")
     b = evaluate_delta_function(
         np.vstack([coords[0][gi], coords[1][gj], coords[2][gk]]), point, spacing, full_size
     )
@@ -221,7 +227,7 @@ def compute_self_sense_pressure(
     mb_idx = np.asarray(mb_idx, dtype=np.int64).reshape(-1)
     n_mb = mb_idx.size
     points = np.asarray(mb_points, dtype=np.float64).reshape(n_mb, 3) if n_mb else np.zeros((0, 3))
-    ms = np.asarray(mass_source)
+    ms = np.asarray(mass_source).reshape(n_mb, -1) if n_mb else np.asarray(mass_source)
     nt = kgrid.Nt
     out = np.zeros((n_mb, nt))
     if n_mb == 0:
@@ -280,7 +286,8 @@ def compute_self_sense_pressure(
             {"mask": mask, "record": ("p",)}, binary_env=binary_env, num_threads=num_threads,
         )  # fmt: skip
         p = np.asarray(sensor_data["p"])
-        sensed = weights @ p.astype(np.float64)
+        with np.errstate(all="ignore"):  # spurious BLAS FP flags on macOS (finite inputs)
+            sensed = weights @ p.astype(np.float64)
         out[n] = sensed.astype(p.dtype)
 
     if n_jobs == 1:

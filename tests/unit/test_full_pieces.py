@@ -291,3 +291,29 @@ def test_self_sense_n_jobs_and_solver_override(monkeypatch) -> None:
     np.testing.assert_array_equal(par, seq)
     assert np.all(np.diff(seq[:, 0]) > 0)  # rows in bubble order
     assert {s for s in seen} == {("3D", 4)} and len(seen) == 5
+
+
+def test_update_source_rejects_row_mismatch() -> None:
+    shape = (3, 3, 3)
+    mask = np.zeros(shape, bool)
+    mask[0, 0, :2] = True
+    with pytest.raises(ValueError, match="rows"):
+        update_source({"p_mask": mask, "p": np.ones((1, 3))}, np.ones((1, 3)), np.ones((1, 1)),
+                      [5], _grid(shape), {"sound_speed": 1500.0})  # fmt: skip
+
+
+def test_self_sense_accepts_1d_mass_source_for_one_bubble(monkeypatch) -> None:
+    shape = (10, 10, 10)
+    coords = [DX * np.arange(n) for n in shape]
+    grid = _grid(shape, x=coords[0], y=coords[1], z=coords[2], full_size=(30, 30, 30),
+                 sensor_on_grid=True)  # fmt: skip
+    monkeypatch.setattr(
+        full,
+        "run_simulation",
+        lambda rp, kg, med, src, sen, **kw: {"p": np.asarray(src["p"], np.float32)},
+    )
+    point = [[coords[0][5], coords[1][5], coords[2][5]]]
+    kg = KGrid(shape, (DX,) * 3, DT, 6)
+    ms = np.arange(1.0, 7.0)
+    out = compute_self_sense_pressure(kg, grid, [555], point, ms, {"sound_speed": 1500.0}, 8, _rp())
+    assert out.shape == (1, 6) and np.all(out[0] > 0) and np.all(np.diff(out[0]) > 0)
