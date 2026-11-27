@@ -329,7 +329,9 @@ def _read_str(group: h5py.Group, name: str) -> str:
 
 def _to_numpy(a: Any) -> np.ndarray:
     """NumPy array from NumPy or CuPy input (CuPy arrays are copied to the host)."""
-    return np.asarray(a.get() if hasattr(a, "get") and not isinstance(a, np.ndarray) else a)
+    if type(a).__module__.split(".")[0] == "cupy":
+        return np.asarray(a.get())
+    return np.asarray(a)
 
 
 def _bubble_arrays(mb: Mapping[str, Any]) -> dict[str, np.ndarray]:
