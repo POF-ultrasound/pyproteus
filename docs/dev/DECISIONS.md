@@ -117,3 +117,6 @@ Who: developer.
 
 ## D-28 — Multi-process RF runs (2026-11-27)
 Extends D-25. Several processes running different frame ranges of one run (as with MATLAB `main_RF` on several GPUs) each write their own HDF5 file (`rf_<start>-<end>.h5`). Readers and DAS accept a list of files or a folder, and an optional tool merges them into one run file. This avoids HDF5 file locking, which is often disabled on cluster file systems. Built in M5. Until then one process writes one file. Who: developer.
+
+## D-29 — GUI direction (2026-11-27)
+The GUI starts after M4. It is a new design, not a port of the MATLAB apps. Aims: more user-friendly, professional, useful, comprehensive, scientific, accurate and maintainable, while staying simple. Every design and style choice (technology, including NiceGUI or alternatives; layout; workflow; look) is discussed with the developer first, and no session decides these alone. Supersedes the GUI parts of D-5 and the "same workflow as the MATLAB apps" line in ROADMAP §12. Who: developer.
