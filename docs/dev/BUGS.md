@@ -201,7 +201,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-164 — RF output and medium cache formats (D-25; divergence, no result change)
 - Where: `pyproteus.io.frames` (`RFWriter`, `RFFile`, `save_medium_cache`, `load_medium_cache`).
-- RF is written to one HDF5 file per run, not `Frame_<m>.mat`; the k-Wave medium to `medium.h5` with a settings fingerprint, not `medium.mat`. Both MATLAB formats stay readable (oracle-tested). Deleted or replaced frames do not shrink an HDF5 file (`h5repack` compacts it). A process holding the file open blocks writes (HDF5 lock); the writer retries for `lock_timeout` seconds. One writer per file: MATLAB's several-GPUs-into-one-folder workflow (different frame ranges per process) has no HDF5 equivalent yet (question to the main session). See `docs/PARITY.md`, "Run setup and run data".
+- RF is written to one HDF5 file per run, not `Frame_<m>.mat`; the k-Wave medium to `medium.h5` with a settings fingerprint, not `medium.mat`. Both MATLAB formats stay readable (oracle-tested). Deleted or replaced frames do not shrink an HDF5 file (`h5repack` compacts it). A process holding the file open blocks writes (HDF5 lock); the writer retries for `lock_timeout` seconds. One writer per file: MATLAB's several-GPUs-into-one-folder workflow (different frame ranges per process) has no HDF5 equivalent yet; D-28 (M5): one file per process (`rf_<start>-<end>.h5`), readers take a list or folder, optional merge tool. See `docs/PARITY.md`, "Run setup and run data".
 
 ## B-165 — Local failure of `tests/unit/test_kwave.py::test_cpp_binary_command_line` (open, not from this change)
 - Seen only in serial runs: the same test passes under `pytest -n 6`.
