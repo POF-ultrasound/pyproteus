@@ -100,3 +100,17 @@ Who: developer.
 
 ## D-24 — End-to-end RF comparison class (2026-11-26)
 End-to-end RF from fixed bubble positions is compared with MATLAB at ≤ 1e-3 × max|RF| (replacing D-13's 1e-4), consistent with the D-22 bubble class: the bubble ODE difference (mass source ~2e-4) passes into the RF almost one to one (measured RF 1.01e-4 for P4-1 with shared steps). The propagation + RF stage, fed MATLAB's mass source, stays at ≤ 1e-9 (measured ~1e-13), so propagation errors are still caught. Who: developer.
+
+## D-25 — RF output format (2026-11-27)
+`main_RF` writes one HDF5 file per run with one group per frame (RF per pulse in the sequence, `dt`, that frame's bubbles), plus the run settings and ground truth. Each frame is flushed when it is written, so a run can resume (`Acquisition.Continue` / `StartFrame`). PROTEUS writes one `Frame_N.mat` per frame instead. MATLAB `Frame_N.mat` files (ground truth and RF) stay readable, and the DAS loader accepts both formats. Who: developer.
+
+## D-26 — Self-sense pressure in the full simulator (2026-11-27)
+`compute_self_sense_pressure` (one local k-Wave run per bubble per interaction) is first ported strictly, as the parity reference. The M3 session then measures its cost and proposes batching or caching, for example one run per unique local medium and sub-voxel offset. Parts that keep results within the k-Wave class can go in directly. Anything that changes results comes back to the developer. Who: developer.
+
+## D-27 — Self-sense speedups (2026-11-27)
+Follows the M3-C measurements under D-26. The strict port matches MATLAB 3DC at ≤ 2.6e-7 and costs about 60 s per bubble per iteration at realistic sizes.
+- Each bubble's self-sense impulse response is cached across interaction iterations, **on by default**, with a flag to turn it off for strict-parity runs. This is exact for BonA = 0. With BonA = 6 the error is 4.5e-6 to 4.7e-5 (self-sense peaks of 5.9 to 59 kPa): above the k-Wave class but far below the end-to-end RF class (D-24).
+- A homogeneous local medium with a Green's-function tensor (no per-bubble k-Wave runs) is an **opt-in** option, off by default. Its self-sense error is 4.8e-3 at 2 % inhomogeneity and 1.2e-2 at 5 %. Wave 2 measures the effect on RF.
+- Bubble-parallel runs (`n_jobs`) and the solver override stay in; results are within class.
+- Q-170 (the self-sense delta function uses the global `full_size`, about 0.2 %) is reproduced, with the fix after parity.
+Who: developer.
