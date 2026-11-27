@@ -434,7 +434,7 @@ def test_matlab_rf_frames_and_hdf5_agree(tmp_path, settings) -> None:
         load_rf_data(folder, "Pulse inversion"), load_rf_data(tmp_path / "rf.h5")
     )
     names = [str(p) for p, _ in iter_rf_frames(tmp_path / "rf.h5")]
-    assert names[0].endswith("rf.h5/frames/Frame_01")
+    assert Path(names[0]).parts[-3:] == ("rf.h5", "frames", "Frame_01")
     with pytest.raises(ValueError, match="pulsing_scheme"):
         load_rf_data(folder)
     with pytest.raises(FileNotFoundError):
@@ -645,6 +645,6 @@ def test_write_waits_for_a_reader(tmp_path, settings) -> None:
     holder = subprocess.Popen([sys.executable, "-c", code, str(path)], stdout=subprocess.PIPE)
     assert holder.stdout.readline().strip() == b"open"
     if blocked:
-        with pytest.raises(BlockingIOError):
+        with pytest.raises(OSError, match="lock"):
             w2.write_frame(2, rf_pulses(1), 1e-8)
     holder.wait(timeout=30)

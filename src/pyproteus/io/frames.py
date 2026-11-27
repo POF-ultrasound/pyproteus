@@ -356,14 +356,19 @@ def _bubble_arrays(mb: Mapping[str, Any]) -> dict[str, np.ndarray]:
 
 
 def _open_locked(path: Path, mode: str, timeout: float) -> h5py.File:
-    """``h5py.File(path, mode)``, retrying while another process holds the file lock."""
+    """``h5py.File(path, mode)``, retrying while another process holds the file lock.
+
+    Raises the HDF5 lock error (:class:`OSError`) after ``timeout`` seconds.
+    """
     deadline = time.monotonic() + timeout
     delay = 0.1
     while True:
         try:
             return h5py.File(path, mode)
-        except BlockingIOError:
-            if time.monotonic() >= deadline:
+        except OSError as exc:
+            # POSIX: BlockingIOError (EAGAIN); Windows: OSError errno 0, Win32 error 33.
+            locked = isinstance(exc, BlockingIOError) or "unable to lock file" in str(exc)
+            if not locked or time.monotonic() >= deadline:
                 raise
             time.sleep(delay)
             delay = min(2 * delay, 5.0)
