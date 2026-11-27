@@ -2,6 +2,10 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-27 — real-GPU CuPy parity test (main)
+- `tests/gpu/test_cupy_parity.py` (marker `gpu`): NumPy vs CuPy on propagation (`run_simulation_homogeneous`, gridded and exact) + element RF (`compute_RF_data`), 300 bubbles → 96 × 5 integration points, single and double; host accumulation above `MaxGpuElements`; block-size independence on the GPU; `DEVICE_NUM` with two devices; slow benchmark printing CPU/GPU times. Classes: double ≤ 1e-9 × max (D-13), single ≤ 1e-6 × max (D-18).
+- Skipped without CuPy or a CUDA device (Mac, CI). Dry-run against the NumPy-backed CuPy stand-in: 7 passed, 1 skipped (two-device test). The real run is for the developer on the cluster (D-16); closes the M2 CuPy item once it passes.
+
 ## 2026-11-25 — M2 microbubble model and mass source (m2-bubble)
 - `pyproteus.microbubble`: `model.py` (`get_material_properties`, `calc_surface_tension`, `calc_thermal_damp`, `find_domain_boundaries`, `find_A_m0`, `get_shell_properties`, `compress_bubble`, `get_eq_param`; `Liquid`/`GasProps`/`Shell`/`EqParam`), `dynamics.py` (`simple_rp`, `PchipBatch`, `calc_bubble_response`, timer as `timeout`). `pyproteus.acoustic.mass_source`: `compute_bubble_mass_source`, `get_batch_indices`, shell/material converters.
 - Design (D-15): struct-of-arrays shells, RHS vectorised over the batch, one pchip coefficient matrix for all driving pressures; 3 bubbles × 1000 output samples in ~0.1 s.
