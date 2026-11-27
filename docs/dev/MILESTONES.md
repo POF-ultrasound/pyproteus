@@ -107,7 +107,7 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 
 ### Done when
 - [x] End-to-end RF on given bubble positions matches MATLAB (D-24: RF ≤ 1e-3 × max, the D-22 bubble class; propagation + RF stage ≤ 1e-9; measured 1.01e-4/6.0e-5 shared, 6.0e-5/5.3e-5 independent; 2026-11-26)
-- [ ] CuPy path matches NumPy path: array-module switch done and tested on NumPy with a CuPy stand-in (`tests/unit/test_homogeneous_backend.py`, 2026-11-25); the GPU run is left for the cluster (M5 hardware validation, D-16)
+- [x] CuPy path matches NumPy path (2026-11-27, PR #32: `tests/gpu/test_cupy_parity.py` on the cluster, Quadro RTX 6000 CC 7.5, CuPy 14.2.0, 3 devices; max rel diff ≤ 9.1e-16 double, ≤ 2.4e-12 single; all 8 tests and the benchmark pass)
 
 ## M3: k-Wave paths
 
