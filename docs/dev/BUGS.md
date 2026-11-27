@@ -204,5 +204,6 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 ## B-174 — homogeneous self-sense option changes results (opt-in, D-27)
 - Where: `compute_self_sense_pressure(..., homogeneous=True)`.
 - Effect: 4.8e-3 (Inhomogeneity 0.02) and 1.2e-2 (0.05) relative to the heterogeneous crop; up to 3.8e-4 PML-reflection residual even in a homogeneous medium (20-voxel core). Off by default; RF impact to be measured in M3 wave 2.
+- Cost: one Green run per distinct local medium value set. With PROTEUS's per-voxel Inhomogeneity every bubble is distinct, so the option makes as many runs as the default mode and caches one 17³ x Nt float32 tensor per bubble (~98 MB at Nt = 5000). It only pays off for piecewise-constant media; keying on background (pre-inhomogeneity) or quantized values would fix that and is proposed to the main session (changes results further).
 - Status: by design (D-27).
 

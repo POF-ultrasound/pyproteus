@@ -393,9 +393,17 @@ def test_cache_reuses_responses_across_iterations(monkeypatch) -> None:
     del calls[2:]  # the uncached reference run
     assert not np.allclose(first, second)
     # a shorter Nt reuses the cached (longer) responses; a longer one recomputes
-    compute_self_sense_pressure(KGrid(shape, (DX,) * 3, DT, nt - 10), grid, idx, points,
-                                ms2[:, : nt - 10], medium, 8, _rp("3D"), cache=cache)  # fmt: skip
+    kg_short = KGrid(shape, (DX,) * 3, DT, nt - 10)
+    short = compute_self_sense_pressure(kg_short, grid, idx, points, ms2[:, : nt - 10], medium,
+                                        8, _rp("3D"), cache=cache)  # fmt: skip
     assert len(calls) == 2
+    # causal: truncation is exact (FFT length changes rounding only)
+    np.testing.assert_allclose(short, fresh[:, : nt - 10], rtol=0, atol=1e-6 * np.abs(fresh).max())
+    del calls[2:]
+    compute_self_sense_pressure(KGrid(shape, (DX,) * 3, DT, nt + 10), grid, idx, points,
+                                np.pad(ms2, ((0, 0), (0, 10))), medium, 8, _rp("3D"),
+                                cache=cache)  # fmt: skip
+    assert len(calls) == 4 and cache.runs == 4  # longer Nt: recomputed
 
 
 def test_weights_1d_outer_product_matches_point_sensor() -> None:
@@ -427,6 +435,10 @@ def test_homogeneous_mode_exact_for_homogeneous_medium() -> None:
     cache = full.SelfSenseCache()
     hom = compute_self_sense_pressure(kg, grid, idx, points, ms, medium, 17, _rp("3D"),
                                       homogeneous=True, cache=cache)  # fmt: skip
+    # Axis-order mix-ups (G reshape order, pairing a[d] with a G axis) cannot be
+    # seen here: isotropic grid, homogeneous medium, cubic G, so G is symmetric
+    # under axis permutations; they cannot change results either (the adapter
+    # refuses pressure sources on anisotropic grids).
     assert cache.runs == 2  # one Green's tensor + the cropped bubble
     assert sum(k[0] == "green" for k in cache.responses) == 1
     assert np.abs(ref).max() > 1.0
@@ -445,3 +457,28 @@ def test_homogeneous_mode_errors() -> None:
     with pytest.raises(ValueError, match="impulse_response"):
         compute_self_sense_pressure(kg, grid, idx, points, _ms(1, 20), medium, 8, _rp("3D"),
                                     homogeneous=True, impulse_response=False)  # fmt: skip
+
+
+def test_homogeneous_mode_missing_field_still_caches(monkeypatch) -> None:
+    """A missing medium field must not defeat the Green-tensor cache (no NaN keys)."""
+    shape, nt = (30, 28, 26), 20
+    medium, grid, idx, points = _hetero_case(
+        shape, [(14, 13, 12), (15, 13, 12)], [(0.3, 0.2, 0.1), (-0.2, 0.0, 0.3)], 0.0,
+        homogeneous_medium=True,
+    )  # fmt: skip
+    del medium["BonA"]
+    calls = []
+
+    def fake(rp, kg, med, src, sen, **kw):
+        calls.append(1)
+        return {"p": np.zeros((int(sen["mask"].sum()), kg.Nt), np.float32)}
+
+    monkeypatch.setattr(full, "run_simulation", fake)
+    cache = full.SelfSenseCache()
+    kg = KGrid(shape, (DX,) * 3, DT, nt)
+    for _ in range(2):
+        compute_self_sense_pressure(kg, grid, idx, points, _ms(2, nt), medium, 17, _rp("3D"),
+                                    homogeneous=True, cache=cache, n_jobs=2)  # fmt: skip
+    assert len(calls) == 1 and cache.runs == 1
+    (g,) = cache.responses.values()
+    assert g.dtype == np.float32 and g.shape == (17, 17, 17, nt)

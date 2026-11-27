@@ -296,7 +296,8 @@ def compute_self_sense_pressure(
         59 kPa (docs/PARITY.md). With a :class:`SelfSenseCache` the responses
         are reused across the interaction iterations of a frame.
     ``impulse_response=False``
-        Strict port: one run per bubble with its own mass source (MATLAB).
+        Strict port: one run per bubble with its own mass source (MATLAB);
+        ``cache`` is not used.
     ``homogeneous=True`` (opt-in, changes results)
         Bubbles whose local cube is not cropped by the global grid edges use a
         homogeneous local medium (the medium values at the bubble's voxel): one
@@ -305,7 +306,12 @@ def compute_self_sense_pressure(
         bubble's response is ``Σ_Δ a(Δ) G(Δ, t)`` with ``a`` the
         autocorrelation of its delta weights (separable per axis). Cropped
         bubbles use the impulse-response path on their heterogeneous crop.
-        Measured against the heterogeneous crop: 4.8e-3 (Inhomogeneity 0.02),
+        Only pays off when many bubbles share local medium values (piecewise
+        constant media, e.g. a vessel of uniform blood properties): with
+        PROTEUS's per-voxel Inhomogeneity every bubble has its own values, so
+        there is one tensor run per bubble (no fewer runs than the default
+        mode) and each cached tensor holds 17³ x Nt float32 values (~98 MB at
+        Nt = 5000). Measured against the heterogeneous crop: 4.8e-3 (Inhomogeneity 0.02),
         1.2e-2 (0.05). In a homogeneous medium it equals the per-bubble runs up
         to late-time PML reflections, which depend on where the source sits in
         the cube (3.8e-4 for a 20-voxel core, 5.2e-5 for 32). Needs a local core
@@ -402,7 +408,7 @@ def compute_self_sense_pressure(
         with np.errstate(all="ignore"):  # spurious BLAS FP flags on macOS (finite inputs)
             return (weights @ p.astype(np.float64)).astype(p.dtype).astype(np.float64)
 
-    def green_tensor(values: tuple[float, ...]) -> np.ndarray:
+    def green_tensor(values: tuple[float | None, ...]) -> np.ndarray:
         """``G[hw+dx, hw+dy, hw+dz, t]``: homogeneous cube, unit sample at the centre voxel."""
         hw = 2 * _DELTA_HALF_WIDTH
         if n_core < 2 * hw + 1:
@@ -413,15 +419,16 @@ def compute_self_sense_pressure(
         cube = (n_core,) * 3
         medium_local: dict[str, Any] = {"alpha_power": alpha_power}
         for k, v in zip(fields, values, strict=True):
-            if not np.isnan(v):
+            if v is not None:
                 medium_local[k] = np.full(cube, v)
         mask = np.zeros(cube, dtype=bool)
         r = slice(centre - hw, centre + hw + 1)
         mask[r, r, r] = True
         src = np.array([int(sub2ind(cube, centre, centre, centre))])
         p = run_local(medium_local, cube, mask, np.ones((1, 1)), src, unit)
-        g = p.astype(np.float64).reshape((2 * hw + 1,) * 3 + (nt,), order="F")
-        return g / IMPULSE_AMPLITUDE
+        # float32 (the k-Wave output precision): 17³ x Nt values per tensor
+        g = p.reshape((2 * hw + 1,) * 3 + (nt,), order="F")
+        return (g / np.float32(IMPULSE_AMPLITUDE)).astype(np.float32)
 
     def uses_green(n: int) -> bool:
         cropped = any(
@@ -432,7 +439,7 @@ def compute_self_sense_pressure(
 
     def green_key(n: int) -> tuple:
         values = tuple(
-            float("nan") if v is None
+            None if v is None
             else float(np.asarray(v).reshape(-1)[0] if np.size(v) == 1
                        else np.asarray(v).ravel(order="F")[mb_idx[n]])
             for v in fields.values()
@@ -462,7 +469,7 @@ def compute_self_sense_pressure(
                                   sensor_on_grid), hw)
             for d in range(3)
         ]  # fmt: skip
-        return np.einsum("i,j,k,ijkt->t", a[0], a[1], a[2], g)
+        return np.einsum("i,j,k,ijkt->t", a[0], a[1], a[2], g.astype(np.float64))
 
     def one(n: int) -> None:
         if impulse_response:
@@ -471,9 +478,14 @@ def compute_self_sense_pressure(
             sensed = bubble_run(n, ms[n : n + 1])
         out[n] = sensed.astype(np.float32)
 
-    if homogeneous:  # one run per distinct local medium, before any parallel work
-        for key in dict.fromkeys(green_key(n) for n in range(n_mb) if uses_green(n)):
-            green(key)
+    if homogeneous:  # one run per distinct local medium, before the per-bubble work
+        keys = list(dict.fromkeys(green_key(n) for n in range(n_mb) if uses_green(n)))
+        if n_jobs == 1 or len(keys) < 2:
+            for key in keys:
+                green(key)
+        else:
+            with ThreadPoolExecutor(n_jobs) as pool:
+                list(pool.map(green, keys))
     if n_jobs == 1:
         for n in range(n_mb):
             one(n)
