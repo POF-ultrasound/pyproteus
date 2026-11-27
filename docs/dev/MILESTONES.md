@@ -106,9 +106,8 @@ Plan: pyproteus Roadmap §5. MATLAB semantics to replicate, port order steps 6-7
 - [x] `compute_RF`, `compute_RF_data` (symmetric ifft)
 
 ### Done when
-- [ ] End-to-end RF on given bubble positions matches MATLAB (RF ≤ 1e-4)
-- [ ] CuPy path matches NumPy path (needs a complex64 kernel for `gpuArray-single` first, PARITY.md)
-- [ ] Hybrid pipeline passes the transmit centre frequency as `reference_frequency` to `run_simulation_homogeneous` (D-23; required for `AttenuationB ≤ 0.9` with dispersion, ideally read from the settings)
+- [x] End-to-end RF on given bubble positions matches MATLAB (D-24: RF ≤ 1e-3 × max, the D-22 bubble class; propagation + RF stage ≤ 1e-9; measured 1.01e-4/6.0e-5 shared, 6.0e-5/5.3e-5 independent; 2026-11-26)
+- [ ] CuPy path matches NumPy path: array-module switch done and tested on NumPy with a CuPy stand-in (`tests/unit/test_homogeneous_backend.py`, 2026-11-25); the GPU run is left for the cluster (M5 hardware validation, D-16)
 
 ## M3: k-Wave paths
 
@@ -125,6 +124,7 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [ ] `define_sensor_transducer`, `define_sensor_MB`, `define_sensor_MB_all`
 - [ ] `update_sensor`, `update_sensor_fast`, `extract_sensor_data`
 - [ ] `hybrid_simulator` incl. interaction loop
+- [ ] Pass the transmit centre frequency as `reference_frequency` to `run_simulation_homogeneous` (D-23; required for `AttenuationB ≤ 0.9` with dispersion, ideally read from the settings)
 - [ ] `main_RF` (outputs to HDF5)
 
 ### Full simulator
@@ -181,6 +181,7 @@ Plan: pyproteus Roadmap §9. Hardware and execution
 - [ ] Windows (CPU, CUDA)
 - [ ] Linux (CPU, CUDA)
 - [ ] GPU hardware test on the university GPU cluster (single node, interactive or one job; no Slurm tooling)
+- [ ] complex64 kernel for `DATA_CAST(_RF) = 'gpuArray-single'` in the homogeneous propagation and `compute_RF` (FP64 runs at 1/32 rate on the D-16 Turing GPU), checked against the float64 kernel at the single class, before the CuPy-vs-NumPy GPU run (M2)
 
 Cluster tooling (Slurm templates, containers) and `pyproteus sweep` moved out of scope: see code-pyproteus enhancement DL datasets.
 
