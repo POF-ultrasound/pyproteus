@@ -2,6 +2,13 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-27 — M3 wave 1A: k-Wave sources and sensors (m3-sources-sensors)
+- `pyproteus.acoustic.sensor`: `update_sensor` (= `update_sensor_fast`, one vectorised chunked implementation), `define_sensor_transducer`, `define_sensor_MB`, `define_sensor_MB_all` (takes loaded frames: session B's `load_microbubbles` plugs in as a generator), `extract_sensor_data`, `Sensor`. `pyproteus.acoustic.source`: `preprocess_transmit`, `define_source_transducer` (pressure/velocity, absent/dipole/monopole `SourceType`, curved `ux`/`uy` with mask merge, every `SeqPulse`), `pulsing_sequence`, `Source`.
+- Conventions: 0-based column-major linear indices; masks `[ix, iy, iz]`; source rows and weight columns in `find` order (what `backends.kwave.kspace_first_order` takes); weights SciPy CSR `N_points × nnz(mask)`.
+- Oracle: 29 sensor tests (both MATLAB update_sensor versions, ties at .5, edge truncation, on-grid lines, threshold, existing mask, default-settings grid, real `Frame_XX.mat` files for `define_sensor_MB_all`), 31 source tests (P4-1/C1-6D, on/off grid, all source types and pulses; `preprocess_transmit` with MATLAB k-Wave). Masks/indices exact, weights and signals ≤ 1e-9. 12 unit tests (loop reference, chunk invariance, C-order mapping, full-FFT delay reference).
+- Found B-150 (`update_sensor_fast.m` weight columns wrong on a pre-filled mask; unreachable in PROTEUS; pyproteus follows `update_sensor.m`), B-151 (unknown `SeqPulse`/`PulsingScheme` raise), Q-150 (no staggered-grid shift when `SourceType` is absent, which is every `main_RF` run).
+- Performance: 20 000 off-grid points in 3.3 s vs 31 s in MATLAB (fast version falls back to its loop above its 2 GiB estimate).
+
 ## 2026-11-27 — M3 plan and wave 1 (main)
 - Recorded D-25 (HDF5 RF output, one file per run, resumable) and D-26 (self-sense: strict port first, then a speedup proposal).
 - Started wave 1, three parallel sessions on disjoint files:
