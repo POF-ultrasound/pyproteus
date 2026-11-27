@@ -118,6 +118,14 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [x] Source/sensor row-order mapping covered by tests (2026-11-22)
 - [x] `filterTimeSeries`, `getWin` from k-wave-python, checked against MATLAB k-Wave (2026-11-22; B-60 workaround for ZeroPhase)
 
+### Run setup and data I/O (wave 1, B)
+- [x] Reading MATLAB ground-truth frames (`Frame_N.mat`, `Frame.PulseK`) and `FlowSimulationParameters.mat` (moved from M4) (2026-11-27, `pyproteus.io.frames`)
+- [x] `load_microbubbles`, `check_ground_truth_data` (raises/warns; writes only with `savedir`) (2026-11-27, `pyproteus.acoustic.setup`)
+- [x] `compute_travel_times` (done in M1, `pyproteus.acoustic`)
+- [x] `sim_startup`, `input_handling`, `sim_setup` as a typed run configuration (`RunConfig`, `setup_run`; Solver → backend/device/DATA_CAST, binary via `backends.kwave.binary_path`, StartFrame/EndFrame/Continue/DeviceNumber) (2026-11-27)
+- [x] RF output writer per D-25 (HDF5, one group per frame, atomic per-frame flush, resume) and readers for it and for MATLAB RF `Frame_N.mat`; `pyproteus.reconstruction` loads either (2026-11-27)
+- [x] k-Wave medium cache (`medium.h5` with settings fingerprint; MATLAB `medium.mat` readable) (2026-11-27)
+
 ### Hybrid simulator (default path)
 - [ ] `preprocess_transmit`
 - [ ] `define_source_transducer` (pressure and velocity sources)
@@ -152,7 +160,7 @@ Plan: port order steps 10-11. Streamlines use nearest-voxel velocity: compare st
 - [ ] `randi_weighted`, `draw_start_position`, `draw_random_radii`
 - [ ] `exitVesselFcn`, `filter_points`, `filter_points_proximity`
 - [ ] `generate_streamlines`, `backpropagation` (serial mode parity)
-- [ ] Ground-truth frame output; reading MATLAB ground-truth frames
+- [ ] Ground-truth frame output (reading MATLAB ground-truth frames moved to M3, done)
 
 ### Geometry
 - [ ] Reference geometries (renal tree, mouse brain) from Zenodo via pooch (m1-grid-medium, PR #18)

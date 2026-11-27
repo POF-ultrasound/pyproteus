@@ -180,3 +180,28 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: independent ODE solvers (D-12/D-22); a 1e-4 end-to-end class is not consistent with a 1e-3 bubble class.
 - Status: closed by D-24 (developer): the end-to-end RF class is 1e-3 × max|RF| (the D-22 bubble class); the propagation + RF stage stays at 1e-9 from MATLAB's mass source.
 
+
+## B-160 — `check_ground_truth_data`: no folder side effect, all mismatches listed (divergence, no result change)
+- Where: `pyproteus.acoustic.setup.check_ground_truth_data`.
+- MATLAB always creates the results folder and saves `FlowSimulationParameters.mat` there; its error names only the last failing check. pyproteus writes nothing unless `savedir` is given (then copies the file), raises `GroundTruthMismatch` with MATLAB's message and `.parameters` listing every mismatch. Distribution vectors are compared flattened; MATLAB would broadcast a row against a column and fail in `||`.
+- Test: `tests/oracle/test_frames_setup.py::test_check_ground_truth_data` (messages and warnings identical on 16 cases, incl. exact binary ties at the 6th digit: both round half to even).
+
+## B-161 — `input_handling`: start frame after end frame raises; no GPU reset (divergence)
+- Where: `pyproteus.acoustic.setup.input_handling`.
+- MATLAB accepts `StartFrame > EndFrame` (`main_RF` then runs no frame and saves nothing, silently); pyproteus raises `ValueError`. MATLAB calls `gpuDevice(n+1)` (selects and resets the GPU) for `varargin{4}`; pyproteus only sets `DeviceNumber` (passed to the CUDA binary / CuPy) and rejects negative numbers.
+- Test: `test_input_handling_start_after_end`, unit `test_input_handling`.
+
+## B-162 — `sim_setup`: binary path is the resolved file; no MATLAB path entries (divergence)
+- Where: `pyproteus.acoustic.setup.sim_setup` / `make_run_config`.
+- `BINARY_PATH` is the binary file found by `backends.kwave.binary_path` (MATLAB: the folder); `savedir`, `GroundTruthPath`, `MicrobubblePath` are not in `run_param` (explicit arguments instead); `GeometriesPath` only when given; extra keys `backend` ('python'/'cpp') and `device` ('cpu'/'gpu'). An unknown `Solver` raises (MATLAB fails later on the undefined `run_param`). Other fields equal (oracle test).
+
+## B-163 — `sim_startup`: absolute run folders (divergence)
+- Where: `pyproteus.acoustic.setup.sim_startup`.
+- MATLAB `fullfile(PATHS.GroundTruthPath, groundtruthfolder)` concatenates an absolute `groundtruthfolder` onto the base folder; pyproteus (`Path / absolute`) uses the absolute path. Without base folders (the default), the arguments are used as given. Not oracle-tested: MATLAB's `sim_startup` runs the real `path_setup`, which creates folders in the oracle checkout.
+
+## B-164 — RF output and medium cache formats (D-25; divergence, no result change)
+- Where: `pyproteus.io.frames` (`RFWriter`, `RFFile`, `save_medium_cache`, `load_medium_cache`).
+- RF is written to one HDF5 file per run, not `Frame_<m>.mat`; the k-Wave medium to `medium.h5` with a settings fingerprint, not `medium.mat`. Both MATLAB formats stay readable (oracle-tested). See `docs/PARITY.md`, "Run setup and run data".
+
+## B-165 — Local failure of `tests/unit/test_kwave.py::test_cpp_binary_command_line` (open, not from this change)
+- Where: the test monkeypatches `pyproteus.backends.kwave.subprocess.run` with a fake that requires `env=`; on this Mac another call goes through `subprocess.check_output` (which calls `run` without `env`) during `kspace_first_order`, so the fake raises `TypeError`. Fails with and without the sandbox; files not touched by M3-B. To check in CI and fix in the k-Wave adapter's tests (fake should accept `**kwargs`, or patch only the binary call).
