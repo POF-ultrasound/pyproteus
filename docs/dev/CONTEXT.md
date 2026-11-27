@@ -22,7 +22,7 @@ Read this file instead of the full docs (`CLAUDE.md`, always loaded, has the bin
 
 ## Decisions (one line each; full text: `grep -n "^## D-N " docs/dev/DECISIONS.md`)
 - D-1 Public repo POF-ultrasound/pyproteus. D-2 Phase A MATLAB oracle, then Phase B own CI. D-3 1.0 hardware: CPU on all OSes, CUDA on Linux/Windows. D-4 DL datasets in the backlog. D-5 MIT; clean-room ode45/ode23; GUI in 1.1.
-- D-6 Sessions self-merge after green CI + reviewer. D-7 Oracle = PROTEUS 8d37938. D-8 superseded by D-14. D-9 `alpha_mode` dropped on all k-wave-python backends. D-10 k-wave-python OMP binary also used by MATLAB. D-11 Upstream issue drafts need developer approval.
+- D-6 Sessions self-merge after green CI + reviewer. D-7 Oracle = PROTEUS 8d37938. D-8 superseded by D-14. D-9 `alpha_mode` dropped on all k-wave-python backends. D-10 k-wave-python OMP binary also used by MATLAB. D-11 Upstream issues: posted 2026-11-27 (k-wave-python #785 comment, #806–#810).
 - D-12 Medium tolerance, no probing. D-13 Comparison classes. D-14 Probed code replaced by standard forms. D-15 Better PROTEUS, not a copy. D-16 Cluster GPU: Quadro RTX 6000, CC 7.5, 24 GB.
 - D-17 Impulse response via SciPy SOS. D-18 DAS: Q-101 fixed, Q-102 reproduced, Q-100 checked in M3, single-precision class 1e-6. D-19 `pml_rounding` default "ceil" until 1.0; STLs via pooch. D-20 Optional linear DAS interpolation (default nearest).
 - D-21 DAS axes span the domain (depth from max(Xmin,0)), `Tx.apod` as a binary mask, zero-frame warning, matrix cache; `proteus_compat=True` restores PROTEUS behaviour.

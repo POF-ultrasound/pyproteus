@@ -1,6 +1,17 @@
 # Draft upstream issues for k-wave-python (D-11)
 
-**Status: drafts only. The developer approves each one before it is posted** to https://github.com/waltsims/k-wave-python/issues. Found by the M0 tracer bullet (`tools/tracer_bullet/`, `tests/oracle/test_kwave_tracer.py`) against MATLAB k-Wave 1.4.1 `kspaceFirstOrder3DC`, using the same `kspaceFirstOrder-OMP` v1.4.1 binary on both sides. Line numbers refer to k-wave-python 0.6.2 from PyPI.
+**Status: posted 2026-11-27 with the developer's approval** (D-11). Each issue was re-checked against current `master` (after 0.6.3rc1) and reproduced on 0.6.2 with the scripts in `repro/`.
+
+| Draft | Upstream | Note |
+|---|---|---|
+| 1 (B-10), scaling | comment on [#785](https://github.com/waltsims/k-wave-python/issues/785#issuecomment-7222555806) | open issue already reported the scaling; maintainer asked for a minimal example |
+| 1 (B-10), output layout | [#806](https://github.com/waltsims/k-wave-python/issues/806) | |
+| 2 (B-12) | [#807](https://github.com/waltsims/k-wave-python/issues/807) | pressure off-by-one is **not** fixed on master (corrected in a comment); fix PR [#812](https://github.com/waltsims/k-wave-python/pull/812) |
+| 3 (B-13) | [#808](https://github.com/waltsims/k-wave-python/issues/808) | fix PR [#813](https://github.com/waltsims/k-wave-python/pull/813) |
+| 4 (B-62) | [#809](https://github.com/waltsims/k-wave-python/issues/809) | |
+| 5 (B-60) | [#810](https://github.com/waltsims/k-wave-python/issues/810) | fix PR [#811](https://github.com/waltsims/k-wave-python/pull/811) |
+
+Fix PRs opened 2026-11-27 for the three small issues (#811, #812, #813; fork `theodore-michel/k-wave-python`, local clone `Repos/TWENTE/Ultrasound/k-wave-python`, test env `kwp-dev`). #785/#806 and #809 wait for the maintainer. When a fix is released, drop the matching pyproteus workaround (B-12, B-13, B-60) and re-pin k-wave-python. The texts below are the original drafts. Found by the M0 tracer bullet (`tools/tracer_bullet/`, `tests/oracle/test_kwave_tracer.py`) against MATLAB k-Wave 1.4.1 `kspaceFirstOrder3DC`, using the same `kspaceFirstOrder-OMP` v1.4.1 binary on both sides. Line numbers refer to k-wave-python 0.6.2 from PyPI.
 
 Before posting: re-check each issue against the latest k-wave-python release and its open issues, and attach a minimal script (a ~30-line reduction of `tools/tracer_bullet/cases.py`).
 
@@ -54,8 +65,6 @@ Before posting: re-check each issue against the latest k-wave-python release and
 
 ## Issue 4 (B-62): `kspaceFirstOrder(backend="cpp")` ignores `sensor.record`
 
-**Status: draft, not posted.**
-
 **k-wave-python version:** 0.6.2
 
 **Summary.** With `backend="cpp"`, `kspaceFirstOrder()` warns that `sensor.record` is not yet supported and runs the binary without output flags, so only `p` is recorded. `sensor.record = ["p_max", "p_min"]` returns `p` instead. The `python` backend honours `sensor.record`.
@@ -67,8 +76,6 @@ Before posting: re-check each issue against the latest k-wave-python release and
 ---
 
 ## Issue 5 (B-60): `filter_time_series(..., zerophase=True)` raises `IndexError`
-
-**Status: draft, not posted.**
 
 **k-wave-python version:** 0.6.2
 
