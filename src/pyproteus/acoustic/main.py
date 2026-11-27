@@ -189,6 +189,7 @@ def main_RF(
     rng: MatlabRNG | None = None,
     self_sense: SelfSenseMode = "impulse_response",
     step_control: str = "independent",
+    gridded_receive: bool | None = None,
     binary_path: str | PathLike[str] | None = None,
     data_path: str | PathLike[str] | None = None,
     geometries_path: str | PathLike[str] | None = None,
@@ -212,6 +213,9 @@ def main_RF(
     (``SimulationParameters.HybridSimulation``) or
     :func:`~pyproteus.acoustic.simulators.full_simulator` →
     :func:`~pyproteus.acoustic.compute_RF_data`.
+
+    ``gridded_receive``: see :func:`~pyproteus.acoustic.simulators.hybrid_simulator`
+    (default: gridded on the CPU, exact on the GPU, D-30).
     """
     setup = setup_run(
         settingsfile,
@@ -315,6 +319,7 @@ def main_RF(
                     s.Microbubble,
                     transmit,
                     step_control=step_control,
+                    gridded_receive=gridded_receive,
                 )
                 sensor_data = {"p": data_trans["p"] + np.asarray(sd["p"])}
             else:

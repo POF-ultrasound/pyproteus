@@ -9,6 +9,9 @@ Three steps; only ``run --device gpu`` needs the cluster (D-16).
    FOLDER, Solver ``3DC`` (OMP binary, NumPy propagation) or ``3DG`` (CUDA
    binary, CuPy propagation on ``--device-number``); output
    ``FOLDER/<device>_<path>/rf.h5`` and the wall time in ``timing.json``.
+   ``--gridded off`` (default) runs both devices with exact receive distances
+   (the D-30 GPU default), so the comparison sees only CPU/GPU differences;
+   ``--gridded on`` adds a gridded run (``<device>_<path>_on``) for the D-30 timing.
 3. ``compare``: RF GPU vs CPU per frame and pulse, relative to max|RF| and to
    the bubble part. Pass: ≤ 1e-5 (k-Wave class: FFTW vs cuFFT in single
    precision dominate; propagation and RF alone are at 1e-6, D-13/M2).
@@ -22,6 +25,7 @@ Cluster commands (from the repository root, env with pyproteus[dev] + cupy):
     python tools/m3/gpu_medium_case.py run FOLDER --device gpu --device-number 0
     python tools/m3/gpu_medium_case.py run FOLDER --device cpu  # or copy cpu_hybrid/
     python tools/m3/gpu_medium_case.py compare FOLDER
+    python tools/m3/gpu_medium_case.py run FOLDER --device gpu --gridded on   # D-30 timing
     python tools/m3/gpu_medium_case.py run FOLDER --device gpu --path full   # optional, slow
 """
 
@@ -66,7 +70,9 @@ def prepare(folder: Path) -> None:
     print(f"prepared {folder}")
 
 
-def run(folder: Path, device: str, path: str, device_number: int, binary: str | None) -> None:
+def run(
+    folder: Path, device: str, path: str, device_number: int, binary: str | None, gridded: str
+) -> None:
     from pyproteus.acoustic import main_RF
     from pyproteus.acoustic.setup import load_settings
     from pyproteus.numerics import MatlabRNG
@@ -80,7 +86,7 @@ def run(folder: Path, device: str, path: str, device_number: int, binary: str | 
         from tracer_bullet import kwave_tracer as kt  # D-10 wrapper on the Mac
 
         binary, kw = str(kt.WRAPPER), {"binary_env": kt.binary_env()}
-    out = folder / f"{device}_{path}"
+    out = folder / f"{device}_{path}" if gridded == "off" else folder / f"{device}_{path}_{gridded}"
     t0 = time.time()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -88,6 +94,7 @@ def run(folder: Path, device: str, path: str, device_number: int, binary: str | 
             s,
             folder / "gt" / "medium",
             out,
+            gridded_receive={"auto": None, "on": True, "off": False}[gridded],
             rng=MatlabRNG(7),
             binary_path=binary,
             device_number=device_number if device == "gpu" else None,
@@ -126,11 +133,18 @@ if __name__ == "__main__":
     ap.add_argument("--device", choices=["cpu", "gpu"], default="gpu")
     ap.add_argument("--path", choices=["hybrid", "full"], default="hybrid")
     ap.add_argument("--device-number", type=int, default=0)
+    ap.add_argument(
+        "--gridded",
+        choices=["off", "on", "auto"],
+        default="off",
+        help="hybrid receive distances: off = exact (D-30 GPU default, both "
+        "devices alike for the comparison), on = gridded (PROTEUS), auto = D-30",
+    )
     ap.add_argument("--binary", default=None, help="k-Wave binary (default: k-wave-python's)")
     a = ap.parse_args()
     if a.step == "prepare":
         prepare(a.folder)
     elif a.step == "run":
-        run(a.folder, a.device, a.path, a.device_number, a.binary)
+        run(a.folder, a.device, a.path, a.device_number, a.binary, a.gridded)
     else:
         sys.exit(compare(a.folder, a.path))
