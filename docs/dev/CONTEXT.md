@@ -28,7 +28,7 @@ Read this file instead of the full docs (`CLAUDE.md`, always loaded, has the bin
 - D-21 DAS axes span the domain (depth from max(Xmin,0)), `Tx.apod` as a binary mask, zero-frame warning, matrix cache; `proteus_compat=True` restores PROTEUS behaviour.
 - D-22 Bubble class; per-bubble steps by default (`step_control="shared"` as an option); failure detection instead of the timer.
 - D-23 Kramers–Kronig finite reference frequency for b ≤ 1 only; no FFT wrap. D-24 End-to-end RF 1e-3 × max.
-- D-25 RF output: one HDF5 per run, a group per frame, resumable; MATLAB Frame_N.mat stays readable. D-26 Self-sense: strict port first. D-27 Self-sense IR cache on by default (flag off for strict parity); Green's-function self-sense opt-in. D-28 Multi-process runs: one HDF5 per process, readers take lists (M5).
+- D-25 RF output: one HDF5 per run, a group per frame, resumable; MATLAB Frame_N.mat stays readable. D-26 Self-sense: strict port first. D-27 Self-sense IR cache on by default (flag off for strict parity); Green's-function self-sense opt-in. D-28 Multi-process runs: one HDF5 per process, readers take lists (M5). D-29 GUI after M4, a new design (not a MATLAB-app port); every design/style choice goes to the developer first.
 
 ## Current state (update when a milestone moves)
 - M0, M1, M2 done (M2 CuPy check passed on the cluster, PR #32).

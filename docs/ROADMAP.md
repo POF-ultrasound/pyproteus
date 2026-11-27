@@ -206,10 +206,15 @@ Bottleneck: validation and hardware testing, not writing code.
 
 ## 12. GUI
 
-- Same workflow as the MATLAB apps, with live previews and validation.
-- Settings editors generated from the settings models.
-- **NiceGUI** (browser-based, MIT): one codebase for laptop and cluster (SSH tunnel). Simulations in a separate process with progress. 3D via plotly or NiceGUI scene.
-- Alternative: PySide6 + pyvistaqt (use PySide6/LGPL, not PyQt/GPL).
+Direction (D-29, 2026-11-27):
+- Starts after M4.
+- A new design, not a port of the MATLAB apps: more user-friendly, professional, useful, comprehensive, scientific, accurate and maintainable, while staying simple.
+- Every design and style choice (technology, layout, workflow, look) is discussed with the developer first; no session decides these alone.
+
+Options to discuss, none decided:
+- Settings editors generated from the settings models, with live previews and validation.
+- **NiceGUI** (browser-based, MIT): one codebase for laptop and cluster (SSH tunnel). Simulations run in a separate process with progress. 3D via plotly or NiceGUI scene.
+- PySide6 + pyvistaqt (use PySide6/LGPL, not PyQt/GPL).
 
 ## 13. Community and licensing
 
