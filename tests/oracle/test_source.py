@@ -185,14 +185,14 @@ def test_seq_pulse_semantics(matlab_engine: Any, tcase: tuple) -> None:
         acoustic.define_source_transducer(T, Tx, S.Medium, g, w.T, idx)
 
 
-def test_pulsing_sequence() -> None:
-    assert acoustic.pulsing_sequence("Amplitude modulation") == ("odd", "even", "all")
-    assert acoustic.pulsing_sequence("Pulse inversion") == ("plus", "minus")
-    assert acoustic.pulsing_sequence("Standard") == ("pulse",)
-    assert acoustic.pulsing_sequence("Amplitude modulation with pulse inversion") == (
+def test_pulse_sequence() -> None:
+    assert acoustic.pulse_sequence("Amplitude modulation") == ("odd", "even", "all")
+    assert acoustic.pulse_sequence("Pulse inversion") == ("plus", "minus")
+    assert acoustic.pulse_sequence("Standard") == ("pulse",)
+    assert acoustic.pulse_sequence("Amplitude modulation with pulse inversion") == (
         "odd",
         "even",
         "minus",
     )
     with pytest.raises(ValueError, match="PulsingScheme"):
-        acoustic.pulsing_sequence("Harmonic")
+        acoustic.pulse_sequence("Harmonic")

@@ -70,7 +70,7 @@ Format:
 - Behaviour: results depend on machine speed; the response is truncated and `compute_bubble_mass_source` then fails with a size mismatch.
 - Replaced (D-22): deterministic failure detection and an optional wall-clock limit, off by default; see `docs/PARITY.md` (microbubble section).
 
-## Q-100 — DAS time to peak uses the 1-based index (unresolved; decide after the M3 point-scatterer check)
+## Q-100 — DAS time to peak uses the 1-based index (off-by-one confirmed in M3, B-185; fix in 1.x per D-18)
 - MATLAB: `delay-and-sum/DAS_reconstruction.m:51-54`, `initialize_das_parameters.m:62-65`.
 - Behaviour: `V_ref = conv(Transmit.PressureSignal, Transducer.ReceiveImpulseResponse)`, `[~,I] = max(abs(hilbert(V_ref)))`, `timeToPeak = I/Transmit.SamplingRate`. `V_ref` starts at index 1 = time 0, so the peak time is `(I-1)/Transmit.SamplingRate`: the axis is shifted by one *transmit* sample, `1/Transmit.SamplingRate` (4 ns ≈ 3 µm in depth at the GUI default of 250 MHz).
 - Three sampling rates are involved: `Transmit.SamplingRate` and `Transducer.SamplingRate` (both 250 MHz by default, `reset_transmit.m`, `reset_transducer.m`) and `SimulationParameters.SamplingRate` (≈ 20·f0 by default, `update_simulation_parameters.m`). `preprocess_transmit.m` resamples Transmit to the simulation rate inside `main_RF.m`, but the settings file DAS reads keeps the raw rate. A second quirk sits in the same line: `conv` combines the pressure signal (Transmit rate) with the impulse response (Transducer rate) sample by sample, which is only meaningful when the two rates are equal (a loaded transducer model can have its own rate).
@@ -79,6 +79,7 @@ Format:
 - Ported in: `pyproteus.reconstruction.time_to_peak` (reproduced, with both rates as in MATLAB).
 - Test: `tests/oracle/test_das.py::test_das_reconstruction`, `test_initialize_das_parameters` (time axis at the float class; cases with 250/250/40 MHz and 250/100/40 MHz rates).
 - Point-scatterer run of MATLAB PROTEUS (2026-11-24, `tools/investigations/`, B-101): the end-to-end DAS timing error is depth dependent (≈ −26 ns at 5 mm, ≈ +8 ns at 7 mm, hybrid and full alike; stable within ±3 ns across a grid cell), larger than the 4 ns at stake. Inconclusive for this term.
+- M3 far-field check (2026-11-27, B-185, `tools/m3/q100_far_field.py`): stage by stage against exact Green's-function references at PPW 4, 6, 8, hybrid and full. The DAS time residual with `(I-1)/Fs` scales with the grid and tends to ≈ +0.6 ns as dt → 0; with `I/Fs` it tends to ≈ −3.4 ns and is 12–15 standard errors from zero at PPW 8. A `dx`/`dt` correction cannot absorb a fixed 4 ns: **off-by-one**. The k-Wave correction is itself short by ≈ 0.05–0.1 `dt`.
 - Planned fix: decided after the M3 point-scatterer depth check (milestone added by the main session): a point scatterer at a known depth imaged through the simulator, with a linear scatterer (a small density or sound-speed contrast) so a bubble's resonance phase is not mistaken for a timing offset. If it is an off-by-one, use `(I-1)/Fs` and resample the `V_ref` components to a common rate; the k-Wave terms get their own documented derivation.
 
 ## Q-102 — Reference DAS apodization keeps pixels at or above the array surface

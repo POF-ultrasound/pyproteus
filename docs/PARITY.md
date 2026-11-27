@@ -523,6 +523,30 @@ Row orders: sensor masks and source masks are `[ix, iy, iz]` arrays as MATLAB's;
 | `define_sensor_MB` `max_dist` | full `N × N` distance matrix | same formula in row blocks | memory `O(N)` per block instead of `N²` (10⁵ bubbles: 80 GB in MATLAB) |
 | `define_sensor_MB_all` | reads every frame itself (`load_microbubbles(folder, frame, pulse, Geometry, Nframes)`) | takes the loaded frames (any iterable, e.g. a generator over `load_microbubbles`; structs with `points` or `N × 3` arrays) | frame reading in one place (`io`), one frame in memory at a time; same mask, indices and `max_mb` (oracle writes real `Frame_XX.mat` files for MATLAB) |
 | `define_source_transducer` delay | full FFT of length `N`, symmetric frequency axis (negative Nyquist for even `N`), `ifft(...,'symmetric')` | `rfft`/`irfft` on the first `N//2 + 1` bins of the same axis | half the memory and work; identical by construction (unit test against the full-spectrum form, even and odd `N`) |
-| `define_source_transducer` `SeqPulse` | any unknown string transmits unchanged | `ValueError` (B-151); `pulsing_sequence()` gives `main_RF`'s sequence per `PulsingScheme` | catches typos |
+| `define_source_transducer` `SeqPulse` | any unknown string transmits unchanged | `ValueError` (B-151); `pulse_sequence()` gives `main_RF`'s sequence per `PulsingScheme` | catches typos |
 | structs | `sensor`, `source`, `Transmit` structs, modified in place | `Sensor`/`Source` dataclasses (fields as MATLAB, absent ones `None`); inputs (settings models, dicts, objects) are copied, never modified | value semantics |
 | `preprocess_transmit` | `filterTimeSeries` (k-Wave, LGPL) | `backends.kwave.filter_time_series` (k-wave-python, B-60 zero-phase workaround) + `resample_signal` | no k-Wave code copied |
+
+## Simulators and entry points (`pyproteus.acoustic.simulators`, `pyproteus.acoustic.main`, M3)
+
+`hybrid_simulator`, `full_simulator`, `main_RF`, `main_pressure_field` (+ `prepare_simulation`, the shared preamble). Oracle: `tests/oracle/test_main_rf.py`, MATLAB `main_RF.m` unchanged on settings and a ground truth MATLAB writes (`tests/oracle/main_rf_case.py`), k-Wave 3DC on the D-10 binary, `rng(seed)` ↔ `MatlabRNG(seed)`. Class D-24 (1e-3 × max) on the RF and on its bubble part (`RF − RF_transmit`, B-184).
+
+| Case | Path | max\|ΔRF\|/max\|RF\| | bubble part | Status |
+|---|---|---|---|---|
+| tiny: 4 el., PPW 3, 5 bubbles, 2 frames, 1 interaction, Standard | hybrid (shared / independent steps) | 1.9e-7 | 2.8e-4 / 2.8e-4 | ✅ |
+| tiny | full (strict / impulse-response self-sense) | 2.6–3.2e-7 | 4.0e-4 / 4.8e-4 | ✅ |
+| small: 8 el., PPW 4, 12 bubbles, 2 frames, 2 interactions, AM (3 pulses) | hybrid (shared / independent) | 3.9–4.6e-7 | 3.1e-4 / 1.6e-4 | ✅ |
+| small | full (strict / impulse response) | 3.8–3.9e-7 | 1.4e-4 / 1.7e-4 | ✅ |
+
+| Where | MATLAB | pyproteus | Why |
+|---|---|---|---|
+| RF output | `Frame_<m>.mat` per frame | one `rf.h5` per run (D-25), resumable; `Continue` skips written frames (B-166) | one file, atomic frames |
+| medium draws | global stream, any state | `rng=MatlabRNG(seed)` (default 0, MATLAB's start-up stream), seed in the cache fingerprint (B-180) | reproducible runs |
+| medium cache | `medium.mat`, loaded unchecked with `Continue` | `medium.h5` with settings fingerprint; mismatch raises (B-180) | no silent reuse of another medium |
+| ground-truth frames | read once per pulse, twice per run | once per pulse loop; first-run mask over the frames still to compute | I/O |
+| hybrid receive distances (D-31) | gridded | gridded on the CPU, exact with `DATA_CAST = gpuArray-*` (`gridded_receive` option) | the exact GPU kernel is faster |
+| hybrid KK reference | NaN (`AttenuationB ≤ 1` with dispersion fails) | `Transmit.CenterFrequency` (D-23, B-181) | defined result |
+| full self-sense | one k-Wave run per bubble per iteration | default impulse responses cached per frame and pulse (D-27); `self_sense="strict"` = MATLAB; `"green"` opt-in; `self_sense_jobs` concurrent bubbles (B-182) | (N_int − 1) fewer runs per bubble |
+| bubble ODE batches | shared steps per batch | `step_control="independent"` default (D-22), `"shared"` option | batch-independent results |
+| `main_pressure_field` | `pressure_maps.mat` | `PressureMaps` + `pressure_maps.h5` (B-183) | formats |
+| `pulse_sequence` | `switch` in `main_RF.m` | `acoustic.pulse_sequence` (one implementation; `pulsing_sequence` removed) | one place |

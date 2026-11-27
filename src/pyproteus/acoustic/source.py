@@ -27,11 +27,12 @@ from .sensor import _find, define_sensor_transducer
 from .signals import resample_signal, sinc_interpolation
 
 __all__ = [
+    "PULSE_SEQUENCES",
     "SEQ_PULSES",
     "Source",
     "define_source_transducer",
     "preprocess_transmit",
-    "pulsing_sequence",
+    "pulse_sequence",
 ]
 
 #: ``Transmit.SeqPulse`` values: ``'even'`` silences the odd-numbered (1-based)
@@ -40,7 +41,8 @@ __all__ = [
 #: ``main_pressure_field.m``) transmit on every element unchanged.
 SEQ_PULSES = ("odd", "even", "all", "plus", "minus", "pulse", "full")
 
-_SEQUENCES = {
+#: ``Acquisition.PulsingScheme`` → pulses transmitted per frame (``main_RF.m`` ``sequence``).
+PULSE_SEQUENCES: dict[str, tuple[str, ...]] = {
     "Amplitude modulation": ("odd", "even", "all"),
     "Pulse inversion": ("plus", "minus"),
     "Standard": ("pulse",),
@@ -64,18 +66,18 @@ class Source:
     uy: np.ndarray | None = None
 
 
-def pulsing_sequence(pulsing_scheme: str) -> tuple[str, ...]:
+def pulse_sequence(pulsing_scheme: str) -> tuple[str, ...]:
     """``Transmit.SeqPulse`` values of an ``Acquisition.PulsingScheme`` (``main_RF.m``).
 
     Raises ``ValueError`` for an unknown scheme (MATLAB leaves ``sequence``
     undefined and fails later).
     """
     try:
-        return _SEQUENCES[pulsing_scheme]
+        return PULSE_SEQUENCES[pulsing_scheme]
     except KeyError:
         raise ValueError(
             f"unknown Acquisition.PulsingScheme {pulsing_scheme!r}; expected one of "
-            f"{tuple(_SEQUENCES)}"
+            f"{tuple(PULSE_SEQUENCES)}"
         ) from None
 
 

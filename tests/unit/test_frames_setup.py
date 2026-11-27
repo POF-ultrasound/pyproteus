@@ -258,7 +258,7 @@ def test_setup_run(tmp_path, settings) -> None:
         su.setup_run(s, tmp_path / "gt", tmp_path / "res", resolve_binary=False)
     assert not (tmp_path / "res").exists()
     assert su.pulse_sequence("Amplitude modulation") == ("odd", "even", "all")
-    with pytest.raises(ValueError, match="pulsing scheme"):
+    with pytest.raises(ValueError, match="PulsingScheme"):
         su.pulse_sequence("Harmonic")
 
 
