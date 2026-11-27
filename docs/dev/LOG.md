@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-27 — M3 plan and wave 1 (main)
+- Recorded D-25 (HDF5 RF output, one file per run, resumable) and D-26 (self-sense: strict port first, then a speedup proposal).
+- Started wave 1, three parallel sessions on disjoint files:
+  - A, sources and sensors (B-150..159);
+  - B, ground-truth frames, run setup and HDF5 I/O (B-160..169; frame reading moved forward from M4);
+  - C, `run_simulation`, `update_source` and self-sense (B-170..179).
+- Wave 2 starts once A–C have merged: hybrid and full simulators, `main_RF`, `main_pressure_field`, MATLAB parity, and the Q-100 far-field check (B-180..189).
+- Real-GPU CuPy test merged (PR #32); the cluster run passed and M2 is done. D-27 (self-sense speedups) recorded after the M3-C measurements.
+
 ## 2026-11-27 — real-GPU CuPy parity test (main)
 - `tests/gpu/test_cupy_parity.py` (marker `gpu`): NumPy vs CuPy on propagation (`run_simulation_homogeneous`, gridded and exact) + element RF (`compute_RF_data`), 300 bubbles → 96 × 5 integration points, single and double; host accumulation above `MaxGpuElements`; block-size independence on the GPU; `DEVICE_NUM` with two devices; slow benchmark printing CPU/GPU times. Classes: double ≤ 1e-9 × max (D-13), single ≤ 1e-6 × max (D-18).
 - Skipped without CuPy or a CUDA device (Mac, CI). Dry-run against the NumPy-backed CuPy stand-in: 7 passed, 1 skipped (two-device test). The real run is for the developer on the cluster (D-16); closes the M2 CuPy item once it passes.
