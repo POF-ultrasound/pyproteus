@@ -269,8 +269,8 @@ def full_simulator(
             n_jobs=self_sense_jobs,
             **kw,
         )
-        # MATLAB: single - double -> single
-        sensed_p = (sensed - ss).astype(p.dtype)
+        # MATLAB single - double: the double operand is cast to single first
+        sensed_p = sensed - ss.astype(sensed.dtype)
 
     kgrid = dataclasses.replace(kgrid, Nt=_nt(tr[2], kgrid.dt))
     ms = _mass_source(sensed_p, mb, kgrid, Medium, Microbubble, Transmit, step_control)

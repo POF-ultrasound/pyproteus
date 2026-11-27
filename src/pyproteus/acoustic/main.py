@@ -96,15 +96,26 @@ class Prepared:
     mask_idx_trans: np.ndarray
 
 
+def _rng_state(rng: MatlabRNG) -> str:
+    """Hash of the stream position, so an advanced stream gets another fingerprint."""
+    import hashlib
+
+    name, keys, pos, has_gauss, cached = rng._rs.get_state()
+    h = hashlib.sha256(np.asarray(keys).tobytes())
+    h.update(f"{name}{pos}{has_gauss}{cached!r}".encode())
+    return h.hexdigest()[:16]
+
+
 def _medium(
     setup: RunSetup, grid: Grid, rng: MatlabRNG, use_cache: bool, save: bool
 ) -> dict[str, Any]:
     s = setup.settings
-    fp = medium_fingerprint(s, seed=rng.seed)
+    fp = medium_fingerprint(s, seed=rng.seed, state=_rng_state(rng))
     path = setup.paths.medium_cache
     if use_cache:
         if path.is_file():
             return load_medium_cache(path, fingerprint=fp).medium
+        save = bool(_struct.get(s.Medium, "Save", True))  # build it once, then reuse it
         warnings.warn(f"Continue: no medium cache at {path}, creating the medium", stacklevel=3)
     medium, vessel = define_medium(
         grid,

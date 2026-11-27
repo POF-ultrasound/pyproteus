@@ -143,7 +143,7 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [x] `main_pressure_field` (2026-11-27, B-183)
 
 ### Done when
-- [x] Point scatterer at a known depth: far field, several depths, hybrid and full paths; resolve the ~4 ns one-sample term of DAS quirk Q-100 against the near-field/diffraction residuals (see B-101; D-18) (2026-11-27: genuine off-by-one, k-Wave correction short by 0.05–0.12 dt; B-185, `tools/m3/q100_far_field.py`; fix in 1.x)
+- [x] Point scatterer at a known depth: far field, several depths, hybrid and full paths; resolve the ~4 ns one-sample term of DAS quirk Q-100 against the near-field/diffraction residuals (see B-101; D-18) (2026-11-27: off-by-one at PPW 4/6/8, k-Wave correction short by ≈ 0.05–0.1 dt; B-185, `tools/m3/q100_far_field.py`; fix in 1.x)
 - [x] Hybrid and full paths match MATLAB on tiny and small cases (CPU) (2026-11-27, `tests/oracle/test_main_rf.py`: RF ≤ 3.9e-7 × max, bubble part ≤ 4.5e-4; B-184)
 - [ ] Medium case on GPU (script and commands ready: `tools/m3/gpu_medium_case.py`, developer cluster run; GPU default proposal B-187)
 

@@ -48,6 +48,7 @@ translated; the source scaling factors are documented in
 from __future__ import annotations
 
 import contextlib
+import functools
 import os
 import subprocess
 import tempfile
@@ -308,7 +309,7 @@ class KGrid:
         g.setTime(self.Nt, self.dt)
         return g
 
-    @property
+    @functools.cached_property
     def k_max(self) -> float:
         """MATLAB ``kgrid.k_max``: largest wavenumber supported in every direction [rad/m]."""
         from kwave.kgrid import kWaveGrid
