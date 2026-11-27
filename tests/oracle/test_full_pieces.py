@@ -28,13 +28,13 @@ import scipy.sparse as sp
 from pyproteus.acoustic.full import compute_self_sense_pressure, update_source
 from pyproteus.acoustic.simulation import run_simulation
 from pyproteus.backends.kwave import KGrid
-
 from tests.oracle.helpers import col as _col
 from tests.oracle.helpers import to_matlab
 
 
 def col(a):
     return to_matlab(_col(a))
+
 
 TOOLS = Path(__file__).resolve().parents[2] / "tools"
 sys.path.insert(0, str(TOOLS))
@@ -116,7 +116,10 @@ def self_sense_case(sensor_on_grid: bool, seed: int = 5) -> dict:
     subs = [(14, 12, 10), (1, 22, 3), (8, 5, 15), (20, 18, 6)]
     offsets = [(0.3, -0.2, 0.45), (-0.4, 0.35, 0.1), (0.25, 0.0, -0.3), (0.0, 0.0, 0.0)]
     points = np.array(
-        [[coords[d][s[d]] + o[d] * DX for d in range(3)] for s, o in zip(subs, offsets, strict=True)]
+        [
+            [coords[d][s[d]] + o[d] * DX for d in range(3)]
+            for s, o in zip(subs, offsets, strict=True)
+        ]
     )
     mb_idx = _f_idx(shape, *np.array(subs).T)
     mass = np.array([1e-8 * (1 + 0.2 * n) * _pulse(nt, 5e-7 + 8e-8 * n) for n in range(4)])
@@ -216,7 +219,9 @@ def keng(eng):
 
 def _matlab(eng, c, what, run_param=None) -> dict:
     out = eng.full_pieces_oracle(_matlab_struct(c, run_param), what)
-    return {k: (v if isinstance(v, str) else np.asarray(v, dtype=np.float64)) for k, v in out.items()}
+    return {
+        k: (v if isinstance(v, str) else np.asarray(v, dtype=np.float64)) for k, v in out.items()
+    }
 
 
 # ----------------------------------------------------------------------------- update_source
@@ -262,7 +267,10 @@ def test_update_source_no_new_voxels_returns_source(eng) -> None:
     src = {"p_mask": c["p_mask"], "p": c["p"]}
     out = update_source(src, c["mass_source"][:0], np.zeros((0, 0)), [], _grid(c), c["medium"])
     assert out is not src and out["p"] is src["p"]
-    assert update_source(None, c["mass_source"][:0], np.zeros((0, 0)), [], _grid(c), c["medium"]) is None
+    assert (
+        update_source(None, c["mass_source"][:0], np.zeros((0, 0)), [], _grid(c), c["medium"])
+        is None
+    )
 
 
 # ----------------------------------------------------------------------------- run_simulation
@@ -359,7 +367,7 @@ def test_self_sense_matches_matlab(self_sense, solver) -> None:
 
 def test_self_sense_cases_differ(self_sense) -> None:
     """Rows differ enough that a bubble mix-up or a missing crop would be caught."""
-    c, m, _ = self_sense
+    _, m, _ = self_sense
     ref = m["p"] / np.abs(m["p"]).max(axis=1, keepdims=True)
     for i in range(4):
         for j in range(i + 1, 4):
