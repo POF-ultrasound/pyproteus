@@ -126,7 +126,7 @@ def hybrid_simulator(
     ``gridded_receive``: distances of the last stage rounded to the time grid
     (``True``, PROTEUS) or exact (``False``); default (``None``) gridded on the
     CPU and exact when ``DATA_CAST`` is ``'gpuArray-*'``, where the exact kernel
-    is faster (D-30).
+    is faster (D-31).
     """
     tr = np.asarray(_rp(run_param, "tr"), dtype=float).reshape(-1)
     dt = float(grid.dt)
@@ -170,7 +170,7 @@ def hybrid_simulator(
     sensor_points = np.column_stack(
         [np.asarray(grid.x)[i], np.asarray(grid.y)[j], np.asarray(grid.z)[k]]
     )
-    if gridded_receive is None:  # D-30: exact on the GPU, gridded (PROTEUS) on the CPU
+    if gridded_receive is None:  # D-31: exact on the GPU, gridded (PROTEUS) on the CPU
         gridded_receive = not str(rp.get("DATA_CAST", "")).startswith("gpuArray")
     rp["gridded"] = bool(gridded_receive)
     return run_simulation_homogeneous(

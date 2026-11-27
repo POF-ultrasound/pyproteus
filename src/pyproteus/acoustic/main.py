@@ -215,7 +215,7 @@ def main_RF(
     :func:`~pyproteus.acoustic.compute_RF_data`.
 
     ``gridded_receive``: see :func:`~pyproteus.acoustic.simulators.hybrid_simulator`
-    (default: gridded on the CPU, exact on the GPU, D-30).
+    (default: gridded on the CPU, exact on the GPU, D-31).
     """
     setup = setup_run(
         settingsfile,

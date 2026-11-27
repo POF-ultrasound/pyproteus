@@ -10,8 +10,8 @@ Three steps; only ``run --device gpu`` needs the cluster (D-16).
    binary, CuPy propagation on ``--device-number``); output
    ``FOLDER/<device>_<path>/rf.h5`` and the wall time in ``timing.json``.
    ``--gridded off`` (default) runs both devices with exact receive distances
-   (the D-30 GPU default), so the comparison sees only CPU/GPU differences;
-   ``--gridded on`` adds a gridded run (``<device>_<path>_on``) for the D-30 timing.
+   (the D-31 GPU default), so the comparison sees only CPU/GPU differences;
+   ``--gridded on`` adds a gridded run (``<device>_<path>_on``) for the D-31 timing.
 3. ``compare``: RF GPU vs CPU per frame and pulse, relative to max|RF| and to
    the bubble part. Pass: ≤ 1e-5 (k-Wave class: FFTW vs cuFFT in single
    precision dominate; propagation and RF alone are at 1e-6, D-13/M2).
@@ -25,7 +25,7 @@ Cluster commands (from the repository root, env with pyproteus[dev] + cupy):
     python tools/m3/gpu_medium_case.py run FOLDER --device gpu --device-number 0
     python tools/m3/gpu_medium_case.py run FOLDER --device cpu  # or copy cpu_hybrid/
     python tools/m3/gpu_medium_case.py compare FOLDER
-    python tools/m3/gpu_medium_case.py run FOLDER --device gpu --gridded on   # D-30 timing
+    python tools/m3/gpu_medium_case.py run FOLDER --device gpu --gridded on   # D-31 timing
     python tools/m3/gpu_medium_case.py run FOLDER --device gpu --path full   # optional, slow
 """
 
@@ -137,8 +137,8 @@ if __name__ == "__main__":
         "--gridded",
         choices=["off", "on", "auto"],
         default="off",
-        help="hybrid receive distances: off = exact (D-30 GPU default, both "
-        "devices alike for the comparison), on = gridded (PROTEUS), auto = D-30",
+        help="hybrid receive distances: off = exact (D-31 GPU default, both "
+        "devices alike for the comparison), on = gridded (PROTEUS), auto = D-31",
     )
     ap.add_argument("--binary", default=None, help="k-Wave binary (default: k-wave-python's)")
     a = ap.parse_args()

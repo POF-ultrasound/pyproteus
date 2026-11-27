@@ -254,7 +254,7 @@ def test_main_pressure_field_tiny(tiny) -> None:
      ("single", False, False)],
 )  # fmt: skip
 def test_hybrid_receive_gridded_default(monkeypatch, cast, given, expected) -> None:
-    """D-30: exact receive propagation by default on the GPU, gridded on the CPU."""
+    """D-31: exact receive propagation by default on the GPU, gridded on the CPU."""
     seen = []
     monkeypatch.setattr(simulators, "compute_bubble_mass_source", lambda s, *a, **k: np.asarray(s))
     monkeypatch.setattr(simulators, "run_simulation_homogeneous",
