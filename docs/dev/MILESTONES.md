@@ -127,10 +127,10 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [x] k-Wave medium cache (`medium.h5` with settings fingerprint; MATLAB `medium.mat` readable) (2026-11-27)
 
 ### Hybrid simulator (default path)
-- [ ] `preprocess_transmit`
-- [ ] `define_source_transducer` (pressure and velocity sources)
-- [ ] `define_sensor_transducer`, `define_sensor_MB`, `define_sensor_MB_all`
-- [ ] `update_sensor`, `update_sensor_fast`, `extract_sensor_data`
+- [x] `preprocess_transmit` (2026-11-27)
+- [x] `define_source_transducer` (pressure and velocity sources) (2026-11-27)
+- [x] `define_sensor_transducer`, `define_sensor_MB`, `define_sensor_MB_all` (2026-11-27)
+- [x] `update_sensor`, `update_sensor_fast`, `extract_sensor_data` (2026-11-27)
 - [ ] `hybrid_simulator` incl. interaction loop
 - [ ] Pass the transmit centre frequency as `reference_frequency` to `run_simulation_homogeneous` (D-23; required for `AttenuationB ≤ 0.9` with dispersion, ideally read from the settings)
 - [ ] `main_RF` (outputs to HDF5)
@@ -176,7 +176,7 @@ Plan: pyproteus Roadmap §9. Hardware and execution
 
 ### Job model
 - [ ] Simulation → independent jobs (frame × pulse × variant); one HDF5 per job with settings, seeds, versions
-- [ ] Merge step
+- [ ] Merge step; readers and DAS accept a list of files or a folder (D-28: one HDF5 per process, `rf_<start>-<end>.h5`)
 - [ ] Local executor: process pool, one worker per GPU (`CUDA_VISIBLE_DEVICES`) or core group
 - [ ] Thread limits per worker (`OMP_NUM_THREADS`, threadpoolctl); spawn-safe on macOS/Windows
 
