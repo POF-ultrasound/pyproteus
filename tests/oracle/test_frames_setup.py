@@ -131,7 +131,8 @@ def test_check_ground_truth_data(
     eng = matlab_engine
     gt = tmp_path / "gt"
     gt.mkdir()
-    write_gt(eng, gt, nf=10, npulse=3)
+    acq_over = dict(acq_over)
+    write_gt(eng, gt, nf=10, npulse=3, rate=acq_over.pop("gt_rate", 500.0))
     acq = {
         "NumberOfFrames": 10.0,
         "FrameRate": 500.0,
@@ -170,6 +171,14 @@ def test_check_ground_truth_data(
         except su.GroundTruthMismatch as exc:
             p_err = str(exc)
     p_warn = "".join(str(w.message) for w in rec if w.category is su.GroundTruthDistributionWarning)
+    # Exact ties must not pass vacuously: half to even matches "down"/"up", not "away".
+    expected_tie = {
+        "rate exact tie down": "",
+        "rate exact tie up": "",
+        "rate exact tie away": "frame rate",
+    }
+    if case in expected_tie:
+        assert (expected_tie[case] in m_err) and (bool(m_err) == bool(expected_tie[case])), m_err
     assert p_err == m_err, case
     assert p_warn == m_warn, case
     # MATLAB saves the parameters when the check passes; pyproteus copies them on request.

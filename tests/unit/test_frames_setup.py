@@ -277,7 +277,6 @@ def bubbles(n, seed=0):
         "radii": rng.random((n, 1)),
         "velocities": rng.random((n, 3)),
         "idx": np.arange(1, n + 1, dtype=np.float64).reshape(-1, 1),
-        "label": "ignored (not numeric)",
     }
 
 
@@ -296,6 +295,16 @@ def test_rf_writer_round_trip(tmp_path, settings, dtype) -> None:
         mbs = [bubbles(4 + k, seed=m + k) for k in range(3)]
         w.write_frame(m, rf, 1 / 40e6, mbs)
         written[m] = (rf, mbs)
+    with pytest.warns(RuntimeWarning, match="label"):
+        w.write_frame(2, rf_pulses(3, dtype=dtype), 1e-8, [{**bubbles(2), "label": "x"}] * 3)
+    assert set(fr.RFFile(tmp_path / "rf.h5").read_frame(2).bubbles[0]) == {
+        "points",
+        "radii",
+        "velocities",
+        "idx",
+    }
+    with h5py.File(tmp_path / "rf.h5", "a") as h:
+        del h["frames/Frame_02"]
     assert w.completed_frames() == [1, 3, 12]
     assert w.remaining_frames(1, 4) == [2, 4]
 
@@ -391,7 +400,7 @@ def save_matlab_rf_frame(path: Path, rf, dt, mbs=None) -> None:
     if mbs is not None:
         fcell = np.empty((1, len(mbs)), dtype=object)
         for k, mb in enumerate(mbs):
-            fcell[0, k] = {key: v for key, v in mb.items() if key != "label"}
+            fcell[0, k] = dict(mb)
         out["Frame"] = fcell
     scipy.io.savemat(path, out)
 
@@ -541,3 +550,101 @@ def test_medium_cache_reads_matlab_v73(tmp_path) -> None:
     np.testing.assert_array_equal(got.medium["sound_speed"], arr)
     assert got.medium["alpha_power"] == 1.5 and got.fingerprint is None
     np.testing.assert_array_equal(got.vessel_grid, arr > 10)
+
+
+def test_resume_through_setup_run(tmp_path, settings) -> None:
+    """A run stopped after frame 1 resumes with Continue/StartFrame/another GPU (D-25)."""
+    s = settings.model_copy(deep=True)
+    s.Acquisition.NumberOfFrames = 3.0
+    write_ground_truth(tmp_path / "gt", s)
+    common = {"resolve_binary": False}
+    run = su.setup_run(s, tmp_path / "gt", tmp_path / "res", **common)
+    assert run.rf_writer_mode == "resume" and run.replace_frames
+    w = fr.RFWriter(
+        run.paths.rf_file, settings=run.settings, sequence=run.sequence, num_frames=3,
+        mode=run.rf_writer_mode, flow_simulation_parameters=run.flow_simulation_parameters,
+    )  # fmt: skip
+    w.write_frame(1, rf_pulses(1), 1e-8, replace=run.replace_frames)
+    w.write_frame(3, rf_pulses(1), 1e-8, replace=run.replace_frames)
+    key = fr.medium_fingerprint(run.settings, seed=0)
+
+    run2 = su.setup_run(
+        s, tmp_path / "gt", tmp_path / "res", continue_=True, start_frame=2, device_number=1,
+        **common,
+    )  # fmt: skip
+    run2.settings.Medium.Save = False  # main_RF does this on Continue
+    w2 = fr.RFWriter(
+        run2.paths.rf_file, settings=run2.settings, sequence=run2.sequence, num_frames=3,
+        mode=run2.rf_writer_mode,
+    )  # fmt: skip
+    assert su.frames_to_simulate(run2, w2.completed_frames()) == [2]
+    assert not run2.replace_frames
+    # Medium cache key ignores run control and the solver.
+    assert fr.medium_fingerprint(run2.settings, seed=0) == key
+    s3 = run2.settings.model_copy(deep=True)
+    s3.SimulationParameters.Solver = "3DG"
+    s3.SimulationParameters.NumberOfInteractions = 3.0
+    assert fr.medium_fingerprint(s3, seed=0) == key
+    s3.SimulationParameters.CFL = 0.2
+    assert fr.medium_fingerprint(s3, seed=0) != key
+    # Re-running frames 1..2 without Continue keeps frame 3 and replaces 1.
+    run3 = su.setup_run(s, tmp_path / "gt", tmp_path / "res", end_frame=2, **common)
+    w3 = fr.RFWriter(
+        run3.paths.rf_file, settings=run3.settings, sequence=run3.sequence, num_frames=3,
+        mode=run3.rf_writer_mode,
+    )  # fmt: skip
+    assert w3.completed_frames() == [1, 3] and su.frames_to_simulate(run3, [1, 3]) == [1, 2]
+    w3.write_frame(1, rf_pulses(1, seed=9), 2e-8, replace=run3.replace_frames)
+    assert fr.RFFile(run3.paths.rf_file).read_frame(1).dt == 2e-8
+    # Physics settings still refuse a resume.
+    s4 = s.model_copy(deep=True)
+    s4.Medium.SpeedOfSound = 1500.0
+    run4 = su.setup_run(s4, tmp_path / "gt", tmp_path / "res", continue_=True, **common)
+    with pytest.raises(ValueError, match="settings"):
+        fr.RFWriter(
+            run4.paths.rf_file, settings=run4.settings, sequence=run4.sequence, num_frames=3,
+            mode="resume",
+        )  # fmt: skip
+    assert run.paths.settings_file is None
+
+
+def test_end_frame_inf_and_sequences(settings) -> None:
+    a, _ = su.input_handling(settings.Acquisition, settings.SimulationParameters, end_frame=np.inf)
+    assert a.EndFrame == settings.Acquisition.NumberOfFrames
+    assert su.PULSE_SEQUENCES == {  # main_RF.m
+        "Amplitude modulation": ("odd", "even", "all"),
+        "Pulse inversion": ("plus", "minus"),
+        "Standard": ("pulse",),
+        "Amplitude modulation with pulse inversion": ("odd", "even", "minus"),
+    }
+
+
+def test_write_waits_for_a_reader(tmp_path, settings) -> None:
+    """A reader holding the file (HDF5 lock) delays a write instead of losing the frame."""
+    import subprocess
+    import sys
+    import time
+
+    path = tmp_path / "rf.h5"
+    w = fr.RFWriter(path, settings=settings, sequence=("pulse",), num_frames=2, lock_timeout=30)
+    code = (
+        "import h5py, sys, time; f = h5py.File(sys.argv[1], 'r'); print('open', flush=True);"
+        " time.sleep(1.5); f.close()"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", code, str(path)], stdout=subprocess.PIPE)
+    assert proc.stdout.readline().strip() == b"open"
+    t0 = time.monotonic()
+    w.write_frame(1, rf_pulses(1), 1e-8)
+    proc.wait(timeout=30)
+    assert w.completed_frames() == [1]
+    blocked = time.monotonic() - t0 > 0.5
+    if blocked:  # file locking active (default HDF5 build): the write waited
+        assert fr.RFFile(path).frames == [1]
+    w2 = fr.RFWriter(path, settings=settings, sequence=("pulse",), num_frames=2, mode="resume",
+                     lock_timeout=0.2)  # fmt: skip
+    holder = subprocess.Popen([sys.executable, "-c", code, str(path)], stdout=subprocess.PIPE)
+    assert holder.stdout.readline().strip() == b"open"
+    if blocked:
+        with pytest.raises(BlockingIOError):
+            w2.write_frame(2, rf_pulses(1), 1e-8)
+    holder.wait(timeout=30)

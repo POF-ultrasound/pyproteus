@@ -137,6 +137,7 @@ def _scheme(source: str | PathLike[str], pulsing_scheme: str | None) -> str:
         scheme = RFFile(source).pulsing_scheme
         if scheme:
             return scheme
+        raise ValueError(f"{source} stores no pulsing scheme: pass pulsing_scheme")
     raise ValueError("pulsing_scheme is required for a MATLAB results folder")
 
 

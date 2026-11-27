@@ -248,7 +248,10 @@ def input_handling(
     if start_frame is not None:
         start = _positive_integer(start_frame, "start_frame (varargin{2})")
     if end_frame is not None:
-        end = min(_positive_integer(end_frame, "end_frame (varargin{3})"), n_frames)
+        if isinstance(end_frame, float) and end_frame == np.inf:
+            end = n_frames  # MATLAB accepts Inf (floor(Inf) == Inf): to the last frame
+        else:
+            end = min(_positive_integer(end_frame, "end_frame (varargin{3})"), n_frames)
     if device_number is not None:
         dev = _integer(device_number, "device_number (varargin{4})")
         if dev < 0:
@@ -282,7 +285,7 @@ def _positive_integer(value: Any, name: str) -> int:
 class RunPaths:
     """Files and folders of one run (``sim_startup.m``), plus the D-25 output files."""
 
-    settings_file: Path
+    settings_file: Path | None  # None when setup_run was given a Settings object
     ground_truth: Path
     results: Path
 
@@ -492,15 +495,17 @@ class RunSetup:
 
     @property
     def rf_writer_mode(self) -> str:
-        """``"resume"`` when continuing or starting after frame 1 (keeps earlier frames), else
-        ``"overwrite"`` (MATLAB overwrites the frame files it writes)."""
-        acq = self.settings.Acquisition
-        if (
-            bool(_struct.get(acq, "Continue", False))
-            or _struct.scalar(_struct.get(acq, "StartFrame", 1)) > 1
-        ):
-            return "resume"
-        return "overwrite"
+        """Always ``"resume"``: open the run's RF file if it exists (same settings up to
+        run control, else ``ValueError``), create it otherwise. Frames outside
+        ``StartFrame..EndFrame`` are kept, as MATLAB keeps the ``Frame_<m>.mat`` files it
+        does not rewrite; nothing is truncated before a frame is computed."""
+        return "resume"
+
+    @property
+    def replace_frames(self) -> bool:
+        """Pass to :meth:`RFWriter.write_frame`: without ``Continue`` the frames of
+        ``StartFrame..EndFrame`` are recomputed and replace earlier versions (MATLAB)."""
+        return not bool(_struct.get(self.settings.Acquisition, "Continue", False))
 
     def frames(self) -> list[int]:
         """Frames ``StartFrame..EndFrame``."""
@@ -511,7 +516,13 @@ class RunSetup:
 
 
 def frames_to_simulate(setup: RunSetup, completed: list[int] | None = None) -> list[int]:
-    """Frames left: ``StartFrame..EndFrame``, minus ``completed`` when ``Continue`` is set."""
+    """Frames to compute: ``StartFrame..EndFrame``, minus ``completed`` when ``Continue`` is set.
+
+    Divergence (B-166): in MATLAB ``Continue`` only reuses the saved k-Wave medium and
+    every frame of the range is recomputed; pyproteus also skips frames already in the
+    RF file, so an interrupted run continues where it stopped. Without ``Continue`` all
+    frames of the range are computed and written with ``replace=setup.replace_frames``.
+    """
     frames = setup.frames()
     if completed and bool(_struct.get(setup.settings.Acquisition, "Continue", False)):
         done = set(completed)
@@ -553,7 +564,7 @@ def setup_run(
             else Path(groundtruthfolder)
         )
         res = Path(results_dir) / savefolder if results_dir is not None else Path(savefolder)
-        paths = RunPaths(settings_file=Path(""), ground_truth=gt, results=res)
+        paths = RunPaths(settings_file=None, ground_truth=gt, results=res)
     else:
         paths = sim_startup(
             settingsfile,

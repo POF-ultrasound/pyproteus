@@ -46,7 +46,11 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os
 import re
+import tempfile
+import time
+import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from os import PathLike
@@ -70,6 +74,7 @@ __all__ = [
     "MEDIUM_FORMAT",
     "RF_FORMAT",
     "RF_FORMAT_VERSION",
+    "RUN_CONTROL_FIELDS",
     "FlowSimulationParameters",
     "MediumCache",
     "MediumCacheMismatch",
@@ -277,8 +282,40 @@ def _frame_group_name(frame: int, num_frames: int) -> str:
     return frame_file_name(frame, max(num_frames, frame))[: -len(".mat")]
 
 
+#: Fields that ``setup_run``/``input_handling`` set for one invocation (run control,
+#: not physics). They are ignored when a run resumes an RF file or checks a medium cache,
+#: so ``Continue``, another start frame or another GPU does not refuse a valid file.
+RUN_CONTROL_FIELDS: dict[str, tuple[str, ...]] = {
+    "Acquisition": ("Continue", "StartFrame", "EndFrame"),
+    "SimulationParameters": ("DeviceNumber",),
+    "Microbubble": ("BatchSize", "UseParfor"),
+    "Transducer": ("OnGrid", "IntegrationDensity"),
+    "Geometry": ("GeometriesPath",),
+    "Medium": ("Save",),
+}
+
+#: Further fields that do not change the grid or the k-Wave medium (medium cache key).
+_NOT_MEDIUM_FIELDS: dict[str, tuple[str, ...]] = {
+    "SimulationParameters": ("Solver", "NumberOfInteractions", "HybridSimulation"),
+}
+
+
+def _settings_doc(settings: Settings, drop: Mapping[str, tuple[str, ...]]) -> dict[str, Any]:
+    doc = tree_to_jsonable(settings.to_tree())
+    for group, names in drop.items():
+        if isinstance(doc.get(group), dict):
+            for name in names:
+                doc[group].pop(name, None)
+    return doc
+
+
 def _canonical_settings(settings: Settings) -> str:
     return settings_to_json(settings, indent=None)
+
+
+def _comparable_settings(settings: Settings) -> str:
+    """Settings without :data:`RUN_CONTROL_FIELDS`, as canonical JSON."""
+    return json.dumps(_settings_doc(settings, RUN_CONTROL_FIELDS), sort_keys=True, allow_nan=True)
 
 
 def _write_str(group: h5py.Group, name: str, text: str) -> None:
@@ -290,15 +327,46 @@ def _read_str(group: h5py.Group, name: str) -> str:
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
+def _to_numpy(a: Any) -> np.ndarray:
+    """NumPy array from NumPy or CuPy input (CuPy arrays are copied to the host)."""
+    return np.asarray(a.get() if hasattr(a, "get") and not isinstance(a, np.ndarray) else a)
+
+
 def _bubble_arrays(mb: Mapping[str, Any]) -> dict[str, np.ndarray]:
-    out = {}
+    out, dropped = {}, []
     for key, value in mb.items():
         if value is None:
             continue
-        arr = np.asarray(value)
+        try:
+            arr = _to_numpy(value)
+        except (TypeError, ValueError):
+            dropped.append(str(key))
+            continue
         if arr.dtype.kind in "biuf":
             out[str(key)] = arr
+        else:
+            dropped.append(str(key))
+    if dropped:
+        warnings.warn(
+            f"bubble fields {dropped} are not numeric arrays and are not stored",
+            RuntimeWarning,
+            stacklevel=3,
+        )
     return out
+
+
+def _open_locked(path: Path, mode: str, timeout: float) -> h5py.File:
+    """``h5py.File(path, mode)``, retrying while another process holds the file lock."""
+    deadline = time.monotonic() + timeout
+    delay = 0.1
+    while True:
+        try:
+            return h5py.File(path, mode)
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(2 * delay, 5.0)
 
 
 class RFWriter:
@@ -308,12 +376,19 @@ class RFWriter:
 
     - ``"new"``: create the file; fail if it exists;
     - ``"overwrite"``: replace an existing file;
-    - ``"resume"``: open an existing file written for the same ``settings``,
-      ``sequence`` and ``num_frames`` (else ``ValueError``), dropping any
-      frame left incomplete by an interrupted run; creates the file if absent.
+    - ``"resume"``: open an existing file written for the same ``settings``
+      (ignoring :data:`RUN_CONTROL_FIELDS`), ``sequence`` and ``num_frames``
+      (else ``ValueError``), dropping any frame left incomplete by an
+      interrupted run; creates the file if absent. Frames already in the file
+      are kept (MATLAB keeps the ``Frame_<m>.mat`` files it does not rewrite).
 
     Each :meth:`write_frame` opens the file, builds the frame group under a
-    temporary name, renames it, and closes the file (HDF5 flush).
+    temporary name, renames it, and closes the file (HDF5 flush). While
+    another process holds the file open (a reader, HDFView), HDF5's file lock
+    refuses the write; :meth:`write_frame` retries for ``lock_timeout``
+    seconds before raising, so a frame is not lost to a short read. Several
+    processes writing one file is not supported. Deleted or replaced frames
+    do not shrink the file (``h5repack`` does).
     """
 
     def __init__(
@@ -325,7 +400,9 @@ class RFWriter:
         num_frames: int,
         flow_simulation_parameters: FlowSimulationParameters | None = None,
         mode: str = "new",
+        lock_timeout: float = 600.0,
     ) -> None:
+        self.lock_timeout = float(lock_timeout)
         if mode not in ("new", "overwrite", "resume"):
             raise ValueError(f"mode must be 'new', 'overwrite' or 'resume', got {mode!r}")
         if int(num_frames) != num_frames or num_frames < 1:
@@ -336,12 +413,13 @@ class RFWriter:
             raise ValueError("sequence must name at least one pulse")
         self.num_frames = int(num_frames)
         settings_json = _canonical_settings(settings)
+        self._comparable = _comparable_settings(settings)
         acq = settings.Acquisition
         scheme = getattr(acq, "PulsingScheme", None) if acq is not None else None
 
         if mode == "resume" and self.path.exists():
-            with h5py.File(self.path, "a") as f:
-                self._check_compatible(f, settings_json)
+            with _open_locked(self.path, "a", self.lock_timeout) as f:
+                self._check_compatible(f)
                 frames = f["frames"]
                 for name in [n for n in frames if n.startswith(_PARTIAL)]:
                     del frames[name]
@@ -365,11 +443,16 @@ class RFWriter:
                 _write_str(f, "flow_simulation_parameters", fsp)
             f.create_group("frames")
 
-    def _check_compatible(self, f: h5py.File, settings_json: str) -> None:
+    def _check_compatible(self, f: h5py.File) -> None:
         if f.attrs.get("format") != RF_FORMAT:
             raise ValueError(f"{self.path} is not a {RF_FORMAT} file")
+        if int(f.attrs["format_version"]) != RF_FORMAT_VERSION:
+            raise ValueError(
+                f"cannot resume {self.path}: {RF_FORMAT} version {int(f.attrs['format_version'])}"
+            )
         problems = []
-        if _read_str(f, "settings") != settings_json:
+        stored = settings_from_json(_read_str(f, "settings"))
+        if _comparable_settings(stored) != self._comparable:
             problems.append("settings")
         if tuple(json.loads(f.attrs["sequence"])) != self.sequence:
             problems.append("pulse sequence")
@@ -382,7 +465,7 @@ class RFWriter:
 
     def completed_frames(self) -> list[int]:
         """Frame numbers already written (complete groups only), ascending."""
-        with h5py.File(self.path, "r") as f:
+        with _open_locked(self.path, "r", self.lock_timeout) as f:
             return _complete_frames(f)
 
     def remaining_frames(self, start_frame: int = 1, end_frame: int | None = None) -> list[int]:
@@ -402,15 +485,16 @@ class RFWriter:
     ) -> None:
         """Write frame ``frame`` (1-based): ``rf[k]`` and ``bubbles[k]`` per pulse.
 
-        All pulses must have the same ``Nelem``-by-``Nt`` size and class. An
-        existing frame raises unless ``replace=True``.
+        All pulses must have the same ``Nelem``-by-``Nt`` size and class
+        (NumPy or CuPy arrays). An existing frame raises unless ``replace=True``;
+        a replaced frame stays readable until its new version is complete.
         """
         frame = int(frame)
         if not 1 <= frame <= self.num_frames:
             raise ValueError(f"frame {frame} outside 1..{self.num_frames}")
         if len(rf) != len(self.sequence):
             raise ValueError(f"{len(rf)} RF arrays for a {len(self.sequence)}-pulse sequence")
-        arrays = [np.asarray(a) for a in rf]
+        arrays = [_to_numpy(a) for a in rf]
         if any(a.ndim != 2 or a.shape != arrays[0].shape for a in arrays):
             raise ValueError("every RF array must be Nelem-by-Nt with the same size")
         if any(a.dtype != arrays[0].dtype for a in arrays):
@@ -420,7 +504,9 @@ class RFWriter:
                 f"{len(bubbles)} bubble sets for a {len(self.sequence)}-pulse sequence"
             )
         name = _frame_group_name(frame, self.num_frames)
-        with h5py.File(self.path, "a") as f:
+        stacked = np.stack(arrays)
+        mbs = None if bubbles is None else [_bubble_arrays(mb) for mb in bubbles]
+        with _open_locked(self.path, "a", self.lock_timeout) as f:
             frames = f["frames"]
             if name in frames and not replace:
                 raise FileExistsError(f"frame {frame} is already in {self.path}")
@@ -431,12 +517,12 @@ class RFWriter:
             g.attrs["frame"] = frame
             g.attrs["dt"] = float(dt)
             g.attrs["written_utc"] = _utc_now()
-            g.create_dataset("rf", data=np.stack(arrays))
-            if bubbles is not None:
+            g.create_dataset("rf", data=stacked)
+            if mbs is not None:
                 bg = g.create_group("bubbles")
-                for k, mb in enumerate(bubbles, start=1):
+                for k, mb in enumerate(mbs, start=1):
                     pg = bg.create_group(f"pulse_{k}")
-                    for key, arr in _bubble_arrays(mb).items():
+                    for key, arr in mb.items():
                         pg.create_dataset(key, data=arr)
             if name in frames:
                 del frames[name]
@@ -555,13 +641,15 @@ def medium_fingerprint(settings: Settings, **extra: Any) -> str:
     """SHA-256 of the settings that define the grid and medium (+ ``extra``, e.g. a seed).
 
     Groups ``SimulationParameters``, ``Geometry``, ``Medium``, ``Transducer``
-    (lossless JSON); ``extra`` values must be JSON-serialisable.
+    (lossless JSON), without the run-control fields (:data:`RUN_CONTROL_FIELDS`)
+    and ``Solver``, ``NumberOfInteractions``, ``HybridSimulation``, which do not
+    change the medium; ``extra`` values must be JSON-serialisable.
     """
-    doc = {
-        g: tree_to_jsonable(getattr(settings, g).to_tree())
-        for g in _MEDIUM_GROUPS
-        if getattr(settings, g) is not None
+    drop = {
+        g: RUN_CONTROL_FIELDS.get(g, ()) + _NOT_MEDIUM_FIELDS.get(g, ()) for g in _MEDIUM_GROUPS
     }
+    full = _settings_doc(settings, drop)
+    doc = {g: full[g] for g in _MEDIUM_GROUPS if g in full}
     doc["extra"] = {k: extra[k] for k in sorted(extra)}
     return hashlib.sha256(json.dumps(doc, sort_keys=True, allow_nan=True).encode()).hexdigest()
 
@@ -597,31 +685,42 @@ def save_medium_cache(
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    os.close(fd)
+    tmp = Path(tmp_name)
     from pyproteus import __version__
 
-    with h5py.File(tmp, "w") as f:
-        f.attrs["format"] = MEDIUM_FORMAT
-        f.attrs["format_version"] = 1
-        f.attrs["pyproteus_version"] = __version__
-        f.attrs["created_utc"] = _utc_now()
-        f.attrs["fingerprint"] = fingerprint
-        mg = f.create_group("medium")
-        for key, value in medium.items():
-            if value is None:
-                continue
-            if isinstance(value, str):
-                mg.attrs[key] = value
-                continue
-            arr = np.asarray(value)
-            if arr.ndim == 0:
-                mg.attrs[key] = arr.item()
-            else:
-                mg.create_dataset(key, data=arr)
-        if vessel_grid is not None:
-            f.create_dataset("vessel_grid", data=np.asarray(vessel_grid), compression="gzip")
-        _write_grid(f.create_group("grid"), grid)
-    tmp.replace(path)
+    try:
+        with h5py.File(tmp, "w") as f:
+            f.attrs["format"] = MEDIUM_FORMAT
+            f.attrs["format_version"] = 1
+            f.attrs["pyproteus_version"] = __version__
+            f.attrs["created_utc"] = _utc_now()
+            f.attrs["fingerprint"] = fingerprint
+            mg = f.create_group("medium")
+            for key, value in medium.items():
+                if value is None:
+                    continue
+                if isinstance(value, str):
+                    mg.attrs[key] = value
+                    continue
+                if isinstance(value, Mapping):
+                    raise TypeError(f"medium field {key!r}: nested structs are not supported")
+                arr = np.asarray(value)
+                if arr.ndim == 0:
+                    mg.attrs[key] = arr.item()
+                else:
+                    mg.create_dataset(key, data=arr)
+            if vessel_grid is not None:
+                f.create_dataset("vessel_grid", data=np.asarray(vessel_grid), compression="gzip")
+            _write_grid(f.create_group("grid"), grid)
+            f.flush()
+        with open(tmp, "rb+") as fh:
+            os.fsync(fh.fileno())
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _write_grid(g: h5py.Group, grid: Any) -> None:
