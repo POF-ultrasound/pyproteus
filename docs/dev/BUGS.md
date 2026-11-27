@@ -211,6 +211,36 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 
 
+## B-160 — `check_ground_truth_data`: no folder side effect, all mismatches listed (divergence, no result change)
+- Where: `pyproteus.acoustic.setup.check_ground_truth_data`.
+- MATLAB always creates the results folder and saves `FlowSimulationParameters.mat` there; its error names only the last failing check. pyproteus writes nothing unless `savedir` is given (then copies the file), raises `GroundTruthMismatch` with MATLAB's message and `.parameters` listing every mismatch. Distribution vectors are compared flattened; MATLAB would broadcast a row against a column and fail in `||`.
+- Test: `tests/oracle/test_frames_setup.py::test_check_ground_truth_data` (messages and warnings identical on 16 cases, incl. exact binary ties at the 6th significant digit, 500.0625 and 500.1875: MATLAB `num2str(x,6)` and Python `%.6g` both round half to even; the test asserts the expected outcome so the tie cases cannot pass vacuously).
+
+## B-161 — `input_handling`: start frame after end frame raises; no GPU reset (divergence)
+- Where: `pyproteus.acoustic.setup.input_handling`.
+- MATLAB accepts `StartFrame > EndFrame` (`main_RF` then runs no frame and saves nothing, silently); pyproteus raises `ValueError`. `end_frame = Inf` means "to the last frame", as in MATLAB. MATLAB calls `gpuDevice(n+1)` (selects and resets the GPU) for `varargin{4}`; pyproteus only sets `DeviceNumber` (passed to the CUDA binary / CuPy) and rejects negative numbers.
+- Test: `test_input_handling_start_after_end`, unit `test_input_handling`.
+
+## B-162 — `sim_setup`: binary path is the resolved file; no MATLAB path entries (divergence)
+- Where: `pyproteus.acoustic.setup.sim_setup` / `make_run_config`.
+- `BINARY_PATH` is the binary file found by `backends.kwave.binary_path` (MATLAB: the folder); `savedir`, `GroundTruthPath`, `MicrobubblePath` are not in `run_param` (explicit arguments instead); `GeometriesPath` only when given; extra keys `backend` ('python'/'cpp') and `device` ('cpu'/'gpu'). An unknown `Solver` raises (MATLAB fails later on the undefined `run_param`). Other fields equal (oracle test).
+
+## B-163 — `sim_startup`: absolute run folders (divergence)
+- Where: `pyproteus.acoustic.setup.sim_startup`.
+- MATLAB `fullfile(PATHS.GroundTruthPath, groundtruthfolder)` concatenates an absolute `groundtruthfolder` onto the base folder; pyproteus (`Path / absolute`) uses the absolute path. Without base folders (the default), the arguments are used as given. Not oracle-tested: MATLAB's `sim_startup` runs the real `path_setup`, which creates folders in the oracle checkout.
+
+## B-164 — RF output and medium cache formats (D-25; divergence, no result change)
+- Where: `pyproteus.io.frames` (`RFWriter`, `RFFile`, `save_medium_cache`, `load_medium_cache`).
+- RF is written to one HDF5 file per run, not `Frame_<m>.mat`; the k-Wave medium to `medium.h5` with a settings fingerprint, not `medium.mat`. Both MATLAB formats stay readable (oracle-tested). Deleted or replaced frames do not shrink an HDF5 file (`h5repack` compacts it). A process holding the file open blocks writes (HDF5 lock); the writer retries for `lock_timeout` seconds. One writer per file: MATLAB's several-GPUs-into-one-folder workflow (different frame ranges per process) has no HDF5 equivalent yet; D-28 (M5): one file per process (`rf_<start>-<end>.h5`), readers take a list or folder, optional merge tool. See `docs/PARITY.md`, "Run setup and run data".
+
+## B-165 — Local failure of `tests/unit/test_kwave.py::test_cpp_binary_command_line` (open, not from this change)
+- Seen only in serial runs: the same test passes under `pytest -n 6`.
+- Where: the test monkeypatches `pyproteus.backends.kwave.subprocess.run` with a fake that requires `env=`; on this Mac another call goes through `subprocess.check_output` (which calls `run` without `env`) during `kspace_first_order`, so the fake raises `TypeError`. Fails with and without the sandbox; files not touched by M3-B. To check in CI and fix in the k-Wave adapter's tests (fake should accept `**kwargs`, or patch only the binary call).
+
+## B-166 — `Continue` also skips frames already written (divergence, no result change)
+- Where: `pyproteus.acoustic.setup.frames_to_simulate`, `RunSetup.replace_frames`.
+- MATLAB `Continue` (`varargin{1}`) only reloads `medium.mat`; every frame of `StartFrame..EndFrame` is recomputed. pyproteus also skips the frames already in the RF file, so an interrupted run continues where it stopped. Without `Continue` the range is recomputed and replaces earlier frames, frames outside it are kept (as MATLAB's files). Test: `tests/unit/test_frames_setup.py::test_resume_through_setup_run`.
+
 ## B-150 — `update_sensor_fast.m` with a non-empty input mask: weight columns index the new points only (MATLAB bug, not reproduced)
 - Where: `acoustic-module/update_sensor_fast.m` (oracle 8d37938), weights branch: `j` comes from `ismember(mask_idx_local, unique(mask_idx_local))`, i.e. positions among the nodes of the points just added, while the sensor data rows follow `find(sensor.mask)` of the whole updated mask. `update_sensor.m` uses `intersect(find(sensor.mask), ...)` (correct). The weight matrix is `max(i) × max(j)` in both, so its width also depends on the input mask.
 - Symptom: weights computed onto a pre-filled mask point at the wrong sensor rows (fast) or have fewer columns than mask points (both). Never reached in PROTEUS: every call that computes weights (`define_sensor_transducer`, `define_sensor_MB`) starts from an empty mask; `define_sensor_MB_all` accumulates masks with `mask_only = true`. Also: when the fast version falls back to the loop for memory (> 2 GiB estimate) it ignores `Grid.threshold`.

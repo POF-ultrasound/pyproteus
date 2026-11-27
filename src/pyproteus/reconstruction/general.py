@@ -132,7 +132,7 @@ def initialize_das_parameters(
 
 def das_reconstruction_general(
     folder: str | PathLike[str],
-    filename_parameters: str | PathLike[str] | Settings,
+    filename_parameters: str | PathLike[str] | Settings | None = None,
     *,
     interpolation: str = "nearest",
     proteus_compat: bool = False,
@@ -150,11 +150,11 @@ def das_reconstruction_general(
     the pixels (D-21 (amended)); ``proteus_compat=True`` restores PROTEUS's behaviour
     (PARITY D-21 (amended)). ``cache``: reuse the DAS matrix of an identical call.
     """
-    S = _settings(filename_parameters)
+    S = _settings(filename_parameters, folder)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))
     first, frames = _peek(frames)
     if first is None:
-        raise FileNotFoundError(f"no Frame*.mat files in {folder}")
+        raise FileNotFoundError(f"no RF frames in {folder}")
     Nelem, Nt = first.shape
 
     recon, trans, tx = initialize_das_parameters(

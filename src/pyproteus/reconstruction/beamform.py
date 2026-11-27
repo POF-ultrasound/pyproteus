@@ -25,6 +25,7 @@ import warnings
 from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from os import PathLike
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -256,9 +257,19 @@ def clear_das_matrix_cache() -> None:
         _DAS_CACHE.clear()
 
 
-def _settings(filename_parameters: str | PathLike[str] | Settings) -> Settings:
+def _settings(
+    filename_parameters: str | PathLike[str] | Settings | None,
+    folder: str | PathLike[str] | None = None,
+) -> Settings:
     if isinstance(filename_parameters, Settings):
         return filename_parameters
+    if filename_parameters is None:
+        # pyproteus RF files (D-25) carry their settings.
+        from pyproteus.io.frames import RFFile
+
+        if folder is None or not Path(folder).is_file():
+            raise ValueError("filename_parameters is required for a MATLAB results folder")
+        return RFFile(folder).settings
     return load_settings_mat(filename_parameters)
 
 
@@ -278,7 +289,7 @@ def _peek(frames):
 
 def das_reconstruction(
     folder: str | PathLike[str],
-    filename_parameters: str | PathLike[str] | Settings,
+    filename_parameters: str | PathLike[str] | Settings | None = None,
     *,
     interpolation: str = "nearest",
     proteus_compat: bool = False,
@@ -299,11 +310,11 @@ def das_reconstruction(
     ``'nearest'`` (default, MATLAB) or ``'linear'`` (D-20). ``cache``: reuse
     the DAS matrix of an identical previous call (no result change).
     """
-    S = _settings(filename_parameters)
+    S = _settings(filename_parameters, folder)
     frames = (rf for _, rf in iter_rf_frames(folder, S.Acquisition.PulsingScheme))
     first, frames = _peek(frames)
     if first is None:
-        raise FileNotFoundError(f"no Frame*.mat files in {folder}")
+        raise FileNotFoundError(f"no RF frames in {folder}")
     Nelem, Nt = first.shape
 
     Fs = float(S.SimulationParameters.SamplingRate)

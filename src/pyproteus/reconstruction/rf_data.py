@@ -5,6 +5,10 @@ is read as well) with a cell array ``RF``: one ``Nelem``-by-``Nt`` matrix per
 pulse of the pulsing scheme, in the class of ``run_param.DATA_CAST_RF``
 (``single`` by default).
 
+pyproteus writes one HDF5 file per run instead (D-25,
+:class:`pyproteus.io.frames.RFWriter`); every function here takes either that
+file or a MATLAB results folder.
+
 Design (D-15, ``docs/PARITY.md``): :func:`iter_rf_frames` reads the frames one
 at a time (each file once, only the ``RF`` variable), so a beamformer can
 stream them; :func:`load_rf_data` stacks them like MATLAB. MATLAB reads the
@@ -19,6 +23,7 @@ from collections.abc import Iterator
 from os import PathLike
 from pathlib import Path
 
+import h5py
 import numpy as np
 
 from pyproteus.config.matfile import loadmat
@@ -104,20 +109,62 @@ def _read_rf_cell(path: Path) -> np.ndarray:
     return cell
 
 
+def _is_rf_h5(source: str | PathLike[str]) -> bool:
+    path = Path(source)
+    return path.is_file() and h5py.is_hdf5(path)
+
+
+def _iter_cells(source: str | PathLike[str]) -> Iterator[tuple[Path, np.ndarray]]:
+    """``(name, RF cell)`` per frame from an RF HDF5 file or a MATLAB results folder."""
+    if _is_rf_h5(source):
+        from pyproteus.io.frames import RFFile
+
+        rf_file = RFFile(source)
+        for m in rf_file.frames:
+            fr = rf_file.read_frame(m, bubbles=False)
+            yield Path(fr.source), fr.rf_cell()
+        return
+    for path in frame_files(source):
+        yield path, _read_rf_cell(path)
+
+
+def _scheme(source: str | PathLike[str], pulsing_scheme: str | None) -> str:
+    if pulsing_scheme is not None:
+        return pulsing_scheme
+    if _is_rf_h5(source):
+        from pyproteus.io.frames import RFFile
+
+        scheme = RFFile(source).pulsing_scheme
+        if scheme:
+            return scheme
+        raise ValueError(f"{source} stores no pulsing scheme: pass pulsing_scheme")
+    raise ValueError("pulsing_scheme is required for a MATLAB results folder")
+
+
 def iter_rf_frames(
-    results_folder: str | PathLike[str], pulsing_scheme: str
+    results_folder: str | PathLike[str], pulsing_scheme: str | None = None
 ) -> Iterator[tuple[Path, np.ndarray]]:
-    """Yield ``(file, RF)`` per frame, in frame order, with the pulsing scheme applied.
+    """Yield ``(source, RF)`` per frame, in frame order, with the pulsing scheme applied.
 
-    ``RF`` is ``Nelem``-by-``Nt`` in the class of the stored data (pulses of
-    mixed classes combine as in MATLAB: ``single`` wins).
+    ``results_folder`` is a MATLAB results folder (``Frame*.mat``) or a
+    pyproteus RF HDF5 file (D-25); ``source`` is the ``.mat`` file or
+    ``<file.h5>/frames/<group>``. ``pulsing_scheme`` defaults to the one
+    stored in the HDF5 file (required for a folder). ``RF`` is
+    ``Nelem``-by-``Nt`` in the class of the stored data (pulses of mixed
+    classes combine as in MATLAB: ``single`` wins).
     """
-    for path in frame_files(results_folder):
-        yield path, _apply_scheme(_read_rf_cell(path), pulsing_scheme)
+    scheme = _scheme(results_folder, pulsing_scheme)
+    for path, cell in _iter_cells(results_folder):
+        yield path, _apply_scheme(cell, scheme)
 
 
-def load_rf_data(results_folder: str | PathLike[str], pulsing_scheme: str) -> np.ndarray:
+def load_rf_data(
+    results_folder: str | PathLike[str], pulsing_scheme: str | None = None
+) -> np.ndarray:
     """``RF = load_RF_data(resultsFolder, pulsingScheme)``.
+
+    ``results_folder`` may also be a pyproteus RF HDF5 file (see
+    :func:`iter_rf_frames`).
 
     Returns the ``Nelem``-by-``Nt``-by-``Nframes`` RF array. Its class is that
     of ``RF{1}`` of the first frame (MATLAB ``zeros(..., class(RF))``); frames
@@ -125,16 +172,21 @@ def load_rf_data(results_folder: str | PathLike[str], pulsing_scheme: str) -> np
     size of the first one (MATLAB errors otherwise; so does this function,
     without NumPy broadcasting).
     """
-    files = frame_files(results_folder)
-    if not files:
-        raise FileNotFoundError(f"no Frame*.mat files in {results_folder}")
+    scheme = _scheme(results_folder, pulsing_scheme)
+    if _is_rf_h5(results_folder):
+        from pyproteus.io.frames import RFFile
+
+        n_frames = len(RFFile(results_folder))
+    else:
+        n_frames = len(frame_files(results_folder))
+    if not n_frames:
+        raise FileNotFoundError(f"no RF frames in {results_folder}")
     out = None
-    for iframe, path in enumerate(files):
-        cell = _read_rf_cell(path)
+    for iframe, (path, cell) in enumerate(_iter_cells(results_folder)):
         if out is None:
             first = _pulse(cell, 1)
-            out = np.zeros((*first.shape[:2], len(files)), dtype=first.dtype)
-        rf = _apply_scheme(cell, pulsing_scheme)
+            out = np.zeros((*first.shape[:2], n_frames), dtype=first.dtype)
+        rf = _apply_scheme(cell, scheme)
         if rf.shape != out.shape[:2]:
             raise ValueError(
                 f"{path.name}: RF is {rf.shape[0]}-by-{rf.shape[1]}, "
