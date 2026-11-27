@@ -2,6 +2,13 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-27 — M3 wave 1A: k-Wave sources and sensors (m3-sources-sensors)
+- `pyproteus.acoustic.sensor`: `update_sensor` (= `update_sensor_fast`, one vectorised chunked implementation), `define_sensor_transducer`, `define_sensor_MB`, `define_sensor_MB_all` (takes loaded frames: session B's `load_microbubbles` plugs in as a generator), `extract_sensor_data`, `Sensor`. `pyproteus.acoustic.source`: `preprocess_transmit`, `define_source_transducer` (pressure/velocity, absent/dipole/monopole `SourceType`, curved `ux`/`uy` with mask merge, every `SeqPulse`), `pulsing_sequence`, `Source`.
+- Conventions: 0-based column-major linear indices; masks `[ix, iy, iz]`; source rows and weight columns in `find` order (what `backends.kwave.kspace_first_order` takes); weights SciPy CSR `N_points × nnz(mask)`.
+- Oracle: 29 sensor tests (both MATLAB update_sensor versions, ties at .5, edge truncation, on-grid lines, threshold, existing mask, default-settings grid, real `Frame_XX.mat` files for `define_sensor_MB_all`), 31 source tests (P4-1/C1-6D, on/off grid, all source types and pulses; `preprocess_transmit` with MATLAB k-Wave). Masks/indices exact, weights and signals ≤ 1e-9. 12 unit tests (loop reference, chunk invariance, C-order mapping, full-FFT delay reference).
+- Found B-150 (`update_sensor_fast.m` weight columns wrong on a pre-filled mask; unreachable in PROTEUS; pyproteus follows `update_sensor.m`), B-151 (unknown `SeqPulse`/`PulsingScheme` raise), Q-150 (no staggered-grid shift when `SourceType` is absent, which is every `main_RF` run).
+- Performance: 20 000 off-grid points in 3.3 s vs 31 s in MATLAB (fast version falls back to its loop above its 2 GiB estimate).
+
 ## 2026-11-25 — M2 microbubble model and mass source (m2-bubble)
 - `pyproteus.microbubble`: `model.py` (`get_material_properties`, `calc_surface_tension`, `calc_thermal_damp`, `find_domain_boundaries`, `find_A_m0`, `get_shell_properties`, `compress_bubble`, `get_eq_param`; `Liquid`/`GasProps`/`Shell`/`EqParam`), `dynamics.py` (`simple_rp`, `PchipBatch`, `calc_bubble_response`, timer as `timeout`). `pyproteus.acoustic.mass_source`: `compute_bubble_mass_source`, `get_batch_indices`, shell/material converters.
 - Design (D-15): struct-of-arrays shells, RHS vectorised over the batch, one pchip coefficient matrix for all driving pressures; 3 bubbles × 1000 output samples in ~0.1 s.

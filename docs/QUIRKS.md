@@ -136,3 +136,10 @@ Format:
 - Ported in: `pyproteus.acoustic.homogeneous._source_spectra` (same spectral derivative).
 - Test: covered by every `calc_scatter_attenuated` oracle case (the Gaussian test sources are not exactly zero at the ends).
 - Planned fix (proposal for after parity): pad the source (e.g. to the `2·Nt` propagation length) or taper it before differentiating, or use a finite-difference derivative; changes results for sources truncated at the end of the record.
+
+## Q-150 — the PROTEUS transducer source has no staggered-grid compensation unless `Transducer.SourceType` is set
+- MATLAB: `acoustic-module/define_source_transducer.m:34-66,115-139` (oracle 8d37938).
+- Behaviour: with `SourceType = 'dipole'` the velocity source weights are recomputed at the integration points shifted by `-dx/2` (k-Wave's staggered velocity grid; also `-dy/2` for `uy` of a curved array, both on the union of the masks); with `'monopole'` a pressure source is used and the pulse is sinc-shifted by `+dt/2`. Without the field (all of `main_RF`/`main_pressure_field`: nothing sets it, only PROTEUS's tests do) the source is a velocity (dipole) source **without** either shift: the given sensor weights and mask are used as they are. Production runs therefore emit from a plane half a cell off the one the weights were computed for.
+- Ported in: `pyproteus.acoustic.define_source_transducer` (absent `SourceType` reproduced).
+- Test: `tests/oracle/test_source.py::test_define_source_transducer[*-absent]` (MATLAB parity; mask equals the sensor mask), `tests/unit/test_sensor_source.py::test_source_types_and_masks`.
+- Planned fix (after parity, proposal): default `SourceType` to `'dipole'` (with the shift) or `'monopole'`; changes the transmitted field by a half-cell (≈ λ/(2·PPW)) offset and the corresponding arrival times.
