@@ -1,5 +1,7 @@
 # Bugs and behaviour differences
 
+> Sessions: don't read this file in full. `grep -n` for an entry, read the first lines for the format, and insert or append yours.
+
 Anything that behaves differently from what the plan or MATLAB expects. Status: open / workaround / fixed / wontfix.
 Format: `## B-n — title (status)`, then where, symptom, cause, fix or workaround, link to test.
 

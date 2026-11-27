@@ -1,6 +1,6 @@
 # pyproteus — instructions for Claude Code sessions
 
-Python port of MATLAB PROTEUS. Read `docs/ROADMAP.md` (plan), `docs/dev/MILESTONES.md` (checklists), `docs/dev/DECISIONS.md` before working.
+Python port of MATLAB PROTEUS. Before working, read `docs/dev/CONTEXT.md` (decisions in one line each, comparison classes, current state, reading rules) and your brief. Don't read whole docs: grep `docs/ROADMAP.md`, `docs/dev/MILESTONES.md` or `docs/dev/DECISIONS.md` for the section you need, and never read `LOG.md`, `BUGS.md`, `PARITY.md` or `QUIRKS.md` in full (insert or append entries; grep for one item).
 
 ## Phase A rules (until parity is confirmed)
 - Reproduce MATLAB PROTEUS results (D-13 tolerances), quirks that change results included: record each in `docs/QUIRKS.md`, don't fix it before parity.
@@ -14,11 +14,13 @@ Python port of MATLAB PROTEUS. Read `docs/ROADMAP.md` (plan), `docs/dev/MILESTON
 
 ## Environment (this Mac)
 - Python: `~/miniconda3/envs/pyproteus/bin/python` (conda env `pyproteus`, Python 3.12). Install the package with `pip install -e ".[dev]"` in that env.
-- Import `ssl` before `matlab.engine` (bug B-1).
+- Import `ssl` and `xml.parsers.expat` before `matlab.engine` (B-1, B-11).
+- Run tests with `PYTHONPATH=<worktree>/src`: the shared editable install may point at another worktree.
+- k-Wave: k-wave-python 0.6.2 pinned; binary `tools/tracer_bullet/bin/kspaceFirstOrder-OMP` (D-10), libs from `tools/tracer_bullet/setup_libs.sh`.
 - MATLAB R2025a at `/Applications/MATLAB_R2025a.app`; engine calls are slow — share one engine per test session (session-scoped fixture).
 - The Bash sandbox breaks TLS for `gh`, `pip` and `conda`: run those with the sandbox disabled. Writing to `~/miniconda3` also needs it.
 
 ## Workflow
-- One branch per task (`m0/numerics`, `m1/transducer`, ...), PR to `main`. Before merging: CI green and a reviewer agent pass (fresh agent, told to challenge parity, semantics traps and test strength). Then self-merge (D-6). No attribution lines in commits or PRs.
+- One branch per task (`m0/numerics`, `m1/transducer`, ...), PR to `main`. Before merging: CI green and a reviewer agent pass (fresh agent, Sonnet unless the change is design-heavy, given the diff, `docs/dev/CONTEXT.md` and the acceptance criteria; told to challenge parity, semantics traps and test strength). Then self-merge (D-6). No attribution lines in commits or PRs.
 - Log as you go: `docs/dev/LOG.md` (dated entry per step), `docs/dev/BUGS.md` (B-n, any behaviour difference), `docs/dev/DECISIONS.md` (D-n). Tick `docs/dev/MILESTONES.md`.
 - When a result contradicts the plan or needs a design decision (tolerance missed, MATLAB behaviour unclear, scope question), stop that item, write it up in BUGS.md or as an open question, and report it to the main `pyproteus` session, which asks the developer. Carry on with independent items meanwhile.
