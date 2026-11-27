@@ -1,5 +1,7 @@
 # Parity with MATLAB PROTEUS
 
+> Sessions: don't read this file in full. `grep -n` for an entry, read the first lines for the format, and insert or append yours.
+
 Status of each ported function against the MATLAB oracle (PROTEUS commit
 `8d37938`, MATLAB R2025a). Comparison classes from ROADMAP §4:
 
