@@ -196,3 +196,13 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Effect: ~0.2 % on the self-sensed pressure versus the local grid's own delta function (QUIRKS.md Q-170).
 - Status: reproduced (Phase A); fix proposed for after parity.
 
+## B-173 — self-sense impulse-response mode drops the local nonlinearity (by design, D-27)
+- Where: `pyproteus.acoustic.full.compute_self_sense_pressure` (default `impulse_response=True`).
+- Effect: exact for `BonA = 0`; with `BonA = 6` relative difference to the strict loop 4.5e-6 at a 5.9 kPa self-sense peak, 4.7e-5 at 59 kPa (above the k-Wave class from ~10 kPa).
+- Status: developer decision D-27 (default on, `impulse_response=False` for strict-parity runs); PARITY.md.
+
+## B-174 — homogeneous self-sense option changes results (opt-in, D-27)
+- Where: `compute_self_sense_pressure(..., homogeneous=True)`.
+- Effect: 4.8e-3 (Inhomogeneity 0.02) and 1.2e-2 (0.05) relative to the heterogeneous crop; up to 3.8e-4 PML-reflection residual even in a homogeneous medium (20-voxel core). Off by default; RF impact to be measured in M3 wave 2.
+- Status: by design (D-27).
+

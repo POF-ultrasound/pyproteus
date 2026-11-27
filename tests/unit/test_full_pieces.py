@@ -219,7 +219,7 @@ def test_self_sense_local_grids(monkeypatch) -> None:
     monkeypatch.setattr(full, "run_simulation", fake)
     ms = np.ones((2, 9), np.float32)
     out = compute_self_sense_pressure(KGrid(shape, (DX,) * 3, DT, 9), grid, idx, points, ms,
-                                      medium, 12, _rp())  # fmt: skip
+                                      medium, 12, _rp(), impulse_response=False)  # fmt: skip
     np.testing.assert_array_equal(out, np.ones((2, 9)))
     (rp0, kg0, med0, _, sen0), (_, kg1, med1, src1, sen1) = calls
     assert rp0["PML"] == full.SELF_SENSE_PML and rp0["solver"] == "3DC"
@@ -317,3 +317,131 @@ def test_self_sense_accepts_1d_mass_source_for_one_bubble(monkeypatch) -> None:
     ms = np.arange(1.0, 7.0)
     out = compute_self_sense_pressure(kg, grid, [555], point, ms, {"sound_speed": 1500.0}, 8, _rp())
     assert out.shape == (1, 6) and np.all(out[0] > 0) and np.all(np.diff(out[0]) > 0)
+
+
+# ----------------------------------------------------------------------------- D-27 modes
+
+
+def _hetero_case(shape, subs, offsets, bona, seed=2, homogeneous_medium=False):
+    rng = np.random.default_rng(seed)
+    f = (lambda v, a: np.full(shape, v)) if homogeneous_medium else (
+        lambda v, a: v + a * rng.random(shape))  # fmt: skip
+    medium = {"sound_speed": f(1500.0, 60.0), "density": f(1000.0, 40.0),
+              "BonA": np.full(shape, bona), "alpha_coeff": f(0.5, 0.3),
+              "alpha_power": 1.5}  # fmt: skip
+    coords = [DX * np.arange(n) for n in shape]
+    subs = np.array(subs)
+    idx = np.ravel_multi_index(subs.T, shape, order="F")
+    points = np.array([[coords[d][s[d]] + o[d] * DX for d in range(3)]
+                       for s, o in zip(subs, offsets, strict=True)])  # fmt: skip
+    grid = _grid(shape, x=coords[0], y=coords[1], z=coords[2],
+                 full_size=tuple(n + 21 for n in shape), sensor_on_grid=False)  # fmt: skip
+    return medium, grid, idx, points
+
+
+def _ms(n_mb, nt, delay=3e-7):
+    t = np.arange(nt) * DT
+    rows = [1e-8 * (1 + 0.3 * k) * np.exp(-(((t - delay - 4e-8 * k) / 1e-7) ** 2))
+            * np.sin(2 * np.pi * 3e6 * (t - delay)) for k in range(n_mb)]  # fmt: skip
+    return np.array(rows, dtype=np.float32)
+
+
+def _max_rel(a, b):
+    return float(np.max(np.abs(a - b)) / np.max(np.abs(b)))
+
+
+def test_impulse_response_mode_equals_strict_for_linear_medium() -> None:
+    """BonA = 0: k-Wave is linear time invariant, so the impulse-response path is exact."""
+    shape, nt = (22, 20, 18), 70
+    medium, grid, idx, points = _hetero_case(
+        shape, [(10, 9, 8), (1, 18, 4)], [(0.3, -0.2, 0.45), (-0.4, 0.1, 0.0)], 0.0
+    )
+    kg = KGrid(shape, (DX,) * 3, DT, nt)
+    ms = _ms(2, nt)
+    args = (kg, grid, idx, points, ms, medium, 8, _rp("3D"))
+    strict = compute_self_sense_pressure(*args, impulse_response=False)
+    ir = compute_self_sense_pressure(*args)
+    assert np.abs(strict).max() > 1.0
+    assert _max_rel(ir, strict) <= 1e-5
+    assert np.array_equal(ir.astype(np.float32).astype(np.float64), ir)
+
+
+def test_cache_reuses_responses_across_iterations(monkeypatch) -> None:
+    shape, nt = (22, 20, 18), 50
+    medium, grid, idx, points = _hetero_case(
+        shape, [(10, 9, 8), (7, 12, 9)], [(0.3, -0.2, 0.45), (0.0, 0.25, -0.1)], 6.0
+    )
+    kg = KGrid(shape, (DX,) * 3, DT, nt)
+    calls = []
+    real = full.run_simulation
+
+    def counting(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(full, "run_simulation", counting)
+    cache = full.SelfSenseCache()
+    first = compute_self_sense_pressure(kg, grid, idx, points, _ms(2, nt), medium, 8, _rp("3D"),
+                                        cache=cache)  # fmt: skip
+    assert len(calls) == 2 and cache.runs == 2
+    ms2 = 0.5 * _ms(2, nt, delay=5e-7)
+    second = compute_self_sense_pressure(kg, grid, idx, points, ms2, medium, 8, _rp("3D"),
+                                         cache=cache, n_jobs=2)  # fmt: skip
+    assert len(calls) == 2  # no new k-Wave runs
+    fresh = compute_self_sense_pressure(kg, grid, idx, points, ms2, medium, 8, _rp("3D"))
+    np.testing.assert_array_equal(second, fresh)
+    del calls[2:]  # the uncached reference run
+    assert not np.allclose(first, second)
+    # a shorter Nt reuses the cached (longer) responses; a longer one recomputes
+    compute_self_sense_pressure(KGrid(shape, (DX,) * 3, DT, nt - 10), grid, idx, points,
+                                ms2[:, : nt - 10], medium, 8, _rp("3D"), cache=cache)  # fmt: skip
+    assert len(calls) == 2
+
+
+def test_weights_1d_outer_product_matches_point_sensor() -> None:
+    shape = (20, 20, 20)
+    coords = tuple(DX * np.arange(n) for n in shape)
+    sub = (9, 10, 11)
+    point = np.array([coords[0][9] + 0.37 * DX, coords[1][10], coords[2][11] - 0.21 * DX])
+    fs = np.array([41.0, 40.0, 43.0])
+    _, w = full._point_sensor(point, int(_f(shape, *sub)), shape, coords, np.full(3, DX), fs, False)
+    w1 = [full._weights_1d(point[d], sub[d], coords[d], DX, fs[d], False) for d in range(3)]
+    outer = np.einsum("i,j,k->ijk", *w1).ravel(order="F")
+    np.testing.assert_allclose(w, outer, rtol=1e-14, atol=1e-16)
+    a = full._autocorr(w1[0], 8)
+    assert a.size == 17 and np.isclose(a[8], w1[0] @ w1[0]) and np.allclose(a, a[::-1])
+
+
+def test_homogeneous_mode_exact_for_homogeneous_medium() -> None:
+    """Homogeneous medium: the Green tensor reproduces the per-bubble runs (up to the PML)."""
+    shape, nt = (30, 28, 26), 60
+    medium, grid, idx, points = _hetero_case(
+        shape,
+        [(14, 13, 12), (16, 12, 13), (2, 13, 12)],  # two interior, one cropped at x = 0
+        [(0.3, -0.2, 0.45), (-0.45, 0.0, 0.15), (0.2, 0.1, -0.3)],
+        6.0, homogeneous_medium=True,
+    )  # fmt: skip
+    kg = KGrid(shape, (DX,) * 3, DT, nt)
+    ms = _ms(3, nt)
+    ref = compute_self_sense_pressure(kg, grid, idx, points, ms, medium, 17, _rp("3D"))
+    cache = full.SelfSenseCache()
+    hom = compute_self_sense_pressure(kg, grid, idx, points, ms, medium, 17, _rp("3D"),
+                                      homogeneous=True, cache=cache)  # fmt: skip
+    assert cache.runs == 2  # one Green's tensor + the cropped bubble
+    assert sum(k[0] == "green" for k in cache.responses) == 1
+    assert np.abs(ref).max() > 1.0
+    # translation invariance holds up to the PML: late-time reflections differ
+    # (measured 3.8e-4 for this 20-voxel core, 5.2e-5 for a 32-voxel one)
+    assert _max_rel(hom, ref) <= 1e-3
+
+
+def test_homogeneous_mode_errors() -> None:
+    shape = (22, 20, 18)
+    medium, grid, idx, points = _hetero_case(shape, [(10, 9, 8)], [(0.3, 0.2, 0.1)], 0.0)
+    kg = KGrid(shape, (DX,) * 3, DT, 20)
+    with pytest.raises(ValueError, match="at least 17"):
+        compute_self_sense_pressure(kg, grid, idx, points, _ms(1, 20), medium, 8, _rp("3D"),
+                                    homogeneous=True)  # fmt: skip
+    with pytest.raises(ValueError, match="impulse_response"):
+        compute_self_sense_pressure(kg, grid, idx, points, _ms(1, 20), medium, 8, _rp("3D"),
+                                    homogeneous=True, impulse_response=False)  # fmt: skip

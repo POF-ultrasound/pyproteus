@@ -11,8 +11,10 @@ Sparse weight matrices may be SciPy sparse or dense arrays.
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -25,12 +27,54 @@ from .grid import optimize_grid_size
 from .signals import evaluate_delta_function
 from .simulation import run_simulation
 
-__all__ = ["SELF_SENSE_PML", "compute_self_sense_pressure", "self_sense_grid_size", "update_source"]
+__all__ = [
+    "IMPULSE_AMPLITUDE",
+    "SELF_SENSE_PML",
+    "SelfSenseCache",
+    "compute_self_sense_pressure",
+    "self_sense_grid_size",
+    "update_source",
+]
 
 #: PML of the local single-bubble grids (fixed in ``compute_self_sense_pressure.m``).
 SELF_SENSE_PML = {"X_SIZE": 10, "Y_SIZE": 10, "Z_SIZE": 10, "Alpha": 2.0}
 #: Half-width of the truncated band-limited delta function (``update_sensor.m``).
 _DELTA_HALF_WIDTH = 4
+#: Mass-source amplitude [kg/s] of the unit-sample source of impulse-response runs:
+#: small enough for the linear regime (self-sense peaks of ~0.1 Pa), far from float32 underflow.
+IMPULSE_AMPLITUDE = 1e-9
+
+
+@dataclass
+class SelfSenseCache:
+    """Self-sense impulse responses kept between calls (D-27).
+
+    Create one per frame (fixed grid, medium, bubble positions, ``Nt`` and
+    solver) and pass it to every :func:`compute_self_sense_pressure` call of
+    the interaction loop: each bubble's local k-Wave run then happens once
+    per frame instead of once per iteration. Entries are keyed by the
+    bubble's voxel and position (and, for the homogeneous option, by the local
+    medium values); the caller must not reuse a cache after changing the
+    medium, grid, ``n_sup`` or solver. ``runs`` counts the k-Wave runs made.
+    """
+
+    responses: dict[Any, np.ndarray] = field(default_factory=dict)
+    runs: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def get(self, key: Any, nt: int) -> np.ndarray | None:
+        h = self.responses.get(key)
+        return None if h is None or h.shape[-1] < nt else h[..., :nt]
+
+    def put(self, key: Any, h: np.ndarray) -> None:
+        with self._lock:
+            self.responses[key] = h
+            self.runs += 1
+
+    def clear(self) -> None:
+        with self._lock:
+            self.responses.clear()
+            self.runs = 0
 
 
 def _shape(grid: Any) -> tuple[int, int, int]:
@@ -174,6 +218,36 @@ def _local_run_param(run_param: Any) -> dict[str, Any]:
     return rp
 
 
+def _causal_conv(h: np.ndarray, ms: np.ndarray, nt: int) -> np.ndarray:
+    """First ``nt`` samples of the linear convolution of ``h`` with each row of ``ms``."""
+    from scipy.signal import fftconvolve
+
+    return fftconvolve(h, np.asarray(ms, dtype=np.float64), axes=-1)[..., :nt]
+
+
+def _weights_1d(
+    point: float, sub: int, coord: np.ndarray, d: float, n_full: float, on_grid: bool
+) -> np.ndarray:
+    """1-D factor of the truncated band-limited delta (``update_sensor.m``), not cropped.
+
+    ``evaluate_delta_function`` is a product of 1-D factors, so the 3-D
+    weights of :func:`_point_sensor` are the outer product of these.
+    """
+    if on_grid or point == coord[sub]:
+        return np.ones(1)
+    x = coord[sub - _DELTA_HALF_WIDTH : sub + _DELTA_HALF_WIDTH + 1]
+    return np.asarray(evaluate_delta_function(x.reshape(1, -1), point, d, n_full)).reshape(-1)
+
+
+def _autocorr(w: np.ndarray, hw: int) -> np.ndarray:
+    """``a[hw + k] = sum_j w[j] w[j + k]`` for ``|k| <= hw``."""
+    a = np.zeros(2 * hw + 1)
+    c = np.correlate(w, w, mode="full")
+    m = (c.size - 1) // 2
+    a[hw - m : hw + m + 1] = c
+    return a
+
+
 def compute_self_sense_pressure(
     kgrid: KGrid,
     grid: Any,
@@ -184,12 +258,15 @@ def compute_self_sense_pressure(
     n_sup: int,
     run_param: Any,
     *,
+    impulse_response: bool = True,
+    cache: SelfSenseCache | None = None,
+    homogeneous: bool = False,
     binary_env: Mapping[str, str] | None = None,
     num_threads: int | None = None,
     n_jobs: int = 1,
     solver: str | None = None,
 ) -> np.ndarray:
-    """Port of ``compute_self_sense_pressure.m`` (strict: one k-Wave run per bubble).
+    """Port of ``compute_self_sense_pressure.m``: pressure each bubble senses from itself.
 
     For each bubble, the global medium is cropped to a cube of
     :func:`self_sense_grid_size` (``n_sup``) voxels centred on the bubble's
@@ -206,7 +283,35 @@ def compute_self_sense_pressure(
     (its ``PML`` is replaced). ``medium`` fields ``sound_speed``, ``density``,
     ``BonA``, ``alpha_coeff`` (3-D, or scalars) and ``alpha_power``.
 
-    Options not in MATLAB (D-15, results within the k-Wave class):
+    Modes (D-27):
+
+    ``impulse_response=True`` (default)
+        Each bubble's local run uses a unit-sample source
+        (:data:`IMPULSE_AMPLITUDE` at the first time step) instead of its mass
+        source; the self-sensed pressure is that impulse response convolved
+        with the mass source. k-Wave is linear and time invariant for
+        ``BonA = 0``, so this equals the MATLAB result within the k-Wave class
+        (measured 5.7e-7). With ``BonA > 0`` it drops the local nonlinearity:
+        relative difference 4.5e-6 at a 5.9 kPa self-sense peak, 4.7e-5 at
+        59 kPa (docs/PARITY.md). With a :class:`SelfSenseCache` the responses
+        are reused across the interaction iterations of a frame.
+    ``impulse_response=False``
+        Strict port: one run per bubble with its own mass source (MATLAB).
+    ``homogeneous=True`` (opt-in, changes results)
+        Bubbles whose local cube is not cropped by the global grid edges use a
+        homogeneous local medium (the medium values at the bubble's voxel): one
+        k-Wave run per distinct set of values gives the Green's function
+        ``G(Δ, t)`` between voxels ``Δ`` apart (``|Δ| <= 8`` per axis), and a
+        bubble's response is ``Σ_Δ a(Δ) G(Δ, t)`` with ``a`` the
+        autocorrelation of its delta weights (separable per axis). Cropped
+        bubbles use the impulse-response path on their heterogeneous crop.
+        Measured against the heterogeneous crop: 4.8e-3 (Inhomogeneity 0.02),
+        1.2e-2 (0.05). In a homogeneous medium it equals the per-bubble runs up
+        to late-time PML reflections, which depend on where the source sits in
+        the cube (3.8e-4 for a 20-voxel core, 5.2e-5 for 32). Needs a local core
+        of at least 17 voxels.
+
+    Other options not in MATLAB (D-15, results within the k-Wave class):
 
     ``n_jobs``
         Bubbles simulated concurrently (threads; each run is a separate binary
@@ -232,64 +337,143 @@ def compute_self_sense_pressure(
     out = np.zeros((n_mb, nt))
     if n_mb == 0:
         return out
+    if homogeneous and not impulse_response:
+        raise ValueError("homogeneous=True needs impulse_response=True")
 
     shape = _shape(grid)
     spacing = np.array([float(_get(grid, k)) for k in ("dx", "dy", "dz")])
     dt = float(_get(grid, "dt"))
     full_size = np.asarray(_get(grid, "full_size"), dtype=np.float64).reshape(-1)
     sensor_on_grid = bool(_get(grid, "sensor_on_grid", False))
-    gx, gy, gz = (np.asarray(_get(grid, k), dtype=np.float64).reshape(-1) for k in "xyz")
+    gxyz = tuple(np.asarray(_get(grid, k), dtype=np.float64).reshape(-1) for k in "xyz")
     rp_local = _local_run_param(run_param)
     if solver is not None:
         rp_local["solver"] = solver
     n_jobs = max(1, min(int(n_jobs), n_mb))
     if n_jobs > 1 and num_threads is None:
         num_threads = max(1, (os.cpu_count() or 1) // n_jobs)
+    if cache is None:
+        cache = SelfSenseCache()
 
     n_core = self_sense_grid_size(n_sup)
     centre = n_core // 2  # 0-based: floor(NX/2) + 1 - 1
     fields = {k: _get(medium, k) for k in ("sound_speed", "density", "BonA", "alpha_coeff")}
+    alpha_power = _get(medium, "alpha_power")
+    subs = np.stack(ind2sub(shape, mb_idx), axis=1).astype(int)
+    unit = np.zeros((1, nt))
+    unit[0, 0] = IMPULSE_AMPLITUDE
 
-    ax, ay, az = ind2sub(shape, mb_idx)
-
-    def one(n: int) -> None:
+    def crop(n: int):
         sel = []
-        for a, size in zip((int(ax[n]), int(ay[n]), int(az[n])), shape, strict=True):
+        for a, size in zip(subs[n], shape, strict=True):
             glob = np.arange(n_core) + a - centre
             keep = (glob >= 0) & (glob < size)
-            first_local = int(np.flatnonzero(keep)[0])
-            sel.append((glob[keep], centre - first_local))
-        (I, bx), (J, by), (K, bz) = sel
-        local_shape = (I.size, J.size, K.size)
-        idx_local = int(sub2ind(local_shape, bx, by, bz))
-        kgrid_local = KGrid(local_shape, tuple(spacing), dt, nt)
+            sel.append((glob[keep], centre - int(np.flatnonzero(keep)[0])))
+        return sel
 
-        medium_local: dict[str, Any] = {"alpha_power": _get(medium, "alpha_power")}
-        for k, v in fields.items():
-            if v is None:
-                continue
-            a = np.asarray(v)
-            medium_local[k] = a if a.size == 1 else a[np.ix_(I, J, K)]
-
-        mask, weights = _point_sensor(
-            points[n], idx_local, local_shape, (gx[I], gy[J], gz[K]), spacing, full_size,
-            sensor_on_grid,
-        )  # fmt: skip
-        mask_idx = np.flatnonzero(mask.ravel(order="F"))
-        grid_local = {"Nx": I.size, "Ny": J.size, "Nz": K.size,
+    def run_local(medium_local, local_shape, mask, weights_row_sources, source_idx, sources):
+        """One local run; returns the recorded rows (find order of ``mask``), float32."""
+        grid_local = {"Nx": local_shape[0], "Ny": local_shape[1], "Nz": local_shape[2],
                       "dx": spacing[0], "dy": spacing[1], "dz": spacing[2]}  # fmt: skip
         source_local = update_source(
-            None, ms[n : n + 1], weights[:, None], mask_idx, grid_local, medium_local
+            None, sources, weights_row_sources, source_idx, grid_local, medium_local
         )
         sensor_data = run_simulation(
-            rp_local, kgrid_local, medium_local, source_local,
+            rp_local, KGrid(local_shape, tuple(spacing), dt, nt), medium_local, source_local,
             {"mask": mask, "record": ("p",)}, binary_env=binary_env, num_threads=num_threads,
         )  # fmt: skip
-        p = np.asarray(sensor_data["p"])
-        with np.errstate(all="ignore"):  # spurious BLAS FP flags on macOS (finite inputs)
-            sensed = weights @ p.astype(np.float64)
-        out[n] = sensed.astype(p.dtype)
+        return np.asarray(sensor_data["p"])
 
+    def bubble_run(n: int, sources: np.ndarray) -> np.ndarray:
+        """Local heterogeneous run for bubble ``n``: sensed pressure (float64 of float32)."""
+        (I, bx), (J, by), (K, bz) = crop(n)
+        local_shape = (I.size, J.size, K.size)
+        medium_local: dict[str, Any] = {"alpha_power": alpha_power}
+        for k, v in fields.items():
+            if v is not None:
+                a = np.asarray(v)
+                medium_local[k] = a if a.size == 1 else a[np.ix_(I, J, K)]
+        mask, weights = _point_sensor(
+            points[n], int(sub2ind(local_shape, bx, by, bz)), local_shape,
+            (gxyz[0][I], gxyz[1][J], gxyz[2][K]), spacing, full_size, sensor_on_grid,
+        )  # fmt: skip
+        mask_idx = np.flatnonzero(mask.ravel(order="F"))
+        p = run_local(medium_local, local_shape, mask, weights[:, None], mask_idx, sources)
+        with np.errstate(all="ignore"):  # spurious BLAS FP flags on macOS (finite inputs)
+            return (weights @ p.astype(np.float64)).astype(p.dtype).astype(np.float64)
+
+    def green_tensor(values: tuple[float, ...]) -> np.ndarray:
+        """``G[hw+dx, hw+dy, hw+dz, t]``: homogeneous cube, unit sample at the centre voxel."""
+        hw = 2 * _DELTA_HALF_WIDTH
+        if n_core < 2 * hw + 1:
+            raise ValueError(
+                f"homogeneous=True needs a local core of at least {2 * hw + 1} voxels, "
+                f"got {n_core} (n_sup = {n_sup})"
+            )
+        cube = (n_core,) * 3
+        medium_local: dict[str, Any] = {"alpha_power": alpha_power}
+        for k, v in zip(fields, values, strict=True):
+            if not np.isnan(v):
+                medium_local[k] = np.full(cube, v)
+        mask = np.zeros(cube, dtype=bool)
+        r = slice(centre - hw, centre + hw + 1)
+        mask[r, r, r] = True
+        src = np.array([int(sub2ind(cube, centre, centre, centre))])
+        p = run_local(medium_local, cube, mask, np.ones((1, 1)), src, unit)
+        g = p.astype(np.float64).reshape((2 * hw + 1,) * 3 + (nt,), order="F")
+        return g / IMPULSE_AMPLITUDE
+
+    def uses_green(n: int) -> bool:
+        cropped = any(
+            s - centre < 0 or s - centre + n_core > size
+            for s, size in zip(subs[n], shape, strict=True)
+        )
+        return homogeneous and not cropped
+
+    def green_key(n: int) -> tuple:
+        values = tuple(
+            float("nan") if v is None
+            else float(np.asarray(v).reshape(-1)[0] if np.size(v) == 1
+                       else np.asarray(v).ravel(order="F")[mb_idx[n]])
+            for v in fields.values()
+        )  # fmt: skip
+        return ("green", values)
+
+    def green(key: tuple) -> np.ndarray:
+        g = cache.get(key, nt)
+        if g is None:
+            g = green_tensor(key[1])
+            cache.put(key, g)
+        return g
+
+    def response(n: int) -> np.ndarray:
+        """Impulse response of bubble ``n`` (per unit mass source), cached."""
+        if not uses_green(n):
+            key = ("bubble", int(mb_idx[n]), tuple(points[n]))
+            h = cache.get(key, nt)
+            if h is None:
+                h = bubble_run(n, unit) / IMPULSE_AMPLITUDE
+                cache.put(key, h)
+            return h
+        g = green(green_key(n))
+        hw = 2 * _DELTA_HALF_WIDTH
+        a = [
+            _autocorr(_weights_1d(points[n, d], subs[n, d], gxyz[d], spacing[d], full_size[d],
+                                  sensor_on_grid), hw)
+            for d in range(3)
+        ]  # fmt: skip
+        return np.einsum("i,j,k,ijkt->t", a[0], a[1], a[2], g)
+
+    def one(n: int) -> None:
+        if impulse_response:
+            sensed = _causal_conv(response(n), ms[n], nt)
+        else:
+            sensed = bubble_run(n, ms[n : n + 1])
+        out[n] = sensed.astype(np.float32)
+
+    if homogeneous:  # one run per distinct local medium, before any parallel work
+        for key in dict.fromkeys(green_key(n) for n in range(n_mb) if uses_green(n)):
+            green(key)
     if n_jobs == 1:
         for n in range(n_mb):
             one(n)

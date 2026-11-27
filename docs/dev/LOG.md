@@ -2,6 +2,16 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-27 — M3 full-simulator k-Wave pieces (m3-full-pieces)
+- `pyproteus.acoustic.simulation.run_simulation` (solver 3D → k-wave-python python backend, 3DC → cpp OMP, 3DG → cpp CUDA; PML from `run_param.PML`; `DATA_PATH`/`DEVICE_NUM`/`BINARY_PATH`; empty sensor mask → `zeros(0, Nt)` + warning; `record_movie` ignored with a warning, B-170). `pyproteus.acoustic.full`: `update_source`, `compute_self_sense_pressure` (strict port; private single-point `update_sensor` stand-in until session A's port lands), `self_sense_grid_size`, `SelfSenseCache`. `evaluate_delta_function` and `optimize_grid_size` were already on main.
+- Oracle (`tests/oracle/test_full_pieces.py`, shim `full_pieces_oracle.m`, MATLAB k-Wave 3DC on the D-10 binary): `update_source` exact mask, 1e-9 (double) / one float32 ulp (single, B-171); `update_source` + `run_simulation` 3.8e-7 (cpp) / 5.1e-7 (python), a 1 % bubble-source scaling error is caught; self-sense 1.4e-7–4.2e-7 incl. cropped, on-grid and `sensor_on_grid` bubbles and `2*PML > N` local grids. 21 oracle + 34 unit tests.
+- Found Q-170 / B-172: self-sense weights use the global grid's `full_size` (~0.2 % on the self term); reproduced, fix after parity.
+- Cost measured (18-core Mac, 72³ local grid): 11.8 ms/step cpp (≈ 60 s per bubble per iteration at Nt 5000), python backend 5x slower there but faster on ≤ 45³ grids; HDF5 writing negligible. Proposal in the shared notes (`m3-self-sense-proposal.md`).
+- D-27 (developer, via the main session): impulse-response mode on by default with a per-frame `SelfSenseCache` (B-173: BonA error 4.7e-5 at 59 kPa), `impulse_response=False` for strict parity; homogeneous Green's-function tensor opt-in (B-174); `n_jobs` (2.7x at 4 jobs) and `solver` override kept.
+- Reviewer pass: SIGN-OFF; low findings fixed (BLAS FP-flag noise on the sensing matmul, 1-D mass source for one bubble, `source.p` row check, no bare assert).
+- Not touched: `acoustic/__init__.py` exports (wave 2). Pre-existing: `tests/unit/test_kwave.py::test_cpp_binary_command_line` fails locally under `-n auto` in the Bash sandbox (it patches the global `subprocess.run`, which matplotlib's font-cache build then hits).
+- Next (wave 2): `full_simulator` with one `SelfSenseCache` per frame; measure the RF impact of `homogeneous=True`.
+
 ## 2026-11-25 — M2 microbubble model and mass source (m2-bubble)
 - `pyproteus.microbubble`: `model.py` (`get_material_properties`, `calc_surface_tension`, `calc_thermal_damp`, `find_domain_boundaries`, `find_A_m0`, `get_shell_properties`, `compress_bubble`, `get_eq_param`; `Liquid`/`GasProps`/`Shell`/`EqParam`), `dynamics.py` (`simple_rp`, `PchipBatch`, `calc_bubble_response`, timer as `timeout`). `pyproteus.acoustic.mass_source`: `compute_bubble_mass_source`, `get_batch_indices`, shell/material converters.
 - Design (D-15): struct-of-arrays shells, RHS vectorised over the batch, one pchip coefficient matrix for all driving pressures; 3 bubbles × 1000 output samples in ~0.1 s.

@@ -338,21 +338,32 @@ def test_run_simulation_empty_sensor_matches_matlab(keng) -> None:
 # ----------------------------------------------------------------------------- self-sense
 
 
-@pytest.fixture(scope="module", params=[False, True], ids=["off_grid", "on_grid"])
+@pytest.fixture(
+    scope="module",
+    params=[(False, False), (True, False), (False, True)],
+    ids=["off_grid", "on_grid", "linear_impulse_response"],
+)
 def self_sense(request, keng, tmp_path_factory):
-    c = self_sense_case(request.param)
+    """Strict runs (``impulse_response=False``) on the nonlinear medium; the default
+    impulse-response mode (D-27) on the same case with ``BonA = 0``, where k-Wave is
+    linear time invariant. MATLAB always runs the strict per-bubble loop."""
+    on_grid, linear = request.param
+    c = self_sense_case(on_grid)
+    if linear:
+        c["medium"] = dict(c["medium"], BonA=np.zeros(c["shape"]))
     data = tmp_path_factory.mktemp("self_sense")
     m = _matlab(keng, c, "self_sense", _run_param("kspaceFirstOrder3DC", data / "m"))
     kgrid = KGrid(c["shape"], (DX,) * 3, DT, c["Nt"])
+    common = dict(binary_env=kt.binary_env(), impulse_response=linear)
     out = {}
     for solver in ("kspaceFirstOrder3DC", "3D"):
         out[solver] = compute_self_sense_pressure(
             kgrid, _grid(c), c["MB_idx"], c["MB_points"], c["mass_source"], c["medium"],
-            c["N_sup"], _run_param(solver, data / "ours"), binary_env=kt.binary_env(),
+            c["N_sup"], _run_param(solver, data / "ours"), **common,
         )  # fmt: skip
     out["parallel"] = compute_self_sense_pressure(
         kgrid, _grid(c), c["MB_idx"], c["MB_points"], c["mass_source"], c["medium"],
-        c["N_sup"], _run_param("kspaceFirstOrder3DC"), binary_env=kt.binary_env(), n_jobs=3,
+        c["N_sup"], _run_param("kspaceFirstOrder3DC"), n_jobs=3, **common,
     )  # fmt: skip
     return c, m, out
 
