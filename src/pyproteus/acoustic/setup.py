@@ -35,6 +35,7 @@ from typing import Any
 import numpy as np
 
 from pyproteus.acoustic import _struct
+from pyproteus.acoustic.source import PULSE_SEQUENCES, pulse_sequence
 from pyproteus.config.json_io import load_settings_json
 from pyproteus.config.models import Settings
 from pyproteus.config.readers import load_frame, load_settings_mat
@@ -85,24 +86,6 @@ SOLVERS: dict[str, _Solver] = {
     "3DC": _Solver("kspaceFirstOrder3DC", "cpp", "cpu", "single", False),
     "3DG": _Solver("kspaceFirstOrder3DG", "cpp", "gpu", "gpuArray-single", False),
 }
-
-#: ``Acquisition.PulsingScheme`` → pulse sequence (``main_RF.m``).
-PULSE_SEQUENCES: dict[str, tuple[str, ...]] = {
-    "Amplitude modulation": ("odd", "even", "all"),
-    "Pulse inversion": ("plus", "minus"),
-    "Standard": ("pulse",),
-    "Amplitude modulation with pulse inversion": ("odd", "even", "minus"),
-}
-
-
-def pulse_sequence(pulsing_scheme: str) -> tuple[str, ...]:
-    """Pulses transmitted per frame for a pulsing scheme (``main_RF.m`` ``sequence``)."""
-    try:
-        return PULSE_SEQUENCES[pulsing_scheme]
-    except KeyError:
-        raise ValueError(
-            f"unknown pulsing scheme {pulsing_scheme!r}; expected one of {list(PULSE_SEQUENCES)}"
-        ) from None
 
 
 @dataclass(frozen=True)

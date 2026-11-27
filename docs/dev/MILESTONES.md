@@ -131,21 +131,21 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [x] `define_source_transducer` (pressure and velocity sources) (2026-11-27)
 - [x] `define_sensor_transducer`, `define_sensor_MB`, `define_sensor_MB_all` (2026-11-27)
 - [x] `update_sensor`, `update_sensor_fast`, `extract_sensor_data` (2026-11-27)
-- [ ] `hybrid_simulator` incl. interaction loop
-- [ ] Pass the transmit centre frequency as `reference_frequency` to `run_simulation_homogeneous` (D-23; required for `AttenuationB ≤ 0.9` with dispersion, ideally read from the settings)
-- [ ] `main_RF` (outputs to HDF5)
+- [x] `hybrid_simulator` incl. interaction loop (2026-11-27, `pyproteus.acoustic.simulators`)
+- [x] Pass the transmit centre frequency as `reference_frequency` to `run_simulation_homogeneous` (D-23; required for `AttenuationB ≤ 0.9` with dispersion, ideally read from the settings) (2026-11-27, from `Transmit.CenterFrequency`, B-181)
+- [x] `main_RF` (outputs to HDF5) (2026-11-27, `pyproteus.acoustic.main`; resumable, medium cache)
 
 ### Full simulator
 - [x] `run_simulation` (solvers 3D/3DC/3DG over `backends.kwave`, empty sensor mask) (2026-11-27)
 - [x] `update_source` (source scaling parity) (2026-11-27; with `run_simulation` at 3.8e-7 vs MATLAB 3DC)
 - [x] `compute_self_sense_pressure` (try `python` backend in-process) (2026-11-27; strict port, cpp and python backends within 1e-5; batching proposal sent to the main session)
-- [ ] `full_simulator`
-- [ ] `main_pressure_field`
+- [x] `full_simulator` (2026-11-27; self-sense modes per D-27, B-182)
+- [x] `main_pressure_field` (2026-11-27, B-183)
 
 ### Done when
-- [ ] Point scatterer at a known depth: far field, several depths, hybrid and full paths; resolve the ~4 ns one-sample term of DAS quirk Q-100 against the near-field/diffraction residuals (see B-101; D-18)
-- [ ] Hybrid and full paths match MATLAB on tiny and small cases (CPU)
-- [ ] Medium case on GPU
+- [x] Point scatterer at a known depth: far field, several depths, hybrid and full paths; resolve the ~4 ns one-sample term of DAS quirk Q-100 against the near-field/diffraction residuals (see B-101; D-18) (2026-11-27: genuine off-by-one, k-Wave correction short by 0.05–0.12 dt; B-185, `tools/m3/q100_far_field.py`; fix in 1.x)
+- [x] Hybrid and full paths match MATLAB on tiny and small cases (CPU) (2026-11-27, `tests/oracle/test_main_rf.py`: RF ≤ 3.9e-7 × max, bubble part ≤ 4.5e-4; B-184)
+- [ ] Medium case on GPU (script and commands ready: `tools/m3/gpu_medium_case.py`, developer cluster run; GPU default proposal B-187)
 
 ## M4: flow and geometry
 

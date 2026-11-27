@@ -249,5 +249,44 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-151 — Unknown `Transmit.SeqPulse` / `Acquisition.PulsingScheme` raise (input validation, D-15)
 - Where: `define_source_transducer.m` (`switch Transmit.SeqPulse`: any other string transmits on every element unchanged); `main_RF.m` (unknown `PulsingScheme` leaves `sequence` undefined, error later).
-- pyproteus: `define_source_transducer` raises `ValueError` unless `SeqPulse` is one of `odd`, `even`, `all`, `plus`, `minus`, `pulse`, `full` (`SEQ_PULSES`); `pulsing_sequence(scheme)` raises for an unknown scheme. Results unchanged for every valid value.
-- Test: `tests/oracle/test_source.py::test_seq_pulse_semantics`, `test_pulsing_sequence`.
+- pyproteus: `define_source_transducer` raises `ValueError` unless `SeqPulse` is one of `odd`, `even`, `all`, `plus`, `minus`, `pulse`, `full` (`SEQ_PULSES`); `pulse_sequence(scheme)` raises for an unknown scheme. Results unchanged for every valid value.
+- Test: `tests/oracle/test_source.py::test_seq_pulse_semantics`, `test_pulse_sequence`.
+
+## B-180 — `main_RF`: medium draws from an explicit stream; frames read once; first-run mask over the frames still to compute (divergence, no result change)
+- Where: `pyproteus.acoustic.main.main_RF` / `prepare_simulation` (`main_RF.m`).
+- MATLAB draws the medium inhomogeneity from the global stream in whatever state it is; pyproteus from `rng` (default `MatlabRNG(0)`, MATLAB's start-up stream; `rng(seed,'twister')` ↔ `MatlabRNG(seed)`). The seed goes into the medium-cache fingerprint. MATLAB reads each ground-truth frame once per pulse (twice in all); pyproteus once per pulse loop. `define_sensor_MB_all` covers the frames still to compute (B-166), not all of `StartFrame..EndFrame`: the recorded points are the same, k-Wave's field does not depend on the mask.
+- `Continue` with no `medium.h5` creates the medium with a warning (MATLAB errors on the missing `medium.mat`); a cache built from other settings raises `MediumCacheMismatch` (MATLAB loads it unchecked).
+- Test: `tests/oracle/test_main_rf.py` (same RF as MATLAB with `rng(seed)` ↔ `MatlabRNG(seed)`), `tests/unit/test_simulators.py::test_main_rf_hybrid_resume`.
+
+## B-181 — `hybrid_simulator`: Kramers–Kronig reference frequency = transmit centre frequency (D-23; divergence for `AttenuationB ≤ 0.9` only)
+- Where: `pyproteus.acoustic.simulators.hybrid_simulator` → `run_simulation_homogeneous(..., reference_frequency=Transmit.CenterFrequency)`, both the interaction and the receive stage.
+- MATLAB leaves the reference frequency undefined (NaN field) and fails for `0 < AttenuationB ≤ 1` with dispersion; for `|AttenuationB − 1| < 0.1` (`no_dispersion`) and `AttenuationB > 1` the value is unused, so results are unchanged wherever MATLAB runs. Test: `tests/unit/test_simulators.py::test_hybrid_simulator_wiring`.
+
+## B-182 — `full_simulator`: self-sense mode and bubble step control are options (D-27, D-22)
+- Where: `pyproteus.acoustic.simulators.full_simulator(self_sense=..., step_control=..., self_sense_jobs=...)`, passed through by `main_RF`.
+- Default `self_sense="impulse_response"`: one impulse response per bubble per frame and pulse (a `SelfSenseCache` per `full_simulator` call), reused over the interaction iterations; `"strict"` is MATLAB; `"green"` the opt-in homogeneous Green's function (B-186). `step_control` defaults to `"independent"` (D-22); MATLAB's batches are `"shared"`.
+- Measured vs MATLAB `main_RF` (bubble part, see B-184): strict and impulse-response alike, tiny 3.6e-4, small 3.0e-4 (class 1e-3). Test: `tests/oracle/test_main_rf.py::test_main_rf_full`.
+
+## B-183 — `main_pressure_field`: HDF5 output, no ground truth (divergence, no result change)
+- Where: `pyproteus.acoustic.main.main_pressure_field` (`main_pressure_field.m`).
+- MATLAB saves `pressure_maps.mat` (`sensor_data_xy`, `sensor_data_xz`, `Grid`) and always `medium.mat` (with `Medium.Save`). pyproteus returns a `PressureMaps` (`xy_p_max/min` `Nx × Ny`, `xz_p_max/min` `Nx × Nz`, `iy`, `iz`, grid) and writes `pressure_maps.h5` and `medium.h5`; `save=False` writes nothing. Planes as MATLAB (first index of `min |y|`, `min |z|`). Same k-Wave run as MATLAB (one `p_max`/`p_min` run on the two-plane mask), so no separate oracle test: the source, sensor and `run_simulation` are oracle-tested; unit test `tests/unit/test_simulators.py::test_main_pressure_field_tiny`.
+
+## B-184 — End-to-end RF parity is measured on the bubble part too (test method)
+- Where: `tests/oracle/test_main_rf.py`, `tests/oracle/main_rf_case.py`, shim `tests/oracle/shims/transmit_only_rf.m`.
+- The element RF is dominated by the transducer's own transmit (direct cross-talk ~1e3 × the bubble echoes), so `max|ΔRF|/max|RF|` (D-24 as written) is ≤ 3.9e-7 whatever the bubbles do. The test also checks `RF − RF_transmit` of each implementation (MATLAB's transmit-only RF from the shim) against the same 1e-3 class: tiny hybrid 2.8e-4 (shared steps) / 4.5e-4 (independent), tiny full 3.6e-4 (strict and impulse response), small hybrid 1.6e-4, small full 3.0e-4. This is the bubble mass-source class of D-22 (B-130: 2.1–2.4e-4 in M2), the transmit-only RF agrees to 3.9e-7.
+
+## B-185 — Q-100 is a genuine off-by-one; the k-Wave correction itself is short by 0.05–0.12 dt (finding; fix in 1.x per D-18)
+- Where: `pyproteus.reconstruction.time_to_peak` / `das_time_axis` (`DAS_reconstruction.m`, `initialize_das_parameters.m`); study `tools/m3/q100_far_field.py`.
+- Method: homogeneous lossless linear medium, 8-element P4-1 (2.4 mm, height 1 mm, no lens), plane wave, scatterers on the axis at 5–23 mm (far field). Each stage against an exact homogeneous Green's-function reference, sub-sample cross-correlation: (A) transmit k-Wave run, pressure at the scatterers vs the integration points emitting the unshifted `PressureSignal`; (B) hybrid receive (gridded propagation + `compute_RF`) vs exact propagation to the integration points; (C) full receive (k-Wave from a point mass source). PROTEUS's DAS axis assumes the chain is early by `kwave = dx/(2c) + dt` (hybrid) or `+ 3/2 dt` (full) and the echo peak `timeToPeak` after the time origin, where the RF time axis is 0-based (Q-100), i.e. the peak is at `(I−1)/Fs`.
+- Measured (mean over 7 depths, per-depth spread ±3 ns from the scatterer's position in the cell): chain early by 53.8 ns (hybrid) / 63.2 ns (full) at PPW 6 (`dt` 19.2 ns) vs `kwave` 52.6 / 62.2; 80.9 / 96.6 ns at PPW 4 (`dt` 28.9 ns) vs 78.9 / 93.3. Residual DAS time error with `(I−1)/Fs`: −1.2 / −1.0 ns (PPW 6), −2.1 / −3.4 ns (PPW 4); with PROTEUS's `I/Fs` 4.0 ns worse: −5.2 / −5.0, −6.1 / −7.4 ns. The receive stage of the hybrid path is exact to ~1 ns (gridded distances).
+- Reading: the extra transmit sample is not a compensation (it adds 4 ns, ≈ 3 µm in depth, to an error of the same sign); the k-Wave correction is short by ~0.05–0.12 `dt`, scaling with the grid. An end-to-end DAS of an ideal reflector (echo = delayed copy of the incident pressure) shows the 3 µm shift between `I` and `I−1` exactly, but its depth trend (±15 µm from the far-field waveform and the incoherent envelope sum) is larger, which is why the stage decomposition decides.
+- Proposed (1.x, D-18; not applied): `timeToPeak = (I−1)/Fs` with `V_ref` components resampled to one rate, and the k-Wave correction derived or calibrated per grid (e.g. from stage A on the run's own grid). Q-100 stays reproduced in 1.0.
+
+## B-186 — Green's-function self-sense: RF impact (measurement, opt-in stays off)
+- Where: `full_simulator(self_sense="green")` (D-27); study `tools/m3/green_self_sense.py` (full path, 8 elements, PPW 6, 8 bubbles, 2 interactions; RF bubble part vs `"strict"`).
+- GREEN_RESULT
+
+## B-187 — GPU: the exact homogeneous path beats the gridded one (proposal, not applied)
+- Where: `hybrid_simulator` receive stage (`run_param.gridded = true`, from `hybrid_simulator.m`), `propagate_homogeneous` on CuPy.
+- M2 cluster run (Quadro RTX 6000, single): speedup over the CPU ×8.7 gridded and ×64 exact on the 1000-bubble / 864-point benchmark; on the GPU the exact path is faster in absolute terms (the gridded kernel loops over sources in small blocks). `gridded` is a CPU speed device of PROTEUS that also rounds each distance to the time grid (±dt/2 per element, B-185 stage B).
+- Proposal: with `DATA_CAST = 'gpuArray-*'` the receive stage uses exact distances by default (`gridded=False`), keeping `gridded=True` on the CPU and as an option; changes results by the rounding only (≤ 1 ns mean timing, per-element ±dt/2). Needs a developer decision (result-changing); measure with `tools/m3/gpu_medium_case.py` on the cluster first.

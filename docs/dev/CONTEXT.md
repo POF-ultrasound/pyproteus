@@ -32,6 +32,7 @@ Read this file instead of the full docs (`CLAUDE.md`, always loaded, has the bin
 
 ## Current state (update when a milestone moves)
 - M0, M1, M2 done (M2 CuPy check passed on the cluster, PR #32).
-- M3 wave 1: A sources/sensors merged (#34); B frames/setup/HDF5 (#35) and C run_simulation/self-sense (#36) in review.
-- M3 wave 2 next: hybrid/full simulators, `main_RF`, `main_pressure_field`, MATLAB parity, Q-100 far-field check.
-- Package map: `numerics/`, `config/`, `data/`, `io/`, `transducer/`, `transmit/`, `medium/`, `microbubble/`, `acoustic/` (grid, integration, homogeneous, rf, mass_source, sensor, source, …), `geometry/`, `reconstruction/` (DAS), `backends/kwave.py`.
+- M3 done except "Medium case on GPU" (developer's cluster run: `tools/m3/gpu_medium_case.py`). Wave 1: sources/sensors (#34), run setup/HDF5 (#35), `run_simulation`/self-sense (#36). Wave 2: `acoustic/simulators.py` (`hybrid_simulator`, `full_simulator`), `acoustic/main.py` (`main_RF` → `rf.h5`, `main_pressure_field`, `prepare_simulation`); MATLAB `main_RF` parity on tiny/small cases, both paths (B-184). Q-100: genuine off-by-one, k-Wave correction short by 0.05–0.12 dt (B-185, fix in 1.x). Open proposals: exact propagation by default on GPU (B-187); Green's-function self-sense stays opt-in (B-186).
+- Next: M4 (flow and geometry), M5 (execution, CLI, hardware).
+- Package map: `numerics/`, `config/`, `data/`, `io/`, `transducer/`, `transmit/`, `medium/`, `microbubble/`, `acoustic/` (grid, integration, homogeneous, rf, mass_source, sensor, source, setup, simulation, full, simulators, main), `geometry/`, `reconstruction/` (DAS), `backends/kwave.py`.
+- Oracle `main_RF` cases: `tests/oracle/main_rf_case.py` (MATLAB settings + ground truth, `PROTEUS_LOCAL_PATHS` into a temp folder); `tools/m3/run_case.py` runs one case against a shared MATLAB session.
