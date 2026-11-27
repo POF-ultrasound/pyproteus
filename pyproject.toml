@@ -63,6 +63,7 @@ addopts = ["-ra", "--strict-markers", "--strict-config"]
 markers = [
     "oracle: compares against MATLAB PROTEUS through the MATLAB Engine (needs MATLAB; skipped otherwise)",
     "slow: long-running test",
+    "gpu: needs CuPy and a CUDA device (skipped otherwise; run on the cluster, D-16)",
 ]
 xfail_strict = true
 filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
