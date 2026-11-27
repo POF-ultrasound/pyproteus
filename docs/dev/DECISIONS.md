@@ -118,6 +118,9 @@ Who: developer.
 ## D-28 — Multi-process RF runs (2026-11-27)
 Extends D-25. Several processes running different frame ranges of one run (as with MATLAB `main_RF` on several GPUs) each write their own HDF5 file (`rf_<start>-<end>.h5`). Readers and DAS accept a list of files or a folder, and an optional tool merges them into one run file. This avoids HDF5 file locking, which is often disabled on cluster file systems. Built in M5. Until then one process writes one file. Who: developer.
 
+## D-29 — GUI direction (2026-11-27)
+The GUI starts after M4. It is a new design, not a port of the MATLAB apps. Aims: more user-friendly, professional, useful, comprehensive, scientific, accurate and maintainable, while staying simple. Every design and style choice (technology, including NiceGUI or alternatives; layout; workflow; look) is discussed with the developer first, and no session decides these alone. Supersedes the GUI parts of D-5 and the "same workflow as the MATLAB apps" line in ROADMAP §12. Who: developer.
+
 ## D-30 — Q-100 fix plan (2026-11-27)
 Extends D-18, after the M3 far-field study (B-185: off-by-one at PPW 4/6/8). In 1.x: `timeToPeak = (I−1)/Fs`; the components of `V_ref` (transmit pressure signal, receive impulse response) resampled to one sampling rate before the convolution; the k-Wave staggered-grid correction derived or calibrated for each grid instead of the fixed `dx/(2c) + dt` (`+ 3/2 dt` full). 1.0 keeps reproducing Q-100 exactly as PROTEUS. Who: developer.
 

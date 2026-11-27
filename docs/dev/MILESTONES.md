@@ -220,9 +220,9 @@ Cluster tooling (Slurm templates, containers) and `pyproteus sweep` moved out of
 
 ## 1.1: GUI
 
-Plan: pyproteus Roadmap §12. GUI. Can start once the settings models are stable (after M1).
+Plan: pyproteus Roadmap §12. GUI. Starts after M4 (D-29): a new design, not a port of the MATLAB apps; every design and style choice is discussed with the developer first.
 
-- [ ] Confirm GUI technology (NiceGUI recommended)
+- [ ] Discuss and confirm GUI technology with the developer (D-29; NiceGUI is one option)
 - [ ] Main window: load/save settings, run, progress, results
 - [ ] Settings editors generated from the models: Transducer, Transmit, Medium, Microbubbles, Geometry, Acquisition, Simulation parameters
 - [ ] Live previews (pulse, size distribution, transducer and bubble positions in 3D)
