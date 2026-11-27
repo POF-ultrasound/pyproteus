@@ -196,7 +196,7 @@ def compute_self_sense_pressure(
     (its ``PML`` is replaced). ``medium`` fields ``sound_speed``, ``density``,
     ``BonA``, ``alpha_coeff`` (3-D, or scalars) and ``alpha_power``.
 
-    Quirks reproduced (BUGS.md B-173): the delta function uses the *global*
+    Quirk reproduced (QUIRKS.md Q-170, BUGS.md B-172): the delta function uses the *global*
     grid's ``full_size`` for its period (``Grid_local.full_size =
     Grid.full_size``), not the local grid's.
     """

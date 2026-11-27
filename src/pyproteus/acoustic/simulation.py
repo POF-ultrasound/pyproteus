@@ -15,7 +15,7 @@ Solver -> :func:`pyproteus.backends.kwave.kspace_first_order` backend:
 ``kspaceFirstOrder3DG``     ``backend="cpp"``, CUDA binary
 ==========================  ===========================================
 
-Divergences (docs/PARITY.md, BUGS.md B-170, B-171): ``'3D'`` runs
+Divergences (docs/PARITY.md, BUGS.md B-170): ``'3D'`` runs
 k-wave-python's solver instead of MATLAB-native ``kspaceFirstOrder3D``
 (within the k-Wave class of 3DC, which is what PROTEUS' 3DC/3DG runs give);
 ``record_movie`` (only set for ``'3D'``) is ignored with a warning: no movie.

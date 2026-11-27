@@ -180,3 +180,19 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 - Cause: independent ODE solvers (D-12/D-22); a 1e-4 end-to-end class is not consistent with a 1e-3 bubble class.
 - Status: closed by D-24 (developer): the end-to-end RF class is 1e-3 × max|RF| (the D-22 bubble class); the propagation + RF stage stays at 1e-9 from MATLAB's mass source.
 
+## B-170 — `run_simulation` solver `'3D'`: k-wave-python python backend, no movie (divergence)
+- Where: `pyproteus.acoustic.simulation.run_simulation` (`run_simulation.m`, `sim_setup.m` `Solver = '3D'`).
+- MATLAB: `kspaceFirstOrder3D` (MATLAB-native solver) with `RecordMovie` (sim_setup sets `record_movie = true` for `'3D'`).
+- pyproteus: k-wave-python's `python` backend (NumPy, in-process, `alpha_mode` dropped as on every backend, D-9); `record_movie` is ignored with a warning (no movie writer). Parity is against `kspaceFirstOrder3DC` (D-10): the python backend is within the k-Wave class of it (measured 5.1e-7 full source, 4.2e-7 self-sense). MATLAB-native `3D` is not compared (it honours `alpha_mode`, B-14).
+- Status: by design (D-15); PARITY.md.
+
+## B-171 — `update_source` with a single-precision mass source: one float32 ulp (divergence)
+- Where: `pyproteus.acoustic.full.update_source` (`update_source.m:27`).
+- MATLAB divides the single `mass_source` by the voxel volume in single precision, then converts to double; pyproteus divides in float64. Measured differences ≤ 1.04e-7 relative (176 of 49720 values), compared at 2^-23; double mass sources agree at 1e-9.
+- Status: by design (D-12, D-15); PARITY.md.
+
+## B-172 — self-sense delta function uses the global grid's full size (quirk Q-170, reproduced)
+- Where: `pyproteus.acoustic.full.compute_self_sense_pressure` (`compute_self_sense_pressure.m:35`).
+- Effect: ~0.2 % on the self-sensed pressure versus the local grid's own delta function (QUIRKS.md Q-170).
+- Status: reproduced (Phase A); fix proposed for after parity.
+

@@ -128,8 +128,9 @@ Plan: pyproteus Roadmap §6. k-Wave, port order steps 8-9.
 - [ ] `main_RF` (outputs to HDF5)
 
 ### Full simulator
-- [ ] `update_source` (source scaling parity)
-- [ ] `compute_self_sense_pressure` (try `python` backend in-process)
+- [x] `run_simulation` (solvers 3D/3DC/3DG over `backends.kwave`, empty sensor mask) (2026-11-27)
+- [x] `update_source` (source scaling parity) (2026-11-27; with `run_simulation` at 3.8e-7 vs MATLAB 3DC)
+- [x] `compute_self_sense_pressure` (try `python` backend in-process) (2026-11-27; strict port, cpp and python backends within 1e-5; batching proposal sent to the main session)
 - [ ] `full_simulator`
 - [ ] `main_pressure_field`
 

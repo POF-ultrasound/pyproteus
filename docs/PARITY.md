@@ -93,7 +93,33 @@ Notes:
   grids with pressure sources (refused), `record_start_index` (PROTEUS does not set it),
   source signals longer than `Nt` (refused), a `2*pml >= N` grid against MATLAB (B-61;
   only cpp vs python). An empty sensor mask raises; `run_simulation.m` returns
-  `zeros(0, Nt)` itself, which its port must reproduce.
+  `zeros(0, Nt)` itself, which its port (`acoustic.simulation.run_simulation`) reproduces.
+
+### Full-simulator k-Wave pieces (`pyproteus.acoustic.simulation`, `pyproteus.acoustic.full`, M3)
+
+MATLAB side: the oracle `run_simulation.m`, `update_source.m`,
+`compute_self_sense_pressure.m` (with its own `update_sensor.m`) and MATLAB k-Wave
+1.4.1 `kspaceFirstOrder3DC` on the D-10 binary, driven by
+`tests/oracle/shims/full_pieces_oracle.m`.
+
+| MATLAB | Python | Class | Oracle test | Status |
+|---|---|---|---|---|
+| `update_source(source, mass_source, W', idx, Grid, medium)`: transducer `p` source shorter than the mass source with shared and new voxels, `source = []`, old signal longer than the new one (double), velocity-only transducer source | `acoustic.full.update_source` (0-based indices, sparse or dense weights) | mask exact; `source.p` float (1e-9) for double mass sources, one float32 ulp (2^-23 rel) for single ones (B-171) | `test_full_pieces.py::test_update_source_matches_matlab` | ✅ |
+| `update_source` + `run_simulation` (`3DC`): transducer pressure source + 4 bubble sources (one overlapping the transducer), heterogeneous nonlinear absorbing medium, sensor = transducer + bubble voxels | `acoustic.simulation.run_simulation`, solver `3DC` (cpp) and `3D` (k-wave-python `python` backend) | k-Wave 1e-5 (measured 3.8e-7 cpp, 5.1e-7 python; per row ≤ 2.3e-6); a 1 % bubble-source scaling error fails it | `test_full_pieces.py::test_run_simulation_*` | ✅ |
+| `run_simulation` with an all-zero sensor mask | same | `zeros(0, Nt)` + warning, no k-Wave run | `test_full_pieces.py::test_run_simulation_empty_sensor_matches_matlab` | ✅ |
+| `compute_self_sense_pressure` (4 bubbles: interior off-grid, cropped at three global edges, on-grid in y, on-grid in all axes; `sensor_on_grid` false and true; local cores of 12 voxels with a 10-voxel PML, i.e. `2*PML > N`, B-61) | `acoustic.full.compute_self_sense_pressure` | k-Wave 1e-5 (measured 1.4e-7/2.6e-7 cpp, 4.2e-7 python) | `test_full_pieces.py::test_self_sense_matches_matlab` | ✅ |
+
+Design divergences (D-15; results unchanged within the classes above):
+
+| Where | MATLAB | pyproteus | Why |
+|---|---|---|---|
+| `run_simulation` solver `kspaceFirstOrder3D` (`Solver = '3D'`) | MATLAB-native k-Wave solver (honours `alpha_mode`), records a movie (`record_movie = true`) | k-wave-python's `python` backend (NumPy, in-process), `alpha_mode` dropped (D-9); `record_movie` ignored with a warning | no movie writer in the library; the python backend matches 3DC at the k-Wave class (B-170) |
+| `run_simulation` return | `sensor_data` struct | dict `{"p": (n_sensor, Nt) float32}` | |
+| `run_simulation` options | `run_param` fields only | plus keyword `binary_env`, `num_threads` (forwarded to the adapter) | the macOS binary wrapper's libraries; thread control for bubble-parallel runs |
+| `update_source` single `mass_source` | divides by the voxel volume in single, then converts to double | divides in float64 | more accurate; differences of one float32 ulp (B-171) |
+| `update_source` | modifies and returns the struct | returns a new dict, input untouched | value semantics, as MATLAB |
+| `compute_self_sense_pressure` sensor | calls `update_sensor` (truncated band-limited delta, `get_truncated_grid`) | private single-point helper `full._point_sensor` with the same semantics, until the M3 `update_sensor` port (session A) lands | parallel wave-1 work on disjoint files; same oracle test covers it |
+| `compute_self_sense_pressure`, `update_source`: scalar medium fields | indexing a scalar `sound_speed`/`BonA`/... errors | scalars broadcast | lenient; no effect on results |
 
 ## Settings (`pyproteus.config`, `pyproteus.data`)
 
