@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session or milestone step: what was done, what was found, what is next. Link bugs (B-n) and decisions (D-n).
 
+## 2026-11-27 — M3 plan and wave 1 (main)
+- Recorded D-25 (HDF5 RF output, one file per run, resumable) and D-26 (self-sense: strict port first, then a speedup proposal).
+- Started wave 1, three parallel sessions on disjoint files:
+  - A, sources and sensors (B-150..159);
+  - B, ground-truth frames, run setup and HDF5 I/O (B-160..169; frame reading moved forward from M4);
+  - C, `run_simulation`, `update_source` and self-sense (B-170..179).
+- Wave 2 starts once A–C have merged: hybrid and full simulators, `main_RF`, `main_pressure_field`, MATLAB parity, and the Q-100 far-field check (B-180..189).
+- Real-GPU CuPy test in PR #32, waiting for the cluster run.
+
 ## 2026-11-25 — M2 microbubble model and mass source (m2-bubble)
 - `pyproteus.microbubble`: `model.py` (`get_material_properties`, `calc_surface_tension`, `calc_thermal_damp`, `find_domain_boundaries`, `find_A_m0`, `get_shell_properties`, `compress_bubble`, `get_eq_param`; `Liquid`/`GasProps`/`Shell`/`EqParam`), `dynamics.py` (`simple_rp`, `PchipBatch`, `calc_bubble_response`, timer as `timeout`). `pyproteus.acoustic.mass_source`: `compute_bubble_mass_source`, `get_batch_indices`, shell/material converters.
 - Design (D-15): struct-of-arrays shells, RHS vectorised over the batch, one pchip coefficient matrix for all driving pressures; 3 bubbles × 1000 output samples in ~0.1 s.

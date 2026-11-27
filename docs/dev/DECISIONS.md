@@ -100,3 +100,9 @@ Who: developer.
 
 ## D-24 — End-to-end RF comparison class (2026-11-26)
 End-to-end RF from fixed bubble positions is compared with MATLAB at ≤ 1e-3 × max|RF| (replacing D-13's 1e-4), consistent with the D-22 bubble class: the bubble ODE difference (mass source ~2e-4) passes into the RF almost one to one (measured RF 1.01e-4 for P4-1 with shared steps). The propagation + RF stage, fed MATLAB's mass source, stays at ≤ 1e-9 (measured ~1e-13), so propagation errors are still caught. Who: developer.
+
+## D-25 — RF output format (2026-11-27)
+`main_RF` writes one HDF5 file per run with one group per frame (RF per pulse in the sequence, `dt`, that frame's bubbles), plus the run settings and ground truth. Each frame is flushed when it is written, so a run can resume (`Acquisition.Continue` / `StartFrame`). PROTEUS writes one `Frame_N.mat` per frame instead. MATLAB `Frame_N.mat` files (ground truth and RF) stay readable, and the DAS loader accepts both formats. Who: developer.
+
+## D-26 — Self-sense pressure in the full simulator (2026-11-27)
+`compute_self_sense_pressure` (one local k-Wave run per bubble per interaction) is first ported strictly, as the parity reference. The M3 session then measures its cost and proposes batching or caching, for example one run per unique local medium and sub-voxel offset. Parts that keep results within the k-Wave class can go in directly. Anything that changes results comes back to the developer. Who: developer.
