@@ -533,10 +533,10 @@ Row orders: sensor masks and source masks are `[ix, iy, iz]` arrays as MATLAB's;
 
 | Case | Path | max\|ΔRF\|/max\|RF\| | bubble part | Status |
 |---|---|---|---|---|
-| tiny: 4 el., PPW 3, 5 bubbles, 2 frames, 1 interaction, Standard | hybrid (shared / independent steps) | 1.9–2.6e-7 | 2.8e-4 / 4.5e-4 | ✅ |
-| tiny | full (strict / impulse-response self-sense) | 1.9–2.6e-7 | 3.6e-4 / 3.6e-4 | ✅ |
-| small: 8 el., PPW 4, 12 bubbles, 2 frames, 2 interactions, AM (3 pulses) | hybrid | 2.8–3.3e-7 | 1.6e-4 | ✅ |
-| small | full (strict) | 2.5–3.9e-7 | 3.0e-4 | ✅ |
+| tiny: 4 el., PPW 3, 5 bubbles, 2 frames, 1 interaction, Standard | hybrid (shared / independent steps) | 1.9e-7 | 2.8e-4 / 2.8e-4 | ✅ |
+| tiny | full (strict / impulse-response self-sense) | 2.6–3.2e-7 | 4.0e-4 / 4.8e-4 | ✅ |
+| small: 8 el., PPW 4, 12 bubbles, 2 frames, 2 interactions, AM (3 pulses) | hybrid (shared / independent) | 3.9–4.6e-7 | 3.1e-4 / 1.6e-4 | ✅ |
+| small | full (strict / impulse response) | 3.8–3.9e-7 | 1.4e-4 / 1.7e-4 | ✅ |
 
 | Where | MATLAB | pyproteus | Why |
 |---|---|---|---|

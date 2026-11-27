@@ -265,7 +265,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 ## B-182 — `full_simulator`: self-sense mode and bubble step control are options (D-27, D-22)
 - Where: `pyproteus.acoustic.simulators.full_simulator(self_sense=..., step_control=..., self_sense_jobs=...)`, passed through by `main_RF`.
 - Default `self_sense="impulse_response"`: one impulse response per bubble per frame and pulse (a `SelfSenseCache` per `full_simulator` call), reused over the interaction iterations; `"strict"` is MATLAB; `"green"` the opt-in homogeneous Green's function (B-186). `step_control` defaults to `"independent"` (D-22); MATLAB's batches are `"shared"`.
-- Measured vs MATLAB `main_RF` (bubble part, see B-184): strict and impulse-response alike, tiny 3.6e-4, small 3.0e-4 (class 1e-3). Test: `tests/oracle/test_main_rf.py::test_main_rf_full`.
+- Measured vs MATLAB `main_RF` (bubble part, see B-184): strict / impulse response: tiny 4.0e-4 / 4.8e-4, small 1.4e-4 / 1.7e-4 (class 1e-3). Test: `tests/oracle/test_main_rf.py::test_main_rf_full`.
 
 ## B-183 — `main_pressure_field`: HDF5 output, no ground truth (divergence, no result change)
 - Where: `pyproteus.acoustic.main.main_pressure_field` (`main_pressure_field.m`).
@@ -273,7 +273,7 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-184 — End-to-end RF parity is measured on the bubble part too (test method)
 - Where: `tests/oracle/test_main_rf.py`, `tests/oracle/main_rf_case.py`, shim `tests/oracle/shims/transmit_only_rf.m`.
-- The element RF is dominated by the transducer's own transmit (direct cross-talk ~1e3 × the bubble echoes), so `max|ΔRF|/max|RF|` (D-24 as written) is ≤ 3.9e-7 whatever the bubbles do. The test also checks `RF − RF_transmit` of each implementation (MATLAB's transmit-only RF from the shim) against the same 1e-3 class: tiny hybrid 2.8e-4 (shared steps) / 4.5e-4 (independent), tiny full 3.6e-4 (strict and impulse response), small hybrid 1.6e-4, small full 3.0e-4. This is the bubble mass-source class of D-22 (B-130: 2.1–2.4e-4 in M2), the transmit-only RF agrees to 3.9e-7. The bubble-bubble interaction term (`RF(N_int=1) − RF(N_int=0)`) is 2.8 % (tiny) and 3.6 % (small) of the echo, so an interaction bug would exceed the class.
+- The element RF is dominated by the transducer's own transmit (direct cross-talk ~1e3 × the bubble echoes), so `max|ΔRF|/max|RF|` (D-24 as written) is ≤ 4.6e-7 whatever the bubbles do. The test also checks `RF − RF_transmit` of each implementation (MATLAB's transmit-only RF from the shim) against the same 1e-3 class (oracle run 2026-11-27, 77 passed): tiny hybrid 2.8e-4 (shared and independent steps), small hybrid 3.1e-4 / 1.6e-4, tiny full 4.0e-4 (strict) / 4.8e-4 (impulse response), small full 1.4e-4 / 1.7e-4; RF ≤ 4.6e-7 × max. This is the bubble mass-source class of D-22 (B-130: 2.1–2.4e-4 in M2), the transmit-only RF agrees to 3.9e-7. The bubble-bubble interaction term (`RF(N_int=1) − RF(N_int=0)`) is 2.8 % (tiny) and 3.6 % (small) of the echo, so an interaction bug would exceed the class.
 
 ## B-185 — Q-100 is an off-by-one (PPW 4/6/8 stage decomposition); the k-Wave correction itself is short by ≈ 0.05–0.1 dt (finding; fix in 1.x per D-18)
 - Where: `pyproteus.reconstruction.time_to_peak` / `das_time_axis` (`DAS_reconstruction.m`, `initialize_das_parameters.m`); study `tools/m3/q100_far_field.py`.
