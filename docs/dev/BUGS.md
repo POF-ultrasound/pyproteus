@@ -292,7 +292,14 @@ Format: `## B-n — title (status)`, then where, symptom, cause, fix or workarou
 
 ## B-186 — Green's-function self-sense: RF impact (measurement, opt-in stays off)
 - Where: `full_simulator(self_sense="green")` (D-27); study `tools/m3/green_self_sense.py` (full path, 8 elements, PPW 6, 8 bubbles, 2 interactions; RF bubble part vs `"strict"`).
-- GREEN_RESULT
+- Measured, RF bubble part relative to `"strict"` (max over elements and time), wall time on the Mac (18 cores; partly concurrent with other runs, so only indicative):
+
+  | Medium | `impulse_response` (default) | `green` | strict / IR / green time |
+  |---|---|---|---|
+  | Inhomogeneity 0.02 (GUI default) | 1.8e-4 | **1.7e-3** | 238 / 130 / 90 s |
+  | Inhomogeneity 0 | 1.3e-4 | 1.3e-4 | 194 / 133 / 70 s |
+
+- Reading: with the default per-voxel inhomogeneity the Green's-function mode leaves the 1e-3 end-to-end class (the local medium is taken homogeneous at the bubble's voxel, 4.8e-3 on the self term, M3-C), while in a homogeneous (or piecewise-constant, e.g. a uniform vessel) medium it matches the default mode. Keep it opt-in (D-27); recommended only for media without per-voxel inhomogeneity. The default impulse-response mode stays within 2e-4 of strict on the RF (the bubble ODE amplifies the 1e-6-level self-sense difference, still 5× inside the class).
 
 ## B-187 — GPU: the exact homogeneous path beats the gridded one (proposal, not applied)
 - Where: `hybrid_simulator` receive stage (`run_param.gridded = true`, from `hybrid_simulator.m`), `propagate_homogeneous` on CuPy.
